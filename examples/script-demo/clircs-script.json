@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "script-demo",
+  "name": "clircs script demo",
+  "version": "1.0.0",
+  "entry": "main.js",
+  "permissions": [
+    "commands",
+    "events",
+    "timers",
+    "output",
+    "storage"
+  ]
+}

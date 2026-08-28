@@ -1,0 +1,26 @@
+using Clircs.Core.Tests;
+
+var suite = new TestSuite();
+ProtocolTests.Register(suite);
+ProtocolRoutingTests.Register(suite);
+DccTests.Register(suite);
+StateAndCommandTests.Register(suite);
+SessionTests.Register(suite);
+NetworkingIntegrationTests.Register(suite);
+SaslTests.Register(suite);
+TrustedCertificateStoreTests.Register(suite);
+NetworkProfileStoreTests.Register(suite);
+ScriptTests.Register(suite);
+UserDirectoryTests.Register(suite);
+ThemeTests.Register(suite);
+PresentationTests.Register(suite);
+BackupTests.Register(suite);
+PersistenceTests.Register(suite);
+LoggingTests.Register(suite);
+ReconnectPresentationTests.Register(suite);
+ApplicationOrchestrationTests.Register(suite);
+ProtectionTests.Register(suite);
+FloodResilienceTests.Register(suite);
+AwayMessageStoreTests.Register(suite);
+WindowSynchronizationTests.Register(suite);
+return await suite.RunAsync();

@@ -1,0 +1,377 @@
+clircs version history
+
+This records meaningful development builds. The early preview series is grouped by milestone where the surviving packages do not justify pretending every minor preview deserves a novel.
+
+v0.8.61
+
+Reified the inbound `SessionEvent` dispatch pipeline without changing its behavior. The former monolithic sequential method now executes an explicit, immutable six-stage order: admission and away state, protection and DCC, output routing, history storage, event delivery, and window completion. A small per-event context makes transformations and derived routing facts visible across phases, while explicit stop results preserve ignored-event, suppressed-output, and missing-window terminal conditions. The design intentionally avoids a class-per-stage hierarchy because the phases coordinate one application owner and have no interchangeable implementations. Added regression coverage that protects the architectural ordering contract.
+
+v0.8.60
+
+Added interactive XDCC pack requests without creating a second transfer subsystem. `/xdcc get <bot> <pack>` sends the conventional `XDCC SEND #pack` request; `/xdcc sget <bot> <pack>` requests `XDCC SSEND #pack` without any secure-to-plaintext fallback. Packs accept either `42` or `#42` input. The bot's resulting offer remains subject to the ordinary `/dcc accept` or `/dcc reject` decision and then uses the existing validated DCC transfer, progress, resume, cancellation, and collision-safe download path. XDCC requests do not open query windows or accept files automatically.
+
+v0.8.59
+
+Cleanup build. `/network profiles` now omits its redundant State column, labels Server(s) consistently, and displays each configured server on its own row. Continuation rows leave the profile, nickname, and SASL cells blank; unconfigured profiles remain visible as `[no server configured]`.
+
+`/adduser` now describes its shorthand as `Usage: /adduser <handle> [hostmask|nickname]`. An unresolved or ambiguous nickname returns that same usage instead of exposing internal identity-resolution details. Undernet's `u2.*` server signature is recognized as Undernet ircu for advisory daemon compatibility metadata.
+
+Removed the copy-pasted import block from all thirteen `ClientApplication` source files. Each partial now imports only the domains it actually touches and carries a concise responsibility comment aligned with `ARCHITECTURE.md`; the principal declaration owns the canonical XML summary. Added focused daemon, profile-presentation, and command-usage regression coverage. The Release solution builds with zero warnings. Windows Application Control blocked execution of both the newly compiled test assembly and the packaged transport assembly during final runtime verification.
+
+v0.8.58
+
+Settings-presentation cleanup build. `/cprot` and `/pprot` now show the effective protection state without repeating inheritance mechanics. The monitor-only safety override is represented directly as the protection state, personal protection no longer labels its sole response, and channel ban time appears only when kickban is the configured action.
+
+`/network status` now concentrates on connection and saved-profile information: internal session IDs, case mapping, window counts, redundant advertised-network text, and the meaningless `Connected through: direct` line are gone. Saved profile status likewise omits internal profile IDs and learned network labels. Reconnect configuration is labeled accurately as a limit. Logging-rule columns now name network and target states explicitly.
+
+Added focused protection-presentation regression coverage. The Release solution builds with zero warnings. All 321 runnable tests pass, with four environment-dependent Schannel tests skipped.
+
+v0.8.57
+
+Window synchronization architecture build. Removed the broad `_activityGate` and moved terminal selection, numbering, unread state, scroll offsets, and retained history behind an internally synchronized `WindowStateRegistry`. Live ring-buffer history no longer escapes the owner: redraw and scrolling consume immutable snapshots, with bottom-of-window redraw still copying and measuring only enough entries to fill the visible viewport.
+
+A narrow `_windowTransactionGate` now exists only for operations that must coordinate a core IRC buffer with its terminal window. Event storage verifies that the destination buffer still exists while holding that transaction, and local close, confirmed PART, and ignored-empty-query cleanup remove core and terminal state together. This prevents late events from recreating orphaned window history and removes the earlier check-then-remove query race.
+
+Automatic WHO and clone-scan correlation moved to `ChannelSynchronizationCoordinator`; timed bans, autojoin admission, and away acknowledgements moved to `SessionTransientState`. Output routing, join tracking, notification, DCC, and live-session registries rely on their own synchronization instead of being wrapped by an unrelated application lock. Recent connection settings are published as one immutable atomic snapshot.
+
+Added concurrent activation, event-storage/viewport, away-acknowledgement, and channel-synchronization regressions. The Release solution builds with zero warnings. All 320 runnable tests pass, with four environment-dependent Schannel tests skipped.
+
+v0.8.56
+
+Scrollback performance build. Per-window history now uses ring storage, so reaching the 250,000-entry emergency ceiling and aging its oldest entries no longer shifts the entire retained history for every new IRC event. The existing one-day retention policy, 500-entry minimum, and lossless per-window ceiling remain unchanged. A separate 500,000-event application-wide emergency ceiling prevents several busy windows from multiplying memory use without bound; as with the existing resource boundaries, clircs disconnects the network producing the overflow instead of silently dropping live traffic.
+
+Normal live redraw now walks backward only far enough to fill the visible viewport instead of copying and measuring the complete window history. Expensive total-row calculation remains limited to explicit scrollback navigation and nonzero-offset clamping. Incoming traffic while the user is scrolled up no longer rescans the entire history merely to maintain the current position.
+
+Added regressions for constant-order front eviction, the application-wide history boundary, and a 250,000-entry viewport whose 30-row live view measures exactly 30 entries. The Release solution builds with zero warnings; all 316 runnable tests pass, with four environment-dependent Schannel tests skipped.
+
+v0.8.55
+
+Cleanup build. The Networks table now places its unnamed active marker between No. and Network, matching the established Active Windows layout. Removed the redundant explanatory sentence beneath Network Profiles.
+
+v0.8.54
+
+Added SASL EXTERNAL authentication for saved TLS network profiles. clircs now presents a configured TLS client certificate during the connection handshake, negotiates EXTERNAL through IRCv3 CAP and SASL, and sends the conventional empty authorization identity so the server can select the account associated with the certificate fingerprint.
+
+Use /network sasl <profile> external <certificate.pfx> [required|optional] with a PKCS#12 .pfx or .p12 bundle containing both the client certificate and private key. The hidden prompt accepts its password or an empty password for an unencrypted bundle. Configuration validates that the bundle loads and contains a private key before replacing the existing SASL settings, and its confirmation displays the SHA-256 fingerprint for account registration. Certificate passwords are protected with Windows DPAPI in network-secrets.json; networks.toml stores only the mechanism, certificate path, and failure policy. Existing /network sasl <profile> <account> syntax remains compatible for PLAIN, with an explicit plain form also accepted.
+
+The transport owns and disposes the loaded client certificate with the connection, rejects client certificates on plaintext endpoints, and keeps server-certificate validation unchanged. Profile, network, and SASL status output distinguishes PLAIN from EXTERNAL without exposing secrets. Added deterministic coverage for the EXTERNAL wire exchange, empty and explicit authorization identities, client-certificate propagation, and EXTERNAL profile persistence. The Release solution builds with zero warnings. All eight SASL negotiation tests pass; Windows Application Control blocked the newly compiled Clircs.Transport.dll during the broader local test run, so 278 of 316 tests ran successfully before packaging.
+
+v0.8.53
+
+Cleanup build. Active Windows now labels its first column No. to match Networks. Networks uses an unnamed active-marker column and labels the connected endpoint Server, so the two tables follow the same visual grammar.
+
+WHO Name columns now share responsive width with long addresses instead of retaining an arbitrary 32-character ceiling. Both fields truncate only to fit the current viewport and recover their complete semantic text when the terminal is widened.
+
+Channel topic events and the persistent topic bar now preserve traditional IRC bold, italic, underline, reverse, and color formatting while retaining plain text for measurement, wrapping, state, and logs. Debug windows can now be controlled by /logging and write daily raw-wire logs under each network's debug directory; because those logs are deliberately raw, they can contain passwords and reversible SASL PLAIN payloads.
+
+Disconnecting or superseding a connection attempt now cancels its in-progress DNS and transport work. Issuing another /server command no longer waits for an unresolvable earlier address to time out before clircs can close that session. Added focused regressions for connection cancellation, topic formatting, responsive WHO names, and debug logging. The complete suite passes: 310/310 tests, with four environment-dependent TLS tests skipped.
+
+v0.8.52
+
+Added network-profile SASL PLAIN authentication over TLS. Configured connections now negotiate CAP LS 302, handle multiline capability advertisements and advertised mechanism lists, request SASL, complete the AUTHENTICATE exchange with correct 400-byte fragmentation, wait for authentication success before CAP END, and then finish ordinary IRC registration. Reconnects repeat the exchange with the current saved profile credentials.
+
+Use /network sasl <profile> <account> [required|optional] to configure SASL through a hidden password prompt, /network sasl <profile> to inspect it, and /network sasl <profile> off to remove it. Required is the default and stops registration without automatic reconnect when the server lacks SASL or PLAIN, rejects the capability, completes registration prematurely, or returns a SASL failure numeric. Optional mode reports the problem and continues unidentified. Profile listings and status output show mechanism, account, policy, and credential availability without displaying the password.
+
+SASL passwords are not written to networks.toml. They are stored in a separate network-secrets.json file as Windows DPAPI ciphertext scoped to the current Windows user, using the same shared Windows protection boundary now used by script secrets. PLAIN is refused on non-TLS endpoints. Secret-bearing option objects redact their password from diagnostic string conversion; raw /debug deliberately remains raw and therefore exposes the reversible Base64 AUTHENTICATE payload exactly as sent.
+
+Added deterministic registration tests for successful authentication, reconnect authentication, missing capabilities under required and optional policies, rejected credentials, exact PLAIN payload construction, 400-byte fragmentation, raw-numeric suppression, profile policy persistence, plaintext exclusion, and DPAPI credential round trips. All six SASL negotiation tests pass. The Release solution builds with zero warnings; the final complete-suite rerun was partially blocked when Windows Application Control rejected Clircs.Transport.dll after 274 of 312 tests passed.
+
+v0.8.51
+
+Added the final emergency boundary to the lossless inbound flood architecture. Ordinary traffic is still never rate-suppressed: the circuit breaker remains dormant through up to 100,000 queued IRC events, 100,000 pending log entries, and 250,000 retained entries in one window. These deliberately high limits keep finite floods containing thousands or tens of thousands of lines on the normal lossless path.
+
+If an endless hostile stream or stalled consumer reaches one of those hard resource limits, clircs opens one circuit for that network, disconnects it, drains work already accepted by the application, and reports the exact reason with manual /reconnect instructions. It does not silently discard traffic while pretending the connection remains healthy. A successful reconnect resets the circuit.
+
+The event and logging queues are now explicitly bounded, and scrollback has a separate emergency ceiling above its normal Irssi-style age/minimum policy. Added regressions for explicit queue-capacity reporting, draining a completely full queue without deadlocking shutdown, and emergency scrollback trimming. The executable test runner completed all 280 tests that Windows allowed to load; the remaining 20 were blocked before execution because Application Control rejected Clircs.Scripting.dll.
+
+v0.8.50
+
+Changed ordinary inbound flood handling from suppression to lossless presentation. Channel messages, notices, actions, joins, parts, modes, topics, and other normal IRC events now continue through history, logging, scripts, and terminal output instead of being replaced by "suppressed excess events" summaries. Personal and channel protection remain separate policy systems and still inspect the complete event stream.
+
+Inbound events are delivered to the terminal in bounded groups of at most 128. A group removes and restores the input, topic, and status rows once while retaining every individual IRC line, substantially reducing flicker and redraw overhead without making a large burst monopolize input indefinitely. Bottom-of-buffer event storage no longer remeasures the entire scrollback after every line.
+
+Replaced the 500-entry ceiling with Irssi-style retention: clircs always keeps at least 500 entries and also keeps every entry from the most recent 24 hours, so a current flood containing thousands of lines remains scrollable. Logging no longer silently drops entries when its former 2,048-item queue fills; it accepts the complete stream and writes entries to disk in batches.
+
+Added regressions for 5,000-entry recent scrollback, aging old history while retaining the minimum, bounded event-delivery batches, and a 5,000-line logging burst with exact first-to-last ordering. The final flood phase will add an emergency resource circuit breaker for traffic that exceeds sustainable client memory or disk capacity over time.
+
+v0.8.49
+
+Moved inbound IRC event delivery onto one ordered application queue. The socket reader can now continue accepting and parsing traffic without waiting for terminal presentation, while buffer state, protection processing, logging, scripts, and visible output still receive events in wire order.
+
+Session shutdown drains already accepted events before removing that session's windows. Added a regression test that holds the presentation consumer still, injects 10,000 ordered events without blocking the producer, then verifies that every event is delivered exactly once and in order.
+
+This is the flood-handling foundation build. Existing visible flood-suppression thresholds remain unchanged deliberately, so this build can isolate and test the event-ingestion change before later builds alter history, rendering, and suppression policy.
+
+v0.8.48
+
+Added structured channel-list support for bans (+b), ban exceptions (+e), invite exceptions (+I), and quiets (+q where the server advertises q as a list mode rather than a privilege prefix). /banlist, /exceptlist, /invitelist, and /quietlist produce responsive tables containing masks, setters, and timestamps. Empty lists use one concise message instead of an empty box, and raw MODE list requests receive the same formatting without request or synchronization chatter.
+
+Channel list state now has one shared model instead of accumulating a separate mask collection and synchronization flag for every mode. Live list-mode changes update that same state, ban-clearing behavior remains compatible, and Solanum-style 728 quiet entries tolerate the additional mode parameter.
+
+v0.8.47
+
+Changed /window so status windows use a hyphen for their not-applicable target. The asterisk is now reserved for marking the active window instead of carrying two meanings in the same table.
+
+WHO tables retain complete addresses as semantic data and recalculate the Address column from the current viewport width. Narrow windows still truncate obnoxiously long hosts, while widening the terminal restores the available address text instead of preserving an old forty-character cap.
+
+Added traditional IRC formatting controls to the input editor: Ctrl-B for bold, Ctrl-I for italic, Ctrl-U for underline, Ctrl-R for reverse, Ctrl-O for reset, and mIRC-style Ctrl-K color entry. Visible one-cell control symbols keep cursor movement and horizontal input scrolling aligned while the actual IRC control bytes are sent. Ctrl-U now performs its conventional IRC underline function rather than clearing the input line.
+
+v0.8.46
+
+Kept hostname resolution off the interactive input thread from its first instruction. Initial connections, reconnects, and explicit /dns requests remain responsive while Windows resolves a slow or nonexistent name, and their work is owned through shutdown instead of escaping as an untracked task.
+
+Fixed partial viewport redraws for information boxes that combine fields and a table, including /cprot and /pprot. Scrolling no longer drops the field portion merely because the same presentation also contains detector rows. Added regression coverage for mixed presentation slicing and background work whose synchronous prefix would previously have blocked its caller.
+
+Channel status totals now use tot for the total member count and sys for InspIRCd's advertised Y/! official rank. Removed the redundant midnight theme and revised phosphor into a more readable green-screen palette with gray text, bright and dim greens, white highlights, amber warnings, red errors, and subdued dark-green bars.
+
+v0.8.45
+
+Hardened terminal presentation against Unicode bidirectional override, embedding, mark, and isolate controls that could make hostile IRC text appear in a misleading order. Normal client output removes those invisible direction controls; the raw /debug window preserves their diagnostic value by displaying them explicitly as Unicode escape sequences. Documented that /debug intentionally contains exact IRC traffic, including credentials, and should be inspected before its contents are shared. Secure DCC certificate handling remains unchanged: traditional SCHAT and SSEND provide encrypted transport but no interoperable peer-identity convention, as already documented.
+
+v0.8.44
+
+Relaxed the automatic CTCP reply limiter after comparison with Irssi's established flood controls. A sender may now receive five automatic PING, VERSION, or TIME replies within ten seconds, while the network-wide limit is twenty replies in the same interval. This permits ordinary diagnostic sequences without allowing one sender or a distributed flood to turn clircs into an unrestricted NOTICE source. Added regression coverage for both limits and window expiry.
+
+v0.8.43
+
+Added the first client-level flood-resilience pass, separate from personal and channel protection. Ordinary outbound IRC traffic now permits a small burst and then follows a conservative send rate, while PONG, registration, and disconnect traffic retain critical priority. The outbound queue has explicit ordinary and critical limits instead of being able to grow without bound.
+
+Automatic CTCP PING, VERSION, and TIME replies now have both per-client and network-wide limits, so one sender or a distributed botnet cannot turn clircs into a NOTICE flood source. Incoming chat, actions, notices, joins, parts, nick changes, modes, and topics pass through a separate client-survival guard after IRC state and configured protection have run but before terminal rendering, logging, and scripts. Excess events are replaced by a concise in-window suppression summary. Log buffering is bounded, and unsolicited private messages cannot create more than 100 automatic query windows per network session. Added focused regression coverage for ordinary and distributed flood shapes, output pacing, queue exhaustion, CTCP throttling, and query-buffer exhaustion. The full test suite remains green.
+
+v0.8.42
+
+Services notices that identify a channel with a leading [#channel] now follow that channel while it is already open or being joined. They no longer fall through notice.output into the active or status window merely because the notice arrived before the server confirmed JOIN.
+
+Tightened related status-bar fields so transport and mode state sit directly against the thing they describe: EFNet[TLS], #channel(+nt), and nick(+i). Existing channel privilege prefixes remain intact. Added regression coverage for bracketed service-notice recognition and pending-join state. The full test suite remains green.
+
+v0.8.41
+
+Completed the seventh and final stage of the ClientApplication decomposition by giving application-wide user preferences one typed owner. ClientPreferences now owns identity defaults, away and random-message behavior, hostmask visibility, reconnect and highlight behavior, DCC preferences, clone detection, and the default ban-mask style. ClientApplication and its command, routing, lifecycle, protection, DCC, and presentation partials no longer share twenty-two independent mutable preference fields.
+
+Theme selection remains with presentation and output destinations remain with OutputRoutingCoordinator instead of being pulled into an unrelated settings object merely because they share a persistence file. The split also exposed and fixed awaymsg persistence: a changed away message now survives a restart. Added regression coverage for the preference defaults and persisted away messages. The full test suite remains green.
+
+v0.8.40
+
+Completed the sixth stage of the ClientApplication decomposition by giving userlist automation and personal and channel protection one runtime owner. UserAndChannelPolicyCoordinator now owns protection counters, temporary personal ignores, channel-action cooldowns, user-policy action reservations, cached network user directories, and per-session channel policy serialization.
+
+ClientApplication no longer coordinates those related states through six independent fields and the general terminal activity lock. Protection action reservation is now atomic instead of checking and setting a cooldown in separate operations. Network-session cleanup clears every session-scoped policy resource through one lifecycle boundary while retaining profile-scoped user directories. Added regression coverage for directory caching, temporary state, reservations, channel gates, and session cleanup. The full test suite remains green.
+
+v0.8.39
+
+Completed the fifth stage of the ClientApplication decomposition by giving output routing one real owner. OutputRoutingCoordinator now owns both the user's configured destinations for WHO, WHOIS, WHOWAS, CTCP, notices, invites, LINKS, LIST, DNS, and message guard output and the temporary request and family routes used to return stateful IRC replies to the window that requested them.
+
+ClientApplication no longer keeps a parallel output-settings dictionary beside a separate route registry. Settings display, changes, persistence, request correlation, exclusive result families, completion cleanup, and network-session cleanup all use the same synchronized coordinator. Unknown output families cannot silently become persisted policy. Added regression coverage for policy defaults, changes, snapshots, unsupported families, and the existing request-correlation lifecycle. The full test suite remains green.
+
+v0.8.38
+
+Completed the fourth stage of the ClientApplication decomposition by making WindowStateRegistry the sole owner of active network and buffer selection as well as each numbered window's terminal state. Activating a window now changes the selected network and buffer, clears its unread activity, and resets its scroll position through one operation.
+
+Session and buffer lookup for active and explicitly captured command contexts now follows that same owner. Routing, DCC, lifecycle, protection, command listings, input history, and drawing no longer read or mutate a parallel pair of active-window fields. Removing the active buffer clears the selection rather than leaving a stale context. Added regression coverage for selection ownership, removal, and active-versus-explicit buffer resolution. The full test suite remains green.
+
+v0.8.37
+
+Completed the third stage of the ClientApplication decomposition by giving the live network-session registry one owner. LiveNetworkSessionRegistry now owns membership, connection routes, profile associations, reconnect cancellation, and access to each session's application-side coordinators behind its own synchronization boundary.
+
+ClientApplication retains active-window selection and presentation, but no longer enumerates or mutates the live-session dictionary directly. Removing a session also cancels any reconnect operation still owned by it. Added regression coverage proving routes, profiles, membership, and reconnect state remain isolated between simultaneous networks. The full test suite remains green.
+
+v0.8.36
+
+Completed the second stage of the ClientApplication decomposition by giving application-side DCC runtime state one real owner. DccCoordinator now owns the request registry, live chat listeners and connections, active chats and transfers, outgoing sends, resume negotiations, expiration timers, tracked background work, and DCC buffer associations behind its own synchronization boundary.
+
+ClientApplication still owns command parsing, network-session lookup, and presentation, but it can no longer reach into DCC runtime dictionaries or borrow the global activity and UI lock to mutate DCC state. Added coordinator-level regression coverage for per-request state isolation and request-owned task draining. The full test suite remains green.
+
+v0.8.35
+
+Completed the first stage of the ClientApplication decomposition without changing runtime behavior. The former 11,622-line source file is now divided into domain-oriented partial-class files covering command registration and command families, session lifecycle, event routing, windowing, protection, DCC, and shared utilities. ClientApplication.cs now contains the application shell and its owned state, while later stages can extract real subsystem ownership from clearly bounded source areas instead of continuing to work inside one enormous file.
+
+Verified exact parity for all 462 method declarations and 126 command registrations. The full test suite remains green after the move.
+
+v0.8.34
+
+Cleanup after the system audits. Channel modes now sit beside the channel name in the status bar. Channel-targeted notices remain in their channel even when another network is active, while personal notices retain configurable routing and fall back to that network's status window. Wrapped URL fragments carry the same complete hyperlink target so Ctrl-click does not lose the portion displayed on a continuation line.
+
+Userlist output now shows actual hostmasks rather than mask counts, puts a currently matching mask first, separates compact behavioral flags from operator and voice eligibility, and keeps an explicit none value for empty flags. /uwhois follows the same terminology. Removed the redundant source-mask explanation after /adduser and shortened /remuser confirmation. Added focused coverage for notice routing, hyperlink detection, channel status formatting, user flags, and matching-mask order.
+
+v0.8.33
+
+Finished the application-orchestration audit by giving notify and pending channel operations explicit per-session owners. Notify refreshes are serialized, MONITOR subscriptions and ISON replies share one lifecycle, failed ISON sends cannot poison later reply correlation, and a stopped notify worker can be started again. Pending joins, return routes, and cycle state now use the network's negotiated IRC case mapping and are reset on disconnect; denied or forwarded cycle attempts can no longer leave stale state behind.
+
+Each live session now has a cancellation lifetime in addition to its background-work tracker. Closing a session cancels owned operations before waiting for them to retire. Expected transport and persistence failures retain concise client messages, while unexpected programming failures reach the centralized application error log instead of being swallowed by broad background catches. Added lifecycle regression coverage for cancellation, notify ownership and serialization, ISON failure cleanup, RFC1459-equivalent channel names, denied cycles, disconnect reset, and forwarded joins.
+
+v0.8.32
+
+Audited and tightened application orchestration and concurrency boundaries. Session events and command results now enter the application through one ordered delivery lane, preventing network callbacks and local results from concurrently mutating presentation, routing, and window state. The boundary remains deliberately synchronous and reentrant so related local events retain their natural order without adding an unnecessary queue or UI framework.
+
+Each live network session now owns its background application work. Initial connections, reconnects, notify monitoring, synchronization, channel automation, protection actions, away acknowledgements, timed unbans, and automatic rejoins stop accepting new work during shutdown, and session disposal waits for accepted work to retire. Unexpected background failures are no longer silently abandoned: concise errors reach the session when possible and full details are written to logs/application-errors.log. Initial connection handling now suppresses only expected transport, TLS, timeout, protocol, and state failures instead of swallowing every exception. Added regression coverage for ordered event delivery, shutdown draining, late-work rejection, and background failure reporting.
+
+v0.8.31
+
+Audited and tightened theming and presentation boundaries. Screen rendering now reads one typed interpretation of event metadata instead of repeatedly decoding magic field names, and presentation sanitization preserves every layout property. Transcript logs use a fixed plain-text formatter independent of the selected visual theme, so changing colors, markers, or nick-prefix display cannot silently rewrite log format.
+
+User themes now load in deterministic filename order through a constrained TOML parser with quoted strings, escapes, inline comments, duplicate-key detection, duplicate-name rejection, and transactional reload behavior. If the active custom theme becomes unavailable during reload, clircs explicitly returns to the built-in theme and persists that valid state. Extended IRC colors 16 through 98 now map to the nearest available Windows console color instead of disappearing into the default color. Added focused regression coverage for presentation metadata, layout preservation, transcript stability, theme ambiguity, and extended colors.
+
+v0.8.30
+
+Audited and rebuilt the scripting runtime's resource ownership and failure boundaries. Script callbacks now use a bounded serialized queue that cannot begin user code while holding its queue lock; overload faults the offending script instead of allowing unbounded memory growth. Commands, event handlers, timers, headers, and local WebSockets have explicit per-script limits, closed WebSockets retire automatically, and unload/fault cleanup uses one synchronized owner.
+
+Failed loads now roll back every host contribution, script listing no longer writes permission defaults, and loaded scripts remain visible and unloadable if their source directory disappears. Timers cannot fire before ownership is registered. Renamed the public JavaScript object from clirc to clircs and the manifest from clirc-script.json to clircs-script.json before the scripting contract becomes public. Added regression coverage for failed-load rollback, missing source, callback overload, host-resource exhaustion, and read-only discovery.
+
+v0.8.29
+
+Audited and tightened userlist-driven channel automation and flood protection. User policy work is now serialized per network and channel, with short-lived action reservations preventing overlapping JOIN and synchronization callbacks from sending duplicate ops, voices, deops, kicks, or persistent bans. Protection counters, ignore state, action reservations, and channel automation state are cleared with their owning network session; expired temporary state is pruned during ordinary use instead of accumulating until somebody inspects it.
+
+Advanced /protect changes now write only the property the user changed, so channel and network overrides continue inheriting later changes from broader scopes instead of freezing a copied settings snapshot. Channel protection keys now use one stable stored representation with negotiated IRC case-folding as a compatibility lookup, preserving existing settings while making online and offline configuration agree. Removed the unused relaxed and strict preset machinery and replaced enum-position arrays with explicit detector defaults. Added regression coverage for per-network cleanup, atomic temporary reservations, sparse inheritance, and channel case-form compatibility.
+
+v0.8.28
+
+Audited and rebuilt persistent configuration and profile commits. Small state files now share one durable writer that flushes a same-directory temporary file before atomically replacing the committed file, retains a complete backup where appropriate, removes abandoned temporary files, and coordinates with backup creation. Backup archives now read one stable committed generation and are fully reopened and read before being published.
+
+Profile, trusted-certificate, logging, away-message, protection, user-directory, script permission, script load-state, script storage, and script-secret changes no longer leave live state ahead of disk after a failed commit. Malformed script permissions no longer prevent clircs from starting; the damaged file is reported and preserved while IRC and local-network access fail closed. Global client identity is now authoritative when connecting through saved profiles instead of repeatedly rewriting identity copies in every network entry. Added simulated interrupted-write coverage for rollback, complete-file replacement, and script-permission recovery.
+
+v0.8.27
+
+Audited and rebuilt terminal window-state ownership. History, unread activity, window numbers, and scroll position now belong to one registry instead of four parallel dictionaries with separate cleanup rules. Window activation and removal now pass through that owner, including joins, cycles, session changes, ignored empty queries, and network shutdown. Closing a session no longer takes terminal input-history locks while holding the application state lock, and viewport rendering now reads stable history snapshots instead of enumerating a list that network events may still be changing.
+
+Command results captured for an inactive window remain in that window instead of leaking into the currently visible viewport. A delayed routed reply whose original window was closed now falls back to the correct network's status window rather than whichever network happens to be active. Removed the obsolete item-based paging implementation and the dead redraw-heading path. Added regression coverage for activation, unread and scroll reset, window removal, monotonic numbering, row-based paging, and history snapshots during incoming activity.
+
+v0.8.26
+
+Audited and rebuilt command execution and help ownership. Keyboard input, ordinary chat, and commands requested by scripts now pass through one serialized application-owned execution lane. Every invocation retains the network and window from which it originated, so a delayed script command cannot silently operate on whichever window happens to be active later. Results return to that captured context, with a network's status window as the safe fallback if the original window was closed.
+
+Command definitions now own their usage, description, visibility, extended help, and optional topic help instead of making /help rediscover those rules through command-name conditionals. Hidden commands use the same metadata as ordinary commands. Quoted command arguments now preserve Windows backslashes while still supporting escaped quotes and backslashes, and command names may be separated from their arguments by any normal whitespace. Expected command failures remain concise; unexpected failures receive a restrained user message and a stack trace in logs/command-errors.log without recording command arguments or passwords. Added regression coverage for Windows paths, whitespace parsing, metadata ownership, context retention, and serialized execution.
+
+v0.8.25
+
+Audited and tightened the connection and network-session lifecycle. One live-session runtime now owns its IRC session, exact connection route, logical-network profile association, and reconnect operation instead of keeping those values in parallel dictionaries that could drift apart. Automatic reconnect now runs through a focused, testable loop; successful registration stops it, cancellation interrupts pending work, attempt limits are honored, and every retry retains the original endpoint and password.
+
+Channel restoration now records membership only after the server confirms the client's JOIN. Failed attempts against invite-only, keyed, full, or banned channels therefore cannot become phantom reconnect targets. Removed the password-shape ZNC guess in favor of actual bouncer protocol evidence, removed the hidden per-profile reconnect veto so network.reconnect and kill.reconnect are authoritative, fixed outbound-scheduler resource cleanup after a writer failure, and removed an unreachable TLS-handshake state. Added lifecycle regression coverage for failed JOIN restoration and reconnect success, cancellation, and exhaustion.
+
+v0.8.24
+
+Split the stateful IRC query families out of the oversized session processor without changing their user-facing behavior. WHO, WHOIS, and WHOWAS now share an identity-query component that owns their pending requests, accumulated rows, daemon-specific extensions, completion formatting, case-mapping reindexing, and reconnect cleanup. LIST and LINKS now share a network-query component that owns their multi-numeric result state and completion tables. Centralized session-event construction and server-text sanitization so extracted processors cannot quietly produce differently sanitized output.
+
+IrcSessionProcessor remains the explicit protocol coordinator and the sole front door for incoming IRC messages, while NetworkSessionState remains the authoritative owner of network, channel, member, and buffer state. The processor dropped from roughly 1,850 lines to about 1,040 instead of being replaced with a reflective handler framework or another less obvious pile. Added regression coverage for reconnect cleanup and for known numerics taking precedence over unknown WHOIS extension collection.
+
+v0.8.23
+
+Stabilized IRC protocol processing and cross-network compatibility before 0.9. WHO and WHOIS requests now retain their own identities from the protocol processor through output routing, so overlapping requests return to the windows that issued them. LIST, LINKS, and WHOWAS now reject a second simultaneous request instead of silently merging replies whose numerics cannot be correlated safely. Closing a network session clears all pending output routes through one owner.
+
+Negotiated IRC case mapping now governs pending WHOIS and WHOWAS state, notify and MONITOR state, and reconnect channel state, including safe reindexing when CASEMAPPING arrives or changes. Known 005 values are parsed and validated before either their raw or typed representations change, preventing malformed re-advertisements from leaving contradictory feature state. Unknown WHOIS extensions retain all significant parameters instead of dropping data. Added behavior coverage for overlapping requests, route cleanup, malformed 005 values, case-mapping changes, lossless WHOIS extensions, and representative ratbox, Solanum, Hybrid, Bahamut, ngIRCd, InspIRCd, and UnrealIRCd registration and WHOIS transcripts.
+
+v0.8.22
+
+Cleaned up commands and output before the next development stage. /autojoin, /ajoin, and /aj now share one implementation: a bare command adds the active channel, an explicit channel is accepted with or without add, and use outside a channel shows help. /rj mirrors the same shorthand for removal. Removed the redundant /version, /ver, and /fldprot commands while retaining /sv, CTCP VERSION, /cprot, and /pprot. Simplified DCC help around CHAT, SCHAT, SEND, and SSEND; detailed per-type help now explains passive and TLS behavior, and the obsolete --secure spelling is no longer accepted. Hid the low-level /protect command from the ordinary command list and removed its audit advertisements without removing the command itself.
+
+Formatted numeric 443, removed punctuation from disconnect notices, removed the active-session legend from /network, and propagated confirmed self-nickname changes to the relevant windows on that network. User modes now appear beside the client nickname in every IRC status bar. /users now uses a readable table, /uwhois uses a WHOIS-style information box without exposing its internal record ID, and bare /adduser nickname derives the visible user's default hostmask with no automatic privileges. Added regression coverage for numeric 443 and network-wide self-nickname announcements.
+
+v0.8.21
+
+Audited the complete DCC request and transport lifecycle after adding secure transfers. Each request now owns its pending connection attempts and background transport work as well as its listeners, established sockets, timers, transfer state, and buffers. Canceling an outgoing connected CHAT now closes the actual connection; incoming and outgoing CHAT attempts can be canceled while connecting; session shutdown cancels and waits for related DCC work instead of leaving socket tasks behind. Runtime history pruning now covers incoming and outgoing requests without evicting live work. Tightened legal state transitions, removed late terminal-state rewrites, made secure CHAT status wording consistent, and added regression coverage for listener, sender, receiver, and connection-attempt cancellation.
+
+v0.8.20
+
+Added secure DCC file transfers using the established SSEND extension. /dcc ssend nickname file and /dcc send nickname file --secure originate active secure offers; --passive uses the existing reverse connection negotiation over TLS. Incoming SSEND offers can be accepted, rejected, canceled, and resumed through the ordinary DCC request commands without ever falling back to plaintext. Secure transfers retain collision-safe downloads, cumulative acknowledgements, live progress replacement, source and partial-file integrity checks, and coordinated lifecycle cleanup. Connection output reports TLS protocol and peer certificate fingerprints when supplied. Added active, passive, acknowledgement, and resumed secure-transfer coverage at the transport boundary.
+
+v0.8.19
+
+Added secure DCC CHAT using the established SCHAT extension. Active and passive secure chat share the hardened DCC lifecycle and negotiate TLS 1.2 or TLS 1.3 without silently falling back to plaintext. /dcc schat nickname and /dcc chat nickname --secure originate secure requests; incoming SCHAT offers use the ordinary accept and reject commands, including Eggdrop's CTCP SCHAT flow. Connection output reports the TLS protocol and peer certificate fingerprint when available while stating that legacy DCC peer identity is not verified. Obsolete anonymous-DH compatibility is deliberately excluded. SSEND offers are recognized but cannot be accepted or resumed until secure file transfer is implemented.
+
+v0.8.18
+
+Hardened the ordinary DCC stack before secure DCC work. DCC sockets now sit behind a stream transport boundary that can later carry TLS without duplicating CHAT and SEND. Consolidated each request's listeners, sockets, timers, buffers, and resume state under one runtime owner. Live requests can no longer be evicted by history trimming, and completion, cancellation, disconnect, and file finalization use one coordinated lifecycle. Partial downloads now carry network, sender, size, and filename metadata so clircs cannot resume the wrong same-named file; changed partials and changed outgoing source files are rejected. Malformed acknowledgements cannot claim unsent bytes. Added focused registry, cancellation-race, partial-integrity, source-integrity, transport, and acknowledgement regression coverage. Existing legacy partial files are preserved but are not guessed as resume candidates.
+
+v0.8.17
+
+Added traditional DCC RESUME and ACCEPT negotiation for active and passive SEND transfers. /dcc resume id finds an incomplete matching download, requests the exact byte offset, waits for the sender's acceptance, and continues writing and acknowledging from that position. clircs also validates and honors resume requests for files it is sending. Interrupted downloads remain as .clircs-part files for a later offer, while completed transfers retain collision-safe naming. Added parser, structured-event, storage, sender-offset, receiver-offset, and cumulative-acknowledgement coverage.
+
+v0.8.16
+
+Replaced per-second DCC SEND progress spam with one transient history entry per transfer. Progress updates replace that entry atomically across redraws, resizing, scrolling, and window changes; completion, failure, or cancellation turns it into the permanent final result. Transient progress is excluded from logs. Standardized user-facing canceling and canceled spelling and corrected stale DCC documentation before transfer-resume work.
+
+v0.8.15
+
+Added passive DCC CHAT and SEND negotiation. /dcc chat and /dcc send accept --passive, outgoing passive offers are paired with replies by their numeric token, and clircs connects back after the receiving client opens its listener. Incoming passive offers can be accepted normally; clircs opens the listener, returns the matching endpoint and token, then receives the connection. Active DCC remains unchanged. Added parser, matching, reverse-listener, IPv4, IPv6, filename, and transfer acknowledgement coverage. Secure DCC remains separate work.
+
+v0.8.14
+
+Completed the ratbox caller-ID and ACCEPT cleanup before passive DCC. /accept with no nickname now requests the list correctly. Numerics 456, 457, 458, and 718 have readable routed output, 281 and 282 remain a formatted list, and 716 through 718 use the caller-ID user mode advertised by the server instead of assuming +g. Successful ACCEPT changes remain silent because the server sends no confirmation.
+
+v0.8.13
+
+Cleanup between active and passive DCC work. Notify lists now use server-side MONITOR when advertised and retain silent batched ISON polling as the fallback. Added /accept for caller-ID mode, formatted ACCEPT and common permission numerics, made local and server-generated permission errors use the same wording, and removed trailing periods from newly normalized client messages. Passive DCC remains separate work.
+
+v0.8.12
+
+Added outgoing active DCC SEND with quoted filenames, large and zero-byte file support, cumulative acknowledgements, progress reporting, cancellation, expiry, and failure cleanup. Incoming DCC CHAT offers no longer open a DCC window merely to ask whether the user wants one; the active window gets a concise accept-or-reject notice, and a chat window opens only after acceptance. Terminal DCC requests are removed from /dcc list.
+
+v0.8.11
+
+Added incoming active DCC SEND file transfers. /dcc accept connects to the offered endpoint, receives the advertised byte count, returns cumulative DCC acknowledgements, reports throttled progress, and removes partial files after failure or cancellation. Completed downloads never overwrite an existing file and default to the user's Downloads folder; dcc.downloads changes that location. Outgoing SEND and passive DCC remain unfinished. Active interoperability is covered by simulated socket tests but still awaits testing against another real client where routing permits it.
+
+v0.8.10
+
+Replaced /debug's old session summary with a network-specific raw IRC traffic window. Incoming and outgoing lines are marked << and >>, IRC control bytes are shown visibly, and raw traffic remains outside normal logging and script events. Removed /status; use /window or /win to select status windows. Changed the non-privileged channel count label from nrm to non.
+
+v0.8.9
+
+Cleanup after the terminal rendering audit. IRC colors and styles now survive inside structured WHO, WHOIS, WHOWAS, CLONES, and other information-box fields while layout still uses safe plain text. Duplicate Plexus-style actual-host addresses are collapsed. Added direct /nickserv, /chanserv, /memoserv, /operserv, /hostserv, /botserv, and /limitserv commands; NickServ identification can prompt privately and masks supplied passwords in local output. Removed the leftover dead /activity handler. Channel totals in the status bar now use the compact usr, own, adm, ops, hlf, voc, and nrm labels. TLS integration tests use temporary keys instead of depending on a writable user certificate store.
+
+v0.8.8
+
+Reworked terminal redraws after auditing the rendering and window-state code. Full history replay is now one atomic operation, so live server, DCC, script, and input activity cannot be inserted into the middle of an older redraw. Window chrome is applied as one coherent header, status, and prompt snapshot. Topic-bar changes and window switches reserve the correct content area before history is drawn. Redundant chrome repaints were removed, dead rendering state was discarded, and long preserved table fields are truncated instead of destabilizing the viewport.
+
+v0.8.7
+
+Fixed the actual duplicate-status-bar regression. Returning to the input loop now reuses the status and input rows already on screen instead of scrolling them into the transcript and allocating another pair.
+
+v0.8.6
+
+Attempted to fix duplicate status bars by changing which rows were erased. This did not address the cause and was replaced by v0.8.7.
+
+v0.8.5
+
+Terminal cleanup during DCC development. The status and input rows remain visible while slow commands run. Large field-based information boxes can be paged correctly. CTCP replies use command-first wording. Common reconnect failures use shorter human-readable messages. Removed the redundant /activity command; /window and /win still show unread activity. Replaced the oversized README with a short introduction and split version history from detailed documentation.
+
+v0.8.4
+
+Made outgoing DCC CHAT IPv6-first when a globally routable IPv6 address is available while retaining traditional integer IPv4 offers. Continued active DCC CHAT address and port cleanup.
+
+v0.8.3
+
+Added outgoing active DCC CHAT setup, usable public-address discovery, configurable listening ports or ranges, and related connection cleanup.
+
+v0.8.2
+
+Added working ordinary DCC CHAT sockets. Incoming requests can be accepted, messages and actions use dedicated DCC windows, and direct chats close cleanly.
+
+v0.8.1
+
+Cleaned up DCC request presentation. CHAT and SEND offers use readable information boxes, stable IDs, short active-window alerts, expiry, rejection, cancellation, and connection invalidation.
+
+v0.8.0
+
+Established the DCC request layer. clircs recognizes CHAT and SEND offers, assigns request IDs, maintains a dedicated DCC window, and exposes structured request state. Transport was intentionally deferred.
+
+v0.7.0 through v0.7.6
+
+Compatibility milestone. Server capabilities advertised through numeric 005 became connection-specific state instead of fixed ratbox assumptions. Added and corrected formatting for major IRCd families, WHO, WHOIS, WHOWAS, LIST, forwarding, account and hidden-host numerics, notices, and traditional IRC colors. Slow registrations gained a 60-second timeout. Reconnect cancellation, query behavior, and cross-network window handling were tightened during real-network testing.
+
+v0.6.0 through v0.6.2
+
+Scripting milestone. Added JavaScript addon loading through Jint, permissions, command registration, scoped events, private persistent storage, encrypted script secrets, remembered load state, and runtime limits. The musikcube example proved that a script could control an external program and contribute display content without adding musikcube-specific behavior to the core client.
+
+v0.5.0 through v0.5.13
+
+Connectivity and persistence milestone. Added automatic reconnect with intentional, accidental, and KILL-aware behavior; saved connection routes and credentials; ZNC awareness; preserved windows across disconnects; network profiles; safer configuration writes and backups; daily logging; per-window input history; DNS lookup; and numerous connection-state corrections found through extended use.
+
+v0.4.19 through v0.4.25
+
+Terminal and protection milestone. Added the full-screen redrawable viewport, stable numbered windows, status and topic bars, unread activity, themes, formatted WHO and WHOIS output, channel and personal protection, userlists, clone detection, network-scoped channel settings, settings help, and the current command-oriented interface.
+
+v0.3 development series
+
+Established the standalone IRC client: Windows console input, server connections, TLS certificate handling, multiple network sessions, channels and queries, core convenience aliases, local echo behavior, autojoin profiles, membership state, basic formatted server output, and early theming. The project was renamed from WircN to clirc and then to clircs during this period.
+
+M0 through M2 prototypes
+
+Proved the architecture, command parser, network session isolation, protocol framing, and basic ability to connect, join, and chat. These builds were working prototypes rather than public releases.

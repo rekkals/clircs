@@ -1,0 +1,57 @@
+# Build and test output
+**/bin/
+**/obj/
+/artifacts/
+/TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# IDE and editor state
+/.vs/
+/.vscode/
+/.idea/
+*.user
+*.suo
+
+# Local clircs data and isolated tool caches
+/.appdata/
+/.appdata-*
+/.data-*
+/.dotnet-home/
+/.nuget/
+/.packages/
+/NuGet.Offline.Config
+
+# Research material, scratch work, and agent state
+/work/
+/.review-*/
+/.tmp-*/
+/.agents/
+/.codex/
+/tools/windows-sandbox/*.local.wsb
+
+# Local build, publish, smoke-test, and audit transcripts
+/.build-*.txt
+/.publish-*.txt
+/.package-*.txt
+/.test-*.txt
+/.render-*.txt
+*.log
+
+# Root-level source snapshots and packages
+/*.zip
+/*.tar
+/*.tar.gz
+/*.tgz
+
+# Private keys and certificate bundles must never enter source control
+*.key
+*.pem
+*.pfx
+*.p12
+
+# Operating-system metadata
+.DS_Store
+Desktop.ini
+Thumbs.db

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Clircs.ConsoleClient</RootNamespace>
+    <AssemblyName>clircs</AssemblyName>
+    <Version>0.8.61</Version>
+    <InformationalVersion>0.8.61</InformationalVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="quotes.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\README.md">
+      <Link>README.md</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\DOCUMENTATION.txt">
+      <Link>DOCUMENTATION.txt</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\VERSIONS.txt">
+      <Link>VERSIONS.txt</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Clircs.Core\Clircs.Core.csproj" />
+    <ProjectReference Include="..\Clircs.Infrastructure\Clircs.Infrastructure.csproj" />
+    <ProjectReference Include="..\Clircs.Scripting\Clircs.Scripting.csproj" />
+    <ProjectReference Include="..\Clircs.Transport\Clircs.Transport.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\examples\theme-example.toml">
+      <Link>themes\theme-example.toml</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\examples\script-demo\**\*">
+      <Link>scripts\script-demo\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\examples\musikcube\**\*">
+      <Link>scripts\musikcube\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\THIRD-PARTY-NOTICES.txt">
+      <Link>THIRD-PARTY-NOTICES.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

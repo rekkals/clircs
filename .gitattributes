@@ -1,0 +1,20 @@
+# Normalize text in Git while checking it out with Windows-native line endings.
+* text=auto
+
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.props text eol=crlf
+*.sln text eol=crlf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.wsb text eol=crlf
+*.json text eol=crlf
+*.toml text eol=crlf
+*.js text eol=crlf
+*.md text eol=crlf
+*.txt text eol=crlf
+
+*.zip binary
+*.gz binary
+*.pfx binary
+*.p12 binary

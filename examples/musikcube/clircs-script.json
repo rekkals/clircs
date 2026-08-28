@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "musikcube",
+  "name": "musikcube integration",
+  "version": "0.1.1",
+  "entry": "main.js",
+  "permissions": [
+    "commands",
+    "irc",
+    "localNetwork",
+    "secrets",
+    "storage",
+    "timers",
+    "ui"
+  ]
+}

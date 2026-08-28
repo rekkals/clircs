@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Clircs.Core.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Clircs.Core\Clircs.Core.csproj" />
+    <ProjectReference Include="..\..\src\Clircs.Infrastructure\Clircs.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Clircs.Scripting\Clircs.Scripting.csproj" />
+    <ProjectReference Include="..\..\src\Clircs.Transport\Clircs.Transport.csproj" />
+    <ProjectReference Include="..\..\src\Clircs.Console\Clircs.Console.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,35 @@
+# Copy this file to %APPDATA%\clircs\themes and give it a unique name.
+name = "custom-teal"
+base = "clircs"
+
+[palette]
+normal = "Gray"
+dim = "DarkGray"
+accent = "Cyan"
+label = "DarkCyan"
+message = "Gray"
+highlight = "Yellow"
+action = "Cyan"
+notice = "Yellow"
+join = "Cyan"
+part = "DarkCyan"
+kick = "Red"
+nick = "Green"
+mode = "Blue"
+warning = "Yellow"
+error = "Red"
+status_foreground = "Black"
+status_background = "DarkCyan"
+
+[markers]
+join = "-->"
+part = "<--"
+
+[layout]
+info_top = "┌─ "
+info_side = "│ "
+info_bottom = "└─"
+status_separator = " | "
+header_separator = " | "
+show_buffer_name = false
+show_nick_prefix = true
