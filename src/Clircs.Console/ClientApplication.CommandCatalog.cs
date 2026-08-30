@@ -11,70 +11,70 @@ internal sealed partial class ClientApplication
 {
     private void RegisterCommands()
     {
-        Register("help", ["?"], "Show commands or help for one command.", HelpAsync);
-        Register("about", [], "Show the clircs startup presentation.", AboutAsync);
+        Register("help", ["?"], "Show a list of commands or help for [command].", HelpAsync);
+        Register("about", [], "Display the clircs startup presentation.", AboutAsync);
         Register("config", [], "Show where clircs stores configuration and user data.", ConfigAsync);
-        Register("backup", [], "Create or inspect complete user-data backups.", BackupAsync);
-        Register("logging", ["log"], "Manage daily IRC window logging.", LoggingAsync);
+        Register("backup", [], "Create or manage user-data backups.", BackupAsync);
+        Register("logging", ["log"], "Start, stop, and manage channel and query logs.", LoggingAsync);
         Register("server", ["connect"], "Connect to an IRC server or saved network profile.", ServerAsync);
-        Register("network", [], "List live sessions or manage saved network profiles.", NetworkAsync);
-        Register("disconnect", [], "Disconnect but leave clircs running.", DisconnectAsync);
+        Register("network", [], "List live connections or manage saved network profiles.", NetworkAsync);
+        Register("disconnect", [], "Disconnect, but leave clircs running.", DisconnectAsync);
         Register("reconnect", [], "Reconnect the active offline session or cancel an automatic retry.", ReconnectAsync);
         Register("quit", ["exit"], "Disconnect and exit clircs.", QuitAsync);
         Register("nick", [], "Change your nickname, or set it before connecting.", NickAsync);
-        Register("away", [], "Set away; the default message is 'away'.", AwayAsync);
-        Register("back", [], "Clear away status.", BackAsync);
-        Register("awaylog", ["msglog"], "Manage the separate away-message recorder.", AwayLogAsync);
-        Register("messages", ["mchk"], "Read or remove messages recorded while away.", AwayMessagesAsync);
-        Register("buffer", ["b"], "List buffers or switch by number/name.", BufferAsync);
-        Register("window", ["win"], "List windows or switch to a stable window number.", BufferAsync);
-        Register("next", ["bn"], "Switch to the next buffer.", NextBufferAsync);
-        Register("previous", ["bp"], "Switch to the previous buffer.", PreviousBufferAsync);
-        Register("close", [], "Close the active window, parting a joined channel when necessary.", CloseBufferAsync);
+        Register("away", [], "Set yourself as away.", AwayAsync);
+        Register("back", [], "Set yourself as back.", BackAsync);
+        Register("awaylog", ["msglog"], "Enables or disables logging messages while away.", AwayLogAsync);
+        Register("messages", ["mchk"], "Read or remove messages logged while away.", AwayMessagesAsync);
+        Register("buffer", ["b"], "List windows or switch to window [number|name].", BufferAsync);
+        Register("window", ["win"], "List windows or switch to window [number|name].", BufferAsync);
+        Register("next", ["bn"], "Switch to the next window.", NextBufferAsync);
+        Register("previous", ["bp"], "Switch to the previous window.", PreviousBufferAsync);
+        Register("close", [], "Close the active window.", CloseBufferAsync);
         Register("clear", ["cls"], "Clear the visible terminal.", ClearAsync);
         Register("autojoin", ["ajoin", "aj"], "Manage autojoin channels for the active network profile.", AutojoinAsync);
         Register("rj", [], "Remove a channel from the active network profile's autojoin list.", AutojoinRemoveAliasAsync);
-        Register("msg", ["m"], "Send: /msg <target> <message>", MessageAsync);
-        Register("notice", ["n"], "Send: /notice <target> <message>", NoticeAsync);
+        Register("msg", ["m"], "Send a message to a nickname or channel.", MessageAsync);
+        Register("notice", ["n"], "Send a notice to a nickname or channel.", NoticeAsync);
         Register("say", [], "Send text to the active channel/query.", SayCommandAsync);
         Register("me", [], "Send an action to the active channel/query.", MeAsync);
-        Register("describe", [], "Send: /describe <target> <action>", DescribeAsync);
+        Register("describe", [], "Send an action to a nickname or channel.", DescribeAsync);
         Register("ame", [], "Send an action to every joined channel on this network.", AllChannelActionAsync);
         Register("amsg", [], "Send a message to every joined channel on this network.", AllChannelMessageAsync);
-        Register("query", ["q"], "Open a private query window: /query <nick> [message]", QueryAsync);
-        Register("ctcp", [], "Send: /ctcp <nick> <command> [arguments]", CtcpAsync);
+        Register("query", ["q"], "Open a private query window with <nick>.", QueryAsync);
+        Register("ctcp", [], "Send a CTCP request to <nick>.", CtcpAsync);
         Register("dcc", [], "Start and manage DCC chats, file transfers, and requests.", DccAsync);
         Register("xdcc", [], "Request file packs from XDCC bots.", XdccAsync);
         Register("ping", [], "Send a CTCP PING request.", PingAsync);
-        Register("sv", [], "Send the current clircs version to the active conversation.", ShowVersionAsync);
-        Register("time", [], "Show local time or query a nick.", TimeAsync);
-        Register("raw", ["quote"], "Send one validated raw IRC command.", RawAsync);
-        Register("join", ["j"], "Join: /join <channels> [keys]", JoinAsync);
-        Register("part", ["p"], "Part the active or named channel.", PartAsync);
+        Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
+        Register("time", [], "Show local time or query a [nickname].", TimeAsync);
+        Register("raw", ["quote"], "Send raw input to the IRC server.", RawAsync);
+        Register("join", ["j"], "Join a channel.", JoinAsync);
+        Register("part", ["p"], "Part a channel.", PartAsync);
         Register("cycle", [], "Part and rejoin the active channel.", CycleAsync);
-        Register("invite", ["i"], "Invite: /invite <nick> [channel]", InviteAsync);
+        Register("invite", ["i"], "Invite <nick> to [channel].", InviteAsync);
         Register("topic", ["t"], "Show or set a channel topic.", TopicAsync);
-        Register("rt", [], "Set the configured default topic or a random quote.", RandomTopicAsync);
+        Register("rt", [], "Set a configured default topic or a random quote.", RandomTopicAsync);
         Register("mode", ["cm"], "Show or change modes.", ModeAsync);
         Register("op", [], "Grant channel operator status.", OpAsync);
         Register("deop", ["dop"], "Remove channel operator status.", DeopAsync);
         Register("voice", ["v"], "Grant channel voice status.", VoiceAsync);
         Register("devoice", ["dv"], "Remove channel voice status.", DevoiceAsync);
-        Register("kick", ["k"], "Kick a member from the active channel.", KickAsync);
-        Register("ban", [], "Ban a member or explicit hostmask in the active channel.", BanAsync);
-        Register("kickban", ["kb", "bk"], "Ban a member's host and kick them.", KickBanAsync);
-        Register("tban", [], "Apply a ban and remove it after a duration.", TimedBanAsync);
+        Register("kick", ["k"], "Kick a user from the active channel.", KickAsync);
+        Register("ban", [], "Ban a <nick> or <hostmask> from the active channel.", BanAsync);
+        Register("kickban", ["kb", "bk"], "Kick and ban a user from the active channel.", KickBanAsync);
+        Register("tban", [], "Apply a ban and remove it after a <duration>.", TimedBanAsync);
         Register("mop", [], "Op every non-opped member in the active channel.", MassOpAsync);
         Register("mdop", [], "Deop every operator except yourself.", MassDeopAsync);
         Register("mv", [], "Voice every regular member.", MassVoiceAsync);
         Register("mdv", [], "Devoice every voiced member except yourself.", MassDevoiceAsync);
-        Register("mmode", [], "Apply one prefix mode to multiple members.", MultiModeAsync);
-        Register("banlist", [], "Synchronize and display the active channel ban list.", BanListAsync);
+        Register("mmode", [], "Apply the given mode to multiple users.", MultiModeAsync);
+        Register("banlist", [], "Check and display the channel ban list.", BanListAsync);
         Register("exceptlist", [], "Display channel ban exceptions.", ExceptListAsync);
         Register("invitelist", [], "Display channel invite exceptions.", InviteListAsync);
-        Register("quietlist", [], "Display channel quiet masks when supported.", QuietListAsync);
+        Register("quietlist", [], "Display channel quiet masks.", QuietListAsync);
         Register("unban", [], "Remove a channel ban mask.", UnbanAsync);
-        Register("clearbans", ["clban"], "Remove all synchronized channel bans.", ClearBansAsync);
+        Register("clearbans", ["clban"], "Remove all channel bans.", ClearBansAsync);
         Register("appendtopic", ["at"], "Append text to the active channel topic.", AppendTopicAsync);
         Register("cleartopic", ["ct"], "Clear the active channel topic.", ClearTopicAsync);
         Register("adduser", [], "Add a user to the active network's user directory.", AddUserAsync);
@@ -82,17 +82,17 @@ internal sealed partial class ClientApplication
         Register("remuser", [], "Remove a user from the active network's user directory.", RemoveUserAsync);
         Register("addhost", [], "Add a hostmask to a user.", AddHostAsync);
         Register("remhost", [], "Remove a hostmask from a user.", RemoveHostAsync);
-        Register("chattr", [], "Change global or per-channel user roles.", ChangeAttributesAsync);
-        Register("addchan", [], "Add a per-channel user policy entry.", AddUserChannelAsync);
-        Register("remchan", [], "Remove a per-channel user policy entry.", RemoveUserChannelAsync);
-        Register("chinfo", [], "Set a global or channel-specific JOIN infoline.", ChangeUserInfoAsync);
+        Register("chattr", [], "Change global or channel user roles and permissions.", ChangeAttributesAsync);
+        Register("addchan", [], "Add a channel to the user policy entry.", AddUserChannelAsync);
+        Register("remchan", [], "Remove a channel from the user policy entry.", RemoveUserChannelAsync);
+        Register("chinfo", [], "Set a global or channel-specific JOIN infoline for a user.", ChangeUserInfoAsync);
         Register("uwhois", [], "Show a user record or match a visible nickname.", UserWhoisAsync);
-        Register("users", [], "List network-scoped user records.", UsersAsync);
-        Register("usersum", [], "Summarize network-scoped user roles.", UserSummaryAsync);
-        Register("notify", [], "Manage the active logical network's notify list.", NotifyAsync);
-        Register("accept", [], "Manage the server-side accept list used with caller-ID mode.", AcceptAsync);
-        Register("cprot", [], "Configure channel protection in one command.", ChannelProtectionAsync);
-        Register("pprot", ["fprot"], "Configure personal protection in one command.", PersonalProtectionAsync);
+        Register("users", [], "List active network's user records.", UsersAsync);
+        Register("usersum", [], "Summarize active network's user roles.", UserSummaryAsync);
+        Register("notify", [], "Manage the active network's notify list.", NotifyAsync);
+        Register("accept", [], "Manage the server-side accept list.", AcceptAsync);
+        Register("cprot", [], "Configure channel protection.", ChannelProtectionAsync);
+        Register("pprot", ["fprot"], "Configure personal protection.", PersonalProtectionAsync);
         Register("protect", [], "Inspect the combined protection engine and audit data.", ProtectAsync);
         Register("clones", [], "Find channel users sharing the same visible host.", ClonesAsync);
         Register("ufind", [], "Match visible channel members to user records.", UserFindAsync);
@@ -120,14 +120,14 @@ internal sealed partial class ClientApplication
         Register("nonopnotice", ["nnotice", "nn", "nwall", "walln"], "Notice non-operators.", NonOperatorNoticeAsync);
         Register("nonopmsg", ["nmsg"], "Message non-operators.", NonOperatorMessageAsync);
         Register("userwall", ["uwall"], "Notice non-bot operators.", UserWallAsync);
-        Register("names", [], "Request a channel's names.", NamesAsync);
-        Register("who", [], "Issue WHO.", WhoAsync);
-        Register("whois", ["wi", "w"], "Issue WHOIS.", WhoisAsync);
-        Register("iwhois", ["wii"], "Issue WHOIS with idle and sign-on information.", IdleWhoisAsync);
-        Register("whowas", ["ww"], "Issue WHOWAS.", WhowasAsync);
+        Register("names", [], "List users in the active channel.", NamesAsync);
+        Register("who", [], "Performs a WHO on the active window or specified [channel|nickname|mask].", WhoAsync);
+        Register("whois", ["wi", "w"], "Performs a WHOIS on <nickname>.", WhoisAsync);
+        Register("iwhois", ["wii"], "Performs WHOIS on <nickname> with idle and sign-on information.", IdleWhoisAsync);
+        Register("whowas", ["ww"], "Performs WHOWAS on <nickname>.", WhowasAsync);
         Register("motd", [], "Request the server MOTD.", MotdAsync);
         Register("links", [], "Request server links.", LinksAsync);
-        Register("list", [], "List public channels known to the server.", ListAsync);
+        Register("list", [], "Show publicly listed channels on the server.", ListAsync);
         Register("dns", [], "Resolve a hostname or IP address.", DnsAsync);
         Register("nickserv", [], "Send a command to NickServ.", ServiceAsync);
         Register("chanserv", [], "Send a command to ChanServ.", ServiceAsync);
@@ -137,14 +137,16 @@ internal sealed partial class ClientApplication
         Register("botserv", [], "Send a command to BotServ.", ServiceAsync);
         Register("limitserv", [], "Send a command to LimitServ.", ServiceAsync);
         Register("set", [], "Inspect or change client settings.", SetAsync);
-        Register("theme", [], "List, select, or reload terminal themes.", ThemeAsync);
+        Register("theme", [], "List, select, or reload themes.", ThemeAsync);
         Register("tls", [], "List or revoke remembered TLS certificate pins.", TlsAsync);
-        Register("script", [], "Manage sandboxed JavaScript extensions.", ScriptAsync);
+        Register("script", [], "Manage third party scripts.", ScriptAsync);
         Register("debug", [], "Open raw IRC traffic for the active network.", DebugAsync);
     }
 
     private void Register(string name, string[] aliases, string summary, CommandHandler handler)
     {
+        // A summary may embed usage beginning with "/<command>"; otherwise an
+        // explicit usage override, or the bare command name, supplies the Usage field.
         var syntaxStart = summary.IndexOf($"/{name}", StringComparison.OrdinalIgnoreCase);
         var usage = syntaxStart >= 0
             ? summary[syntaxStart..].Trim().TrimEnd('.')
@@ -167,6 +169,8 @@ internal sealed partial class ClientApplication
             name == "dcc" ? string.Empty : usage,
             description,
             handler,
+            // /protect remains callable for advanced use but is intentionally omitted
+            // from the general command list.
             visibleInHelp: name != "protect",
             ExtendedHelpFields(name),
             topicHelp));
@@ -250,6 +254,8 @@ internal sealed partial class ClientApplication
         _ => []
     };
 
+    // DCC operations have substantially different syntax, so each operation
+    // receives its own topic help instead of one misleading top-level usage line.
     private static PresentationBlock? DccHelp(string requested)
     {
         var type = requested.TrimStart('/').ToLowerInvariant();
@@ -665,6 +671,8 @@ internal sealed partial class ClientApplication
             profile = EnsureProfileFor(activeSession, out _);
             target = LoggingTarget(activeBuffer);
         }
+        // With one operand, prefer a matching saved network; otherwise treat the
+        // operand as a target on the active network.
         else if (input.Arguments.Count == 2)
         {
             profile = _profileStore.Find(input.Arguments[1]);
