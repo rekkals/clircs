@@ -49,8 +49,8 @@ internal static class SaslTests
         Assert.Equal("USER test 0 * :Test User", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server CAP * LS * :multi-prefix away-notify");
         transport.Receive(":server CAP * LS :sasl=EXTERNAL,PLAIN");
-        Assert.Equal("CAP REQ sasl", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :sasl");
+        Assert.Equal("CAP REQ :multi-prefix sasl", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix sasl");
         Assert.Equal("AUTHENTICATE PLAIN", await transport.NextSentAsync(timeout.Token));
         transport.Receive("AUTHENTICATE +");
         var response = await transport.NextSentAsync(timeout.Token);
@@ -150,6 +150,8 @@ internal static class SaslTests
         _ = await transport.NextSentAsync(timeout.Token);
         _ = await transport.NextSentAsync(timeout.Token);
         transport.Receive(":server CAP * LS :multi-prefix");
+        Assert.Equal("CAP REQ multi-prefix", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix");
         Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;

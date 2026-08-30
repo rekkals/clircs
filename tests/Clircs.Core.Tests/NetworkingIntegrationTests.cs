@@ -64,8 +64,7 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            _ = await reader.ReadLineAsync(timeout.Token);
-            _ = await reader.ReadLineAsync(timeout.Token);
+            _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
             Assert.Equal("JOIN #invite-only key", (await reader.ReadLineAsync(timeout.Token))!);
             await writer.WriteLineAsync(":server 473 TestNick #invite-only :Cannot join channel (+i)".AsMemory(), timeout.Token);
@@ -103,8 +102,7 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            _ = await reader.ReadLineAsync(timeout.Token);
-            _ = await reader.ReadLineAsync(timeout.Token);
+            _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":server 005 TestNick MONITOR=100 :supported".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":server 730 TestNick :Alice!user@example".AsMemory(), timeout.Token);
@@ -160,8 +158,7 @@ internal static class NetworkingIntegrationTests
                     AutoFlush = true,
                     NewLine = "\r\n"
                 };
-                _ = await reader.ReadLineAsync(timeout.Token);
-                _ = await reader.ReadLineAsync(timeout.Token);
+                _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
                 await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
                 await writer.WriteLineAsync(":TestNick!user@host JOIN #kept".AsMemory(), timeout.Token);
                 await writer.WriteLineAsync(":server 376 TestNick :End of MOTD".AsMemory(), timeout.Token);
@@ -176,8 +173,7 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            _ = await secondReader.ReadLineAsync(timeout.Token);
-            _ = await secondReader.ReadLineAsync(timeout.Token);
+            _ = await CompleteEmptyCapabilityNegotiationAsync(secondReader, secondWriter, "TestNick", timeout.Token);
             await secondWriter.WriteLineAsync(":server 001 TestNick :Welcome back".AsMemory(), timeout.Token);
             await secondWriter.WriteLineAsync(":server 376 TestNick :End of MOTD".AsMemory(), timeout.Token);
             return await secondReader.ReadLineAsync(timeout.Token);
@@ -225,8 +221,7 @@ internal static class NetworkingIntegrationTests
                 NewLine = "\r\n"
             };
             Assert.Equal("PASS wrong", (await reader.ReadLineAsync(timeout.Token))!);
-            _ = await reader.ReadLineAsync(timeout.Token);
-            _ = await reader.ReadLineAsync(timeout.Token);
+            _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 464 TestNick :Password incorrect".AsMemory(), timeout.Token);
             return await reader.ReadLineAsync(timeout.Token);
         }, timeout.Token);
@@ -301,8 +296,9 @@ internal static class NetworkingIntegrationTests
             {
                 await using var stream = first.GetStream();
                 using var reader = new StreamReader(stream, new UTF8Encoding(false), false, leaveOpen: true);
-                _ = await reader.ReadLineAsync(timeout.Token);
-                _ = await reader.ReadLineAsync(timeout.Token);
+                Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(timeout.Token))!);
+                Assert.Equal("NICK TestNick", (await reader.ReadLineAsync(timeout.Token))!);
+                Assert.Equal("USER test 0 * :Test User", (await reader.ReadLineAsync(timeout.Token))!);
                 firstAccepted.TrySetResult();
                 while (await reader.ReadLineAsync(timeout.Token) is not null)
                 {
@@ -317,8 +313,7 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            _ = await secondReader.ReadLineAsync(timeout.Token);
-            _ = await secondReader.ReadLineAsync(timeout.Token);
+            _ = await CompleteEmptyCapabilityNegotiationAsync(secondReader, secondWriter, "TestNick", timeout.Token);
             await secondWriter.WriteLineAsync(":server 001 TestNick :Welcome back".AsMemory(), timeout.Token);
             return await secondReader.ReadLineAsync(timeout.Token);
         }, timeout.Token);
@@ -421,11 +416,8 @@ internal static class NetworkingIntegrationTests
             NewLine = "\r\n"
         };
 
-        var transcript = new List<string>
-        {
-            (await reader.ReadLineAsync(cancellationToken))!,
-            (await reader.ReadLineAsync(cancellationToken))!
-        };
+        var registration = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, nickname, cancellationToken);
+        var transcript = new List<string> { registration.Nick, registration.User };
         await writer.WriteLineAsync($":server 001 {nickname} :{marker} ready".AsMemory(), cancellationToken);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
@@ -518,8 +510,8 @@ internal static class NetworkingIntegrationTests
                 NewLine = "\r\n"
             };
 
-            Assert.Equal("NICK Primary", (await reader.ReadLineAsync(timeout.Token))!);
-            _ = await reader.ReadLineAsync(timeout.Token);
+            var registration = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "Primary", timeout.Token);
+            Assert.Equal("NICK Primary", registration.Nick);
             await writer.WriteLineAsync(":server 433 * Primary :Nickname is already in use".AsMemory(), timeout.Token);
             Assert.Equal("NICK Alternate", (await reader.ReadLineAsync(timeout.Token))!);
             await writer.WriteLineAsync(":server 433 * Alternate :Nickname is already in use".AsMemory(), timeout.Token);
@@ -578,8 +570,7 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            _ = await reader.ReadLineAsync(timeout.Token);
-            _ = await reader.ReadLineAsync(timeout.Token);
+            _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":TestNick!user@host JOIN #clirc".AsMemory(), timeout.Token);
             return await reader.ReadLineAsync(timeout.Token);
@@ -607,11 +598,8 @@ internal static class NetworkingIntegrationTests
             NewLine = "\r\n"
         };
 
-        var transcript = new List<string>
-        {
-            (await reader.ReadLineAsync(cancellationToken))!,
-            (await reader.ReadLineAsync(cancellationToken))!
-        };
+        var registration = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", cancellationToken);
+        var transcript = new List<string> { registration.Nick, registration.User };
 
         await writer.WriteLineAsync(":server 433 * TestNick :Nickname is already in use".AsMemory(), cancellationToken);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
@@ -626,6 +614,21 @@ internal static class NetworkingIntegrationTests
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         return transcript.ToArray();
+    }
+
+    private static async Task<(string Nick, string User)> CompleteEmptyCapabilityNegotiationAsync(
+        StreamReader reader,
+        StreamWriter writer,
+        string nickname,
+        CancellationToken cancellationToken)
+    {
+        Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(cancellationToken))!);
+        var nick = (await reader.ReadLineAsync(cancellationToken))!;
+        var user = (await reader.ReadLineAsync(cancellationToken))!;
+        Assert.Equal($"NICK {nickname}", nick);
+        await writer.WriteLineAsync($":server CAP * LS :".AsMemory(), cancellationToken);
+        Assert.Equal("CAP END", (await reader.ReadLineAsync(cancellationToken))!);
+        return (nick, user);
     }
 
     private static async ValueTask SelfSignedTlsUsesPolicyAsync()

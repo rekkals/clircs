@@ -1174,7 +1174,7 @@ internal static class SessionTests
         var (state, processor) = CreateProcessor();
         processor.Process(IrcMessageParser.Parse(":server 005 me PREFIX=(ov)@+ :supported"));
         processor.Process(IrcMessageParser.Parse(":me!self@localhost JOIN #clirc"));
-        processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :@me +Alice Bob"));
+        processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :@me @+Alice Bob"));
         processor.Process(IrcMessageParser.Parse(":server 366 me #clirc :End of NAMES"));
         processor.Process(IrcMessageParser.Parse(":server 352 me #clirc alice example.test server Alice H+ :0 Alice"));
         processor.Process(IrcMessageParser.Parse(":server 315 me #clirc :End of WHO"));
@@ -1187,6 +1187,10 @@ internal static class SessionTests
         Assert.Equal("alice", alice!.Username!);
         Assert.Equal("example.test", alice.Host!);
         Assert.Equal("Alice", alice.RealName!);
+        Assert.True(alice.PrefixModes.Contains('o'));
+        Assert.True(alice.PrefixModes.Contains('v'));
+        processor.Process(IrcMessageParser.Parse(":server MODE #clirc -o Alice"));
+        Assert.False(alice.PrefixModes.Contains('o'));
         Assert.True(alice.PrefixModes.Contains('v'));
         Assert.True(channel.TryGetMember("ME", out var self));
         Assert.True(self!.PrefixModes.Contains('o'));

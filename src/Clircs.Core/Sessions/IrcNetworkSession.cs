@@ -348,7 +348,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         var registrationNicknameFailure =
             _connection.State == IrcConnectionState.Registering &&
             message.Command is "433" or "437";
-        var processedEvents = IsSaslProtocolMessage(message)
+        var processedEvents = IsRegistrationProtocolMessage(message)
             ? []
             : _processor.Process(message);
         if (_synchronizationCompleted)
@@ -587,8 +587,11 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             });
     }
 
-    private static bool IsSaslProtocolMessage(IrcMessage message) =>
-        message.Command is "CAP" or "AUTHENTICATE" or "902" or "903" or "904" or "905" or "906" or "907" or "908";
+    private static bool IsRegistrationProtocolMessage(IrcMessage message) =>
+        message.Command is "CAP" or "AUTHENTICATE" or "902" or "903" or "904" or "905" or "906" or "907" or "908" ||
+        message.Command == "421" &&
+        message.Parameters.Count >= 2 &&
+        message.Parameters[1].Equals("CAP", StringComparison.OrdinalIgnoreCase);
 
     private void OnConnectionClosed(Exception? exception)
     {

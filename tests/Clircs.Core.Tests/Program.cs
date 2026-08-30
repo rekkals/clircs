@@ -7,6 +7,7 @@ DccTests.Register(suite);
 StateAndCommandTests.Register(suite);
 SessionTests.Register(suite);
 NetworkingIntegrationTests.Register(suite);
+CapabilityNegotiationTests.Register(suite);
 SaslTests.Register(suite);
 TrustedCertificateStoreTests.Register(suite);
 NetworkProfileStoreTests.Register(suite);

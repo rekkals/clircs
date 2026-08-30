@@ -12,7 +12,10 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private IrcConnectionOptions? _options;
     private int _nicknameIndex;
     private bool _nicknameSelectionRequired;
-    private readonly Dictionary<string, string?> _advertisedCapabilities = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _advertisedCapabilities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _enabledCapabilities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _requestedCapabilities = new(StringComparer.Ordinal);
+    private CapabilityNegotiationStage _capabilityStage;
     private SaslRegistrationStage _saslStage;
     private int _finishStarted;
     private int _disposed;
@@ -61,7 +64,10 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _nicknameIndex = 0;
         _nicknameSelectionRequired = false;
         _advertisedCapabilities.Clear();
-        _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.AwaitingCapabilities;
+        _enabledCapabilities.Clear();
+        _requestedCapabilities.Clear();
+        _capabilityStage = CapabilityNegotiationStage.AwaitingCapabilities;
+        _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
         _transport = null;
         _outbound = null;
         _receiveTask = null;
@@ -83,11 +89,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
                 await SendAsync("PASS", [options.Password], IrcOutboundPriority.Critical, connectionToken).ConfigureAwait(false);
             }
 
-            if (options.Sasl is not null)
-            {
-                await SendAsync("CAP", ["LS", "302"], IrcOutboundPriority.Critical, connectionToken).ConfigureAwait(false);
-            }
-
+            await SendAsync("CAP", ["LS", "302"], IrcOutboundPriority.Critical, connectionToken).ConfigureAwait(false);
             await SendAsync("NICK", [CurrentNickname], IrcOutboundPriority.Critical, connectionToken).ConfigureAwait(false);
             await SendAsync(
                 "USER",
@@ -238,13 +240,29 @@ public sealed class IrcClientConnection : IAsyncDisposable
             return;
         }
 
+        if (message.Command == "CAP" ||
+            (_state == IrcConnectionState.Registering && IsCapabilityUnsupportedReply(message)))
+        {
+            await HandleCapabilityNegotiationAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+
         if (_options?.Sasl is { } sasl && _state == IrcConnectionState.Registering)
         {
-            await HandleSaslRegistrationAsync(message, sasl, cancellationToken).ConfigureAwait(false);
+            await HandleSaslAuthenticationAsync(message, sasl, cancellationToken).ConfigureAwait(false);
         }
 
         if (message.Command == "001")
         {
+            if (_capabilityStage is not (CapabilityNegotiationStage.Complete or CapabilityNegotiationStage.Unsupported))
+            {
+                if (_options?.Sasl is { } registrationSasl && _saslStage is not SaslRegistrationStage.Complete)
+                {
+                    FailSasl(registrationSasl, "the server completed registration without SASL");
+                }
+
+                _capabilityStage = CapabilityNegotiationStage.Complete;
+            }
+
             _state = IrcConnectionState.Online;
             if (message.Parameters.Count > 0)
             {
@@ -265,58 +283,163 @@ public sealed class IrcClientConnection : IAsyncDisposable
         }
     }
 
-    private async ValueTask HandleSaslRegistrationAsync(
+    private async ValueTask HandleCapabilityNegotiationAsync(
+        IrcMessage message,
+        CancellationToken cancellationToken)
+    {
+        if (IsCapabilityUnsupportedReply(message))
+        {
+            _capabilityStage = CapabilityNegotiationStage.Unsupported;
+            if (_options?.Sasl is { } unsupportedSasl)
+            {
+                FailSasl(unsupportedSasl, "the server does not support capability negotiation");
+            }
+            return;
+        }
+
+        if (message.Parameters.Count < 2)
+        {
+            return;
+        }
+
+        var subcommand = message.Parameters[1].ToUpperInvariant();
+        if (subcommand == "LS" && _capabilityStage == CapabilityNegotiationStage.AwaitingCapabilities)
+        {
+            AddAdvertisedCapabilities(message.Parameters[^1]);
+            var continuation = message.Parameters.Count >= 4 && message.Parameters[^2] == "*";
+            if (continuation)
+            {
+                return;
+            }
+
+            await RequestRegistrationCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (subcommand == "NEW")
+        {
+            AddAdvertisedCapabilities(message.Parameters[^1]);
+            if (_state == IrcConnectionState.Online &&
+                _advertisedCapabilities.ContainsKey("multi-prefix") &&
+                !_enabledCapabilities.Contains("multi-prefix"))
+            {
+                await RequestCapabilitiesAsync(["multi-prefix"], cancellationToken).ConfigureAwait(false);
+            }
+            return;
+        }
+
+        if (subcommand == "DEL")
+        {
+            foreach (var capability in ParseCapabilityNames(message.Parameters[^1]))
+            {
+                _advertisedCapabilities.Remove(capability);
+                _enabledCapabilities.Remove(capability);
+            }
+            return;
+        }
+
+        if (subcommand is not ("ACK" or "NAK"))
+        {
+            return;
+        }
+
+        if (subcommand == "ACK")
+        {
+            ApplyCapabilityAcknowledgement(message.Parameters[^1]);
+        }
+
+        if (_state == IrcConnectionState.Online)
+        {
+            _requestedCapabilities.Clear();
+            return;
+        }
+
+        if (_capabilityStage != CapabilityNegotiationStage.AwaitingAcknowledgement)
+        {
+            return;
+        }
+
+        var saslRequested = _requestedCapabilities.Contains("sasl");
+        var saslAcknowledged = _enabledCapabilities.Contains("sasl");
+        _requestedCapabilities.Clear();
+        if (saslRequested && (subcommand == "NAK" || !saslAcknowledged))
+        {
+            FailSasl(_options!.Sasl!, "the server rejected the SASL capability");
+        }
+
+        if (saslRequested && saslAcknowledged)
+        {
+            _capabilityStage = CapabilityNegotiationStage.Authenticating;
+            _saslStage = SaslRegistrationStage.AwaitingChallenge;
+            await SendAsync("AUTHENTICATE", [_options!.Sasl!.Mechanism], IrcOutboundPriority.Critical, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask RequestRegistrationCapabilitiesAsync(CancellationToken cancellationToken)
+    {
+        var requested = new List<string>();
+        if (_advertisedCapabilities.ContainsKey("multi-prefix"))
+        {
+            requested.Add("multi-prefix");
+        }
+
+        if (_options?.Sasl is { } sasl)
+        {
+            if (!_advertisedCapabilities.TryGetValue("sasl", out var mechanisms))
+            {
+                FailSasl(sasl, "the server does not advertise SASL");
+            }
+            else if (!string.IsNullOrWhiteSpace(mechanisms) &&
+                     !mechanisms.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                         .Contains(sasl.Mechanism, StringComparer.OrdinalIgnoreCase))
+            {
+                FailSasl(sasl, $"the server does not offer the {sasl.Mechanism} mechanism");
+            }
+            else
+            {
+                requested.Add("sasl");
+            }
+        }
+
+        if (requested.Count == 0)
+        {
+            await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        _capabilityStage = CapabilityNegotiationStage.AwaitingAcknowledgement;
+        await RequestCapabilitiesAsync(requested, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask RequestCapabilitiesAsync(
+        IReadOnlyList<string> capabilities,
+        CancellationToken cancellationToken)
+    {
+        _requestedCapabilities.Clear();
+        foreach (var capability in capabilities)
+        {
+            _requestedCapabilities.Add(capability);
+        }
+
+        await SendAsync("CAP", ["REQ", string.Join(' ', capabilities)], IrcOutboundPriority.Critical, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask HandleSaslAuthenticationAsync(
         IrcMessage message,
         SaslAuthentication sasl,
         CancellationToken cancellationToken)
     {
-        if (message.Command == "CAP" && message.Parameters.Count >= 2)
-        {
-            var subcommand = message.Parameters[1].ToUpperInvariant();
-            if (subcommand == "LS" && _saslStage == SaslRegistrationStage.AwaitingCapabilities)
-            {
-                AddAdvertisedCapabilities(message.Parameters[^1]);
-                var continuation = message.Parameters.Count >= 4 && message.Parameters[^2] == "*";
-                if (continuation) return;
-
-                if (!_advertisedCapabilities.TryGetValue("sasl", out var mechanisms))
-                {
-                    await FinishSaslFailureAsync(sasl, "the server does not advertise SASL", cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-                if (!string.IsNullOrWhiteSpace(mechanisms) && !mechanisms.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                        .Contains(sasl.Mechanism, StringComparer.OrdinalIgnoreCase))
-                {
-                    await FinishSaslFailureAsync(sasl, $"the server does not offer the {sasl.Mechanism} mechanism", cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                _saslStage = SaslRegistrationStage.AwaitingCapabilityAcknowledgement;
-                await SendAsync("CAP", ["REQ", "sasl"], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            if (_saslStage == SaslRegistrationStage.AwaitingCapabilityAcknowledgement && subcommand is "ACK" or "NAK")
-            {
-                var acknowledged = message.Parameters[^1].Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Any(capability => capability.Equals("sasl", StringComparison.OrdinalIgnoreCase));
-                if (subcommand == "NAK" || !acknowledged)
-                {
-                    await FinishSaslFailureAsync(sasl, "the server rejected the SASL capability", cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                _saslStage = SaslRegistrationStage.AwaitingChallenge;
-                await SendAsync("AUTHENTICATE", [sasl.Mechanism], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-        }
-
         if (message.Command == "AUTHENTICATE" && _saslStage == SaslRegistrationStage.AwaitingChallenge)
         {
             if (message.Parameters.Count == 0 || message.Parameters[0] != "+")
             {
-                await FinishSaslFailureAsync(sasl, $"the server sent an unexpected {sasl.Mechanism} challenge", cancellationToken).ConfigureAwait(false);
+                FailSasl(sasl, $"the server sent an unexpected {sasl.Mechanism} challenge");
+                await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -337,7 +460,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
             SaslAuthenticationChanged?.Invoke(new SaslAuthenticationEvent(
                 true, sasl.Required, sasl.Mechanism, sasl.AuthorizationIdentity,
                 message.Command == "907" ? "already authenticated" : "authentication successful"));
-            await SendAsync("CAP", ["END"], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
+            await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -345,15 +468,52 @@ public sealed class IrcClientConnection : IAsyncDisposable
             message.Command is "902" or "904" or "905" or "906")
         {
             var detail = message.Parameters.Count > 0 ? message.Parameters[^1] : "authentication failed";
-            await FinishSaslFailureAsync(sasl, detail, cancellationToken).ConfigureAwait(false);
+            FailSasl(sasl, detail);
+            await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool IsCapabilityUnsupportedReply(IrcMessage message) =>
+        message.Command == "421" &&
+        message.Parameters.Count >= 2 &&
+        message.Parameters[1].Equals("CAP", StringComparison.OrdinalIgnoreCase);
+
+    private void ApplyCapabilityAcknowledgement(string value)
+    {
+        foreach (var token in value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var disable = token[0] == '-';
+            var capability = disable ? token[1..] : token;
+            if (disable)
+            {
+                _enabledCapabilities.Remove(capability);
+            }
+            else
+            {
+                _enabledCapabilities.Add(capability);
+            }
+        }
+    }
+
+    private static IEnumerable<string> ParseCapabilityNames(string value)
+    {
+        foreach (var token in value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = token.IndexOf('=');
+            yield return separator < 0 ? token : token[..separator];
+        }
+    }
+
+    private async ValueTask FinishCapabilityNegotiationAsync(CancellationToken cancellationToken)
+    {
+        if (_capabilityStage is CapabilityNegotiationStage.Complete or CapabilityNegotiationStage.Unsupported)
+        {
             return;
         }
 
-        if (message.Command == "001" && _saslStage is not (SaslRegistrationStage.Complete or SaslRegistrationStage.Disabled))
-        {
-            await FinishSaslFailureAsync(sasl, "the server completed registration without SASL", cancellationToken, registrationAlreadyCompleted: true)
-                .ConfigureAwait(false);
-        }
+        _capabilityStage = CapabilityNegotiationStage.Complete;
+        _requestedCapabilities.Clear();
+        await SendAsync("CAP", ["END"], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
     }
 
     private void AddAdvertisedCapabilities(string value)
@@ -366,11 +526,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
         }
     }
 
-    private async ValueTask FinishSaslFailureAsync(
-        SaslAuthentication sasl,
-        string detail,
-        CancellationToken cancellationToken,
-        bool registrationAlreadyCompleted = false)
+    private void FailSasl(SaslAuthentication sasl, string detail)
     {
         _saslStage = SaslRegistrationStage.Complete;
         SaslAuthenticationChanged?.Invoke(new SaslAuthenticationEvent(
@@ -378,10 +534,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
         if (sasl.Required)
         {
             throw new IrcSaslException($"SASL authentication failed: {detail}");
-        }
-        if (!registrationAlreadyCompleted)
-        {
-            await SendAsync("CAP", ["END"], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -499,11 +651,19 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
     private Task WaitForFinishAsync() => _finishCompletion?.Task ?? Task.CompletedTask;
 
+    private enum CapabilityNegotiationStage
+    {
+        AwaitingCapabilities,
+        AwaitingAcknowledgement,
+        Authenticating,
+        Complete,
+        Unsupported
+    }
+
     private enum SaslRegistrationStage
     {
         Disabled,
-        AwaitingCapabilities,
-        AwaitingCapabilityAcknowledgement,
+        Pending,
         AwaitingChallenge,
         AwaitingResult,
         Complete
