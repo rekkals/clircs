@@ -40,6 +40,7 @@ internal static class SessionTests
         suite.Add("caller-ID permission and ACCEPT replies are formatted", CallerIdRepliesAreFormatted);
         suite.Add("incoming caller-ID blocks are formatted and routed", IncomingCallerIdBlockIsFormatted);
         suite.Add("channel permission errors are formatted without raw numerics", PermissionErrorsAreFormatted);
+        suite.Add("numeric 421 becomes a readable unknown-command error", UnknownCommandIsFormatted);
         suite.Add("numeric 333 renders topic setter metadata in the channel", TopicSetterRoutesToChannel);
         suite.Add("numeric 329 renders channel creation time in the channel", ChannelCreationRoutesToChannel);
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
@@ -748,6 +749,19 @@ internal static class SessionTests
         Assert.False(alreadyJoined[0].Text.Contains("443", StringComparison.Ordinal));
     }
 
+    private static void UnknownCommandIsFormatted()
+    {
+        var (_, processor) = CreateProcessor();
+        var events = processor.Process(
+            IrcMessageParser.Parse(":server 421 me WEEE :Unknown command"));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal(SessionEventKind.Error, events[0].Kind);
+        Assert.Equal("Unknown command: WEEE", events[0].Text);
+        Assert.Equal("421", events[0].Fields!["numeric"]!);
+        Assert.Equal("true", events[0].Fields!["routeActive"]!);
+        Assert.False(events[0].Text.Contains("[421]", StringComparison.Ordinal));
+    }
     private static void MotdNumericsAreHidden()
     {
         var (state, processor) = CreateProcessor();

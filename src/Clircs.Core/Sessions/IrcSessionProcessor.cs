@@ -697,6 +697,16 @@ public sealed class IrcSessionProcessor
                         ("nick", blockedSender), ("address", blockedSenderAddress),
                         ("serverText", Last(message)), ("routeConfigured", "true"))));
                 break;
+            case "421":
+                var unknownCommand = message.Parameters.Count >= 2
+                    ? message.Parameters[1]
+                    : "unknown";
+                events.Add(Status(
+                    SessionEventKind.Error,
+                    $"Unknown command: {unknownCommand}",
+                    now,
+                    Fields(("numeric", "421"), ("routeActive", "true"))));
+                break;
             case "372":
             case "375":
             case "376":
