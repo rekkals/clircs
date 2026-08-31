@@ -26,10 +26,9 @@ internal sealed partial class ClientApplication
         Register("back", [], "Set yourself as back.", BackAsync);
         Register("awaylog", ["msglog"], "Enables or disables logging messages while away.", AwayLogAsync);
         Register("messages", ["mchk"], "Read or remove messages logged while away.", AwayMessagesAsync);
-        Register("buffer", ["b"], "List windows or switch to window [number|name].", BufferAsync);
         Register("window", ["win"], "List windows or switch to window [number|name].", BufferAsync);
-        Register("next", ["bn"], "Switch to the next window.", NextBufferAsync);
-        Register("previous", ["bp"], "Switch to the previous window.", PreviousBufferAsync);
+        Register("next", ["wn"], "Switch to the next window.", NextBufferAsync);
+        Register("previous", ["wp"], "Switch to the previous window.", PreviousBufferAsync);
         Register("close", [], "Close the active window.", CloseBufferAsync);
         Register("clear", ["cls"], "Clear the visible terminal.", ClearAsync);
         Register("autojoin", ["ajoin", "aj"], "Manage autojoin channels for the active network profile.", AutojoinAsync);
@@ -113,7 +112,7 @@ internal sealed partial class ClientApplication
         Register("ckb", [], "Kick-ban a nick in every eligible common channel.", CommonKickBanAsync);
         Register("massinvite", ["mi"], "Invite active-channel members to another joined channel.", MassInviteAsync);
         Register("inviteall", ["ia"], "Invite one nick to every eligible joined channel.", InviteAllAsync);
-        Register("wall", ["on", "wl", "wn"], "Notice operators in the active channel.", OperatorWallAsync);
+        Register("wall", ["on", "wl"], "Notice operators in the active channel.", OperatorWallAsync);
         Register("wallmsg", ["wallm", "wm"], "Message operators in the active channel.", OperatorWallMessageAsync);
         Register("voicenotice", ["vnotice", "vn", "vwall", "wallv"], "Notice voiced users and operators.", VoiceNoticeAsync);
         Register("voicemsg", ["vmsg"], "Message voiced users and operators.", VoiceMessageAsync);
