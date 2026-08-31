@@ -15,6 +15,7 @@ internal static class ThemeTests
         suite.Add("default theme uses a subdued status bar", DefaultStatusBarIsSubdued);
         suite.Add("activity numbers remain visible against the status bar", ActivityNumbersRemainVisible);
         suite.Add("startup logo and default text colors do not drift", StartupAndTextColorsAreStable);
+        suite.Add("plain theme uses a black-on-white topic bar", PlainThemeUsesBlackOnWhiteTopicBar);
         suite.Add("contextual settings and protection help is available", ContextualHelpIsAvailable);
         suite.Add("fullscreen input disables mouse-wheel arrow translation", FullScreenDisablesAlternateScroll);
         suite.Add("startup presentations are measurable history entries", StartupPresentationIsHistoryReady);
@@ -215,6 +216,13 @@ internal static class ThemeTests
         Assert.Equal(30, ConsolePresenter.AnsiForeground(ConsoleColor.Black));
         Assert.Equal(46, ConsolePresenter.AnsiBackground(ConsoleColor.DarkCyan));
         Assert.Equal(95, ConsolePresenter.AnsiForeground(ConsoleColor.Magenta));
+    }
+    private static void PlainThemeUsesBlackOnWhiteTopicBar()
+    {
+        var plain = TerminalTheme.BuiltIns["plain"];
+
+        Assert.Equal(ConsoleColor.Black, plain.TopicForeground);
+        Assert.Equal(ConsoleColor.White, plain.TopicBackground);
     }
 
     private static void ContextualHelpIsAvailable()

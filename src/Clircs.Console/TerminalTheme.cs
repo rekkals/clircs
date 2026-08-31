@@ -92,6 +92,10 @@ internal sealed record TerminalTheme(
                 ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray,
                 ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray,
                 ConsoleColor.Gray, ConsoleColor.Black, "-->", "<--", "", "", "", " | ", false, true)
+            {
+                TopicForeground = ConsoleColor.Black,
+                TopicBackground = ConsoleColor.White
+            }
         }.ToDictionary(theme => theme.Name, StringComparer.OrdinalIgnoreCase);
 }
 
