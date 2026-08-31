@@ -1,12 +1,12 @@
 # clircs architecture
 
-This document describes the architecture that exists in **clircs v0.8.61**. It is a contributor guide, not a wishlist. The older planning document under `outputs/` explains some original design intent, but the source code and this document describe the current application.
+This document describes the architecture of the current clircs development tree. It is a contributor guide, not a wishlist. The source code and this document describe the current application.
 
 clircs is a Windows-native console IRC client built on C# and .NET 10. Its core design goal is straightforward: protocol state must remain authoritative and independent from whatever happens to be visible in the terminal. A channel does not cease to exist because its window is hidden, a script does not infer modes by scraping output, and a second network never shares the first network's nickname or channel state.
 
 ## The short version
 
-There are five projects and one executable:
+There are five production projects and one test project. `Clircs.Console` produces the executable:
 
 | Project | Owns | Must not own |
 | --- | --- | --- |
@@ -77,7 +77,7 @@ The concrete transport implements `IIrcTransport`, the small socket boundary def
 
 - connection and registration states;
 - `PASS`, `NICK`, and `USER` registration;
-- IRCv3 `CAP` negotiation when SASL is configured;
+- IRCv3 `CAP` negotiation on every connection, requesting `multi-prefix` and configured SASL support when advertised;
 - SASL PLAIN and EXTERNAL exchanges;
 - immediate `PING`/`PONG` handling;
 - nickname fallback during registration;
@@ -382,7 +382,7 @@ dotnet build clircs.sln -c Release
 dotnet run --project tests/Clircs.Core.Tests/Clircs.Core.Tests.csproj -c Release
 ```
 
-Some Schannel tests require a normal Windows user certificate-key environment and report themselves as skipped in restricted sandboxes.
+Some Schannel tests require a normal Windows user certificate-key environment and may fail in restricted or application-controlled environments. Run those tests from an ordinary Windows user session before treating the failures as product regressions.
 
 ## Where to make common changes
 
