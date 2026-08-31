@@ -1,3 +1,4 @@
+using System.Reflection;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Protection;
@@ -29,6 +30,7 @@ internal static class ProtectionTests
         suite.Add("version one protection settings migrate without losing overrides", VersionOneSettingsMigrate);
         suite.Add("monitor-only preview settings migrate into enforcement", MonitorPreviewMigratesToEnforcement);
         suite.Add("user-facing versions include a lowercase v prefix", VersionHasPrefix);
+        suite.Add("product version comes from assembly metadata", ProductVersionUsesAssemblyMetadata);
         suite.Add("public .NET assemblies and namespaces use Clircs naming", DotNetSurfaceUsesClircsNaming);
     }
 
@@ -385,6 +387,20 @@ internal static class ProtectionTests
     {
         Assert.True(ProductInfo.DisplayName.StartsWith("clircs v", StringComparison.Ordinal));
         Assert.False(ProductInfo.Version.StartsWith('v'));
+    }
+
+    private static void ProductVersionUsesAssemblyMetadata()
+    {
+        var informationalVersion = typeof(ProductInfo).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+            .InformationalVersion;
+
+        var metadataSeparator = informationalVersion.IndexOf('+');
+        var expected = metadataSeparator < 0
+            ? informationalVersion
+            : informationalVersion[..metadataSeparator];
+
+        Assert.Equal(expected, ProductInfo.Version);
     }
 
     private static void DotNetSurfaceUsesClircsNaming()

@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <Version>0.8.61</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

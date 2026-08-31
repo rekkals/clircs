@@ -4,8 +4,6 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Clircs.ConsoleClient</RootNamespace>
     <AssemblyName>clircs</AssemblyName>
-    <Version>0.8.61</Version>
-    <InformationalVersion>0.8.61</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="quotes.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
