@@ -14,32 +14,12 @@
 *.user
 *.suo
 
-# Local clircs data and isolated tool caches
+# Local development data and reference material
 /.appdata/
-/.appdata-*
-/.data-*
-/.dotnet-home/
-/.nuget/
-/.packages/
-/NuGet.Offline.Config
-
-# Research material, scratch work, and agent state
 /work/
-/.review-*/
-/.tmp-*/
-/.agents/
-/.codex/
-/tools/windows-sandbox/*.local.wsb
-
-# Local build, publish, smoke-test, and audit transcripts
-/.build-*.txt
-/.publish-*.txt
-/.package-*.txt
-/.test-*.txt
-/.render-*.txt
 *.log
 
-# Root-level source snapshots and packages
+# Root-level release packages
 /*.zip
 /*.tar
 /*.tar.gz
