@@ -4,41 +4,51 @@ Command line IRC software (for Windows)
 
 clircs is a Windows-native console IRC client written in C#/.NET 10 with scriptability via Jint. It does not require WSL or Cygwin to run. That's actually the whole point of the client.
 
-That, and for it to be useful out of the box. I've always disliked what I've come to call "the Wordpress approach," where you get supposedly amazing software, but it doesn't do anything until you install a bunch of other shit. I love mIRC, but it does fuck all for a normal human new to IRC, until you add some scripts. And I know it sounds crazy and you can call Ripley's if you don't believe me, but some people actually, really do, just want to chat.
+That, and for it to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do anything until you install a bunch of other shit. I love mIRC, but it and other amazing clients like it do fuck all for a normal human new to IRC, until you add some scripts. Or even someone who doesn't want to monkey around with all that. I know it sounds crazy and you can call Ripley's if you don't believe me, but some people actually, really do, just want to chat.
 
 ## Current Version
 
 This is the current development build, which includes normal IRC functions, multiple network support, TLS, SASL, bouncer connectivity, channel management, flood protection, logging, scripting, regular-old and the now-more-secure DCC SCHAT and SSEND including passive and resumed file transfers.
 
-Support for all the various ircds could be ... mixed, but shouldn't be terrible. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises, at least presently, on how well it may perform on, say, InspIRCd with a bunch of optional modules installed.
+Support for all the various IRCds could be ... mixed, but shouldn't be terrible. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises, at least presently, on how well it may perform on, say, InspIRCd with a bunch of optional modules installed.
 
 ## Requirements
 
-Windows 10 or Windows 11 and the .NET 10 runtime.
+Windows 10 or Windows 11 and the .NET 10 SDK.
 
-Final release packages will include what they need, obviously. But if you try to run clircs and Windows tells you that you need the .NET 10 runtime, you do.
+Precompiled packages and an installer will come later, but for now, you'll have to build it yourself from source. Don't worry, it's easy.
 
-## Installing
+## Building and Running
 
-Just extract it somewhere and run clircs.exe. Regular installation and winget and command-line PATH setup and all that will come later.
-
-## Source
-
-Once I do the public release, it should be as easy as installing the .NET 10 SDK, opening up a command prompt in the source directory, and running:
+Just clone the repository and build the solution:
 
 ```powershell
+git clone https://github.com/rekkals/clircs.git
+cd clircs
 dotnet build clircs.sln
 ```
 
-## Starting clircs
+Then run clircs with:
 
-Run clircs.exe, then connect with:
+```powershell
+dotnet run --project src/Clircs.Console/Clircs.Console.csproj
+```
+
+## Connecting
+
+You can connect to an IRC server with:
 
 ```text
-/server host port
-/server host port --tls
-/server profile (once set up)
+/server <host> [port] [--tls] [--password]
 ```
+
+Open a new network window with `--new`.
+
+```text
+/server irc.efnet.org 6697 --tls --new
+```
+
+You can also connect via SASL after setting up a network profile with `/network`.
 
 Use `/help` for a list of commands and `/help <command>` for help with `<command>`.
 
@@ -46,6 +56,24 @@ Use `/help` for a list of commands and `/help <command>` for help with `<command
 
 DOCUMENTATION.txt contains detailed user documentation, settings, command notes, scripting information, and current limitations.
 
+SCRIPTING.md contains info on adding scripts via Jint.
+
 VERSIONS.txt contains the glorious, me-struggling-through-C# version history.
 
 THIRD-PARTY-NOTICES.txt contains third-party licensing notices as required.
+
+## AI Policy
+
+clircs started out as a simple curiosity project. A lot of my nerd friends wouldn't shut up about coding with AI, so I figured I'd give it a shot, fully anticipating it'd suck just as badly at that as it does at writing. Two weeks later I'm on freeCodeCamp frantically trying to power through guided projects.
+
+Which is to say, a not-insignificant portion of this code was developed with OpenAI Codex, including writing and reviewing code, testing, and even some of the documentation. The direction, feature decisions, priorities, and final decisions are still mine.
+
+So AI contributions are welcome, but it's the standard "you have to be able to explain the code" rule. We're not trying to cram vibe coded features into clircs. This isn't that client.
+
+## Contact
+
+Report all issues (other than security) via GitHub at: https://github.com/rekkals/clircs/issues
+
+Please send security issues by email: slakker@clircs.org
+
+Join the #clircs IRC channel on EFnet: irc://irc.efnet.org/clircs
