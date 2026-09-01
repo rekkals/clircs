@@ -104,7 +104,7 @@ Requested `commands`, `events`, `timers`, `output`, `storage`, `secrets`, and `u
 /script permissions my-script localnetwork on
 ```
 
-The `irc` permission controls `clircs.run()`. It permits a script to request registered clircs slash commands, including commands that may send IRC traffic or change client state. Those commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts never receive direct access to an IRC socket.
+The `irc` permission controls `clircs.run()`. It permits a script to request registered clircs slash commands, including commands that may send IRC traffic or change client state. Those commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts cannot request `/script` and therefore cannot administer scripts or change their own permissions. Scripts never receive direct access to an IRC socket.
 
 The `localnetwork` permission permits only `ws://` and `wss://` WebSockets whose host is `localhost` or a loopback IP address. It does not permit general HTTP requests or connections to external hosts.
 

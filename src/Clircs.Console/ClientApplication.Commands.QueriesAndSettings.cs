@@ -718,6 +718,12 @@ internal sealed partial class ClientApplication
                 return;
             }
 
+            if (!ScriptCommandRequestPolicy.IsAllowed(command))
+            {
+                PrintScriptOutput(scriptId, "Scripts cannot request /script");
+                return;
+            }
+
             var result = await _commandExecution.ExecuteAsync(context, command, _lifetime.Token);
             if (result.Presentation is not null || !string.IsNullOrWhiteSpace(result.Message))
             {

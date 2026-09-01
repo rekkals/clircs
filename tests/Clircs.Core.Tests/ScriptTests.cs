@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Clircs.Commands;
+using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Scripting;
 using Clircs.Sessions;
@@ -24,6 +25,7 @@ internal static class ScriptTests
         suite.Add("scripts cannot use undeclared capabilities", UndeclaredCapabilityFailsAsync);
         suite.Add("IRC command permission requires an explicit grant", IrcPermissionRequiresGrantAsync);
         suite.Add("local network permission requires an explicit grant", LocalNetworkPermissionRequiresGrantAsync);
+        suite.Add("scripts cannot request script administration commands", ScriptAdministrationCommandsAreDenied);
         suite.Add("script headers are removed when a script unloads", ScriptHeadersAreOwnedAsync);
         suite.Add("failed script loads roll back host resources", FailedLoadRollsBackResourcesAsync);
         suite.Add("loaded scripts remain manageable when their source disappears", MissingLoadedSourceRemainsVisibleAsync);
@@ -35,6 +37,15 @@ internal static class ScriptTests
         suite.Add("packaged musikcube addon loads without special core knowledge", MusikcubeAddonLoadsAsync);
         suite.Add("musikcube addon authenticates and controls a local protocol peer", MusikcubeAddonProtocolAsync);
         suite.Add("runaway scripts are bounded and faulted without blocking the host", RunawayScriptIsBoundedAsync);
+    }
+
+    private static void ScriptAdministrationCommandsAreDenied()
+    {
+        var scriptCommand = (CommandInput)CommandLineParser.Parse("/script permissions attacker localnetwork on");
+        var ordinaryCommand = (CommandInput)CommandLineParser.Parse("/notice Nick hello");
+
+        Assert.False(ScriptCommandRequestPolicy.IsAllowed(scriptCommand));
+        Assert.True(ScriptCommandRequestPolicy.IsAllowed(ordinaryCommand));
     }
 
     private static async ValueTask LifecycleAndStorageAsync()
