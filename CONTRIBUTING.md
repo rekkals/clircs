@@ -33,9 +33,7 @@ The tests are a purpose-built executable suite, so use `dotnet run` rather than 
 | `src/Clircs.Scripting` | Sandboxed JavaScript runtime and script-owned resources |
 | `src/Clircs.Console` | Application coordination, commands, routing, windows, and terminal presentation |
 | `tests/Clircs.Core.Tests` | Unit, transcript, integration, security, and regression coverage |
-| `examples` | Example themes and scripts shipped with development packages |
-| `tools` | Development helpers that are safe to keep in source control |
-| `outputs` | Historical design and compatibility assessments |
+| `examples` | Example themes and scripts |
 
 `ARCHITECTURE.md` provides the detailed ownership map and traces inbound and outbound IRC data through the application.
 
@@ -46,7 +44,7 @@ The tests are a purpose-built executable suite, so use `dotnet run` rather than 
 3. Preserve domain ownership. Do not duplicate protocol, routing, persistence, validation, or presentation rules in a convenient caller.
 4. Add tests for behavior, invariants, edge cases, and failure modes—not merely for the current implementation shape.
 5. Run the complete Release build and test suite before requesting review.
-6. Update user documentation and `VERSIONS.txt` when behavior changes. Do not bump the application version for repository-only maintenance unless the maintainer requests it.
+6. Update user documentation when behavior changes. Do not bump the application version for repository-only maintenance unless the maintainer requests it.
 7. Do not commit build packages, local clircs data, downloaded reference trees, logs, credentials, certificate bundles, or private keys.
 
 The repository enables nullable reference types, implicit usings, deterministic builds, and warnings as errors through `Directory.Build.props`. Follow the formatting rules in `.editorconfig`; avoid drive-by formatting in files unrelated to the change.
