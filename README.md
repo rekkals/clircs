@@ -2,9 +2,11 @@
 
 Command line IRC software (for Windows)
 
-clircs is a Windows-native console IRC client written in C#/.NET 10 with scriptability via Jint. It does not require WSL or Cygwin to run. That's actually the whole point of the client.
+clircs is a Windows-native console IRC client written in C# for .NET 10 with scriptability via Jint. It does not require WSL or Cygwin to run. That's actually the whole point of the client.
 
-That, and for it to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do anything until you install a bunch of other shit. I love mIRC, but it and other amazing clients like it do fuck all for a normal human new to IRC, until you add some scripts. Or even someone who doesn't want to monkey around with all that. I know it sounds crazy and you can call Ripley's if you don't believe me, but some people actually, really do, just want to chat.
+That, and for it to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do much until you install a bunch of other shit. I love mIRC, but it and many other amazing clients like it don't do much for a normal human new to IRC, at least until you add some scripts. I know it sounds crazy, and you can call Ripley's if you don't believe me, but some people actually, really do, just want to chat.
+
+Additionally, we're not all aboard the current IRCv3 "make IRC into Discord" train that's rolling through. clircs operates in "back to basics" territory.
 
 ## Current Version
 
