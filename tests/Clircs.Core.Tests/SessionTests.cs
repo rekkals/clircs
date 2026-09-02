@@ -46,7 +46,7 @@ internal static class SessionTests
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
         suite.Add("MOTD replies render without numeric prefixes", MotdNumericsAreHidden);
         suite.Add("WHOIS WHO and CTCP replies carry semantic routing fields", ResultRepliesAreTagged);
-        suite.Add("WHOIS status appears only for away users", WhoisStatusIsAwayOnly);
+        suite.Add("WHOIS away field contains only the away message", WhoisAwayFieldContainsMessage);
         suite.Add("nickname WHO uses the labeled table without totals", NicknameWhoUsesTable);
         suite.Add("WHO formatting follows the requested input kind", WhoFormattingFollowsInputKind);
         suite.Add("WHOIS idle host and TLS fields are concise", WhoisFieldsAreConcise);
@@ -1155,16 +1155,16 @@ internal static class SessionTests
             IrcCaseMapping.Rfc1459));
     }
 
-    private static void WhoisStatusIsAwayOnly()
+    private static void WhoisAwayFieldContainsMessage()
     {
         var (_, processor) = CreateProcessor();
         processor.Process(IrcMessageParser.Parse(":server 311 me Alice user host * :Alice Person"));
         processor.Process(IrcMessageParser.Parse(":server 301 me Alice :out to lunch"));
         var whois = processor.Process(IrcMessageParser.Parse(":server 318 me Alice :End of WHOIS"));
 
-        Assert.Equal("away — out to lunch",
-            whois[0].Presentation!.Fields!.Single(field => field.Label == "Status").Value);
-        Assert.False(whois[0].Presentation!.Fields!.Any(field => field.Label == "Away"));
+        Assert.Equal("out to lunch",
+            whois[0].Presentation!.Fields!.Single(field => field.Label == "Away").Value);
+        Assert.False(whois[0].Presentation!.Fields!.Any(field => field.Label == "Status"));
     }
 
     private static async ValueTask OutboundNoticesDoNotCreateBuffers()

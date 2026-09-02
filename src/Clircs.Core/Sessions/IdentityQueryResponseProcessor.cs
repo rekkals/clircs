@@ -376,7 +376,7 @@ internal sealed class IdentityQueryResponseProcessor
             : result.ServerInfo is null ? result.Server : $"{result.Server} [{result.ServerInfo}]";
         if (serverText is not null && result.Secure) serverText += " [TLS]";
         Add("Server", serverText);
-        if (result.Away is not null) Add("Status", $"away — {result.Away}");
+        if (result.Away is not null) Add("Away", result.Away);
         if (result.IncludeIdle)
         {
             Add("Idle", result.IdleSeconds is null ? null : FormatElapsed(result.IdleSeconds.Value));
