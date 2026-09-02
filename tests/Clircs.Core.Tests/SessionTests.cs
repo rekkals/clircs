@@ -72,7 +72,7 @@ internal static class SessionTests
         suite.Add("JOIN PART QUIT KICK and NICK maintain channel membership", MembershipEventsMaintainState);
         suite.Add("self kicks use personal wording and semantic fields", SelfKickUsesPersonalWording);
         suite.Add("self KILL messages are formatted and classified", SelfKillIsFormatted);
-        suite.Add("server away confirmations synchronize without raw numerics", AwayConfirmationsAreFormatted);
+        suite.Add("server away confirmations synchronize and route to the active window", AwayConfirmationsAreFormattedAndRouted);
         suite.Add("authentication failure is formatted without raw 464", AuthenticationFailureIsFormatted);
         suite.Add("numeric 502 becomes a readable user-mode error", UserModeFailureIsFormatted);
         suite.Add("account login and hidden host numerics are formatted and synchronized", AccountAndHiddenHostAreFormatted);
@@ -158,18 +158,20 @@ internal static class SessionTests
         Assert.Equal("OperNick", events[0].Fields!["actor"]!);
     }
 
-    private static void AwayConfirmationsAreFormatted()
+    private static void AwayConfirmationsAreFormattedAndRouted()
     {
         var (state, processor) = CreateProcessor();
         var away = processor.Process(IrcMessageParser.Parse(":server 306 me :You have been marked as being away"));
         Assert.True(state.IsAway);
         Assert.Equal("You are now marked away", away[0].Text);
         Assert.False(away[0].Text.Contains("306", StringComparison.Ordinal));
+        Assert.Equal("true", away[0].Fields!["routeActive"]!);
 
         var back = processor.Process(IrcMessageParser.Parse(":server 305 me :You are no longer marked as being away"));
         Assert.False(state.IsAway);
         Assert.Equal("You are no longer marked away", back[0].Text);
         Assert.False(back[0].Text.Contains("305", StringComparison.Ordinal));
+        Assert.Equal("true", back[0].Fields!["routeActive"]!);
     }
 
     private static void AuthenticationFailureIsFormatted()

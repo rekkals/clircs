@@ -228,7 +228,7 @@ public sealed class IrcSessionProcessor
                     SessionEventKind.Status,
                     "You are no longer marked away",
                     now,
-                    Fields(("event", "away"), ("away", "false"))));
+                    Fields(("event", "away"), ("away", "false"), ("routeActive", "true"))));
                 break;
             case "306":
                 _state.SetAway(true);
@@ -236,7 +236,7 @@ public sealed class IrcSessionProcessor
                     SessionEventKind.Status,
                     "You are now marked away",
                     now,
-                    Fields(("event", "away"), ("away", "true"))));
+                    Fields(("event", "away"), ("away", "true"), ("routeActive", "true"))));
                 break;
             case "464":
                 events.Add(Status(
