@@ -64,6 +64,10 @@ VERSIONS.txt contains the glorious, me-struggling-through-C# version history.
 
 THIRD-PARTY-NOTICES.txt contains third-party licensing notices as required.
 
+## License
+
+clircs is free software licensed under the GNU General Public License, either version 3 or (at your option) any later version. See [LICENSE](LICENSE).
+
 ## AI Policy
 
 clircs started out as a simple curiosity project. A lot of my nerd friends wouldn't shut up about coding with AI, so I figured I'd give it a shot, fully anticipating it'd suck just as badly at that as it does at writing. Two weeks later I'm on freeCodeCamp frantically trying to power through guided projects.

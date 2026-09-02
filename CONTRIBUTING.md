@@ -2,6 +2,8 @@
 
 clircs is a Windows-native console IRC client written in C#. This guide is for contributors working from source. Start with [ARCHITECTURE.md](ARCHITECTURE.md) before making a change that crosses protocol, session, routing, window, persistence, DCC, protection, or scripting boundaries.
 
+By contributing to clircs, you agree that your contribution is licensed under the GNU General Public License, version 3 or later.
+
 ## Requirements
 
 - Windows 10 or Windows 11
