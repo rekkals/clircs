@@ -983,6 +983,11 @@ public sealed class IrcSessionProcessor
             _state.SetUpstreamTls(true);
         }
 
+        var irssiProxySignature = message.Command == "002" &&
+            message.Parameters.Count >= 2 &&
+            message.Parameters[^1].StartsWith(
+                "Your host is irssi-proxy, running version ", StringComparison.OrdinalIgnoreCase);
+
         var zncToken = message.Command == "005" && message.Parameters
             .Skip(1)
             .Select(parameter => parameter.Split('=', 2)[0])
@@ -992,6 +997,10 @@ public sealed class IrcSessionProcessor
         if (zncToken || zncPrefix)
         {
             _state.SetBouncer("ZNC");
+        }
+        else if (irssiProxySignature)
+        {
+            _state.SetBouncer("Irssi Proxy");
         }
     }
 

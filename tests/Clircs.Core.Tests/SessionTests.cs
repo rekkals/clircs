@@ -78,6 +78,7 @@ internal static class SessionTests
         suite.Add("account login and hidden host numerics are formatted and synchronized", AccountAndHiddenHostAreFormatted);
         suite.Add("LIST replies produce a formatted routed channel table", ListProducesChannelTable);
         suite.Add("bouncer metadata separates client and upstream TLS", BouncerMetadataSeparatesTlsHops);
+        suite.Add("Irssi Proxy is detected from its registration signature", IrssiProxyIsDetected);
         suite.Add("PREFIX CHANMODES and ban changes update channel policy state", ModesAndBansMaintainState);
         suite.Add("channel list numerics produce formatted b e I and q results", ChannelListsAreFormatted);
         suite.Add("empty channel lists produce one concise result", EmptyChannelListsAreConcise);
@@ -143,6 +144,35 @@ internal static class SessionTests
         Assert.Equal("ZNC", state.BouncerName!);
         Assert.False(state.ClientTransportTls);
         Assert.True(state.UpstreamTls is null);
+    }
+
+    private static void IrssiProxyIsDetected()
+    {
+        var (state, processor) = CreateProcessor();
+        state.ResetForReconnect(clientTransportTls: false);
+
+        processor.Process(IrcMessageParser.Parse(
+            ":EFNet.proxy 001 me :Welcome to the Internet Relay Network"));
+
+        processor.Process(IrcMessageParser.Parse(
+            ":EFNet.proxy 002 me :Your host is irssi-proxy, running version 1.4.5"));
+
+        Assert.Equal("Irssi Proxy", state.BouncerName!);
+        Assert.False(state.ClientTransportTls);
+        Assert.True(state.UpstreamTls is null);
+
+        processor.BeginWhoisRequest("me", includeIdle: false, automatic: true);
+
+        Assert.Equal(0, processor.Process(IrcMessageParser.Parse(
+            ":irc.choopa.net 311 me me user host * :Test User")).Count);
+
+        Assert.Equal(0, processor.Process(IrcMessageParser.Parse(
+            ":irc.choopa.net 671 me me :is using a secure connection")).Count);
+
+        Assert.Equal(0, processor.Process(IrcMessageParser.Parse(
+            ":irc.choopa.net 318 me me :End of WHOIS list.")).Count);
+
+        Assert.True(state.UpstreamTls == true);
     }
 
     private static void SelfKillIsFormatted()
