@@ -14,6 +14,7 @@ public sealed class IrcSessionProcessor
     private readonly ChannelListResponseProcessor _channelLists;
     private readonly List<string> _acceptResults = [];
     private PendingMessageGuard? _pendingMessageGuard;
+    private AutomaticVersionProbeState _automaticVersionProbeState;
 
     public IrcSessionProcessor(NetworkSessionState state, string initialNickname)
     {
@@ -39,6 +40,7 @@ public sealed class IrcSessionProcessor
         _networkQueries.Reset();
         _acceptResults.Clear();
         _pendingMessageGuard = null;
+        _automaticVersionProbeState = AutomaticVersionProbeState.None;
     }
 
     public Guid BeginWhoRequest(IReadOnlyList<string> arguments, bool automatic = false)
@@ -49,6 +51,16 @@ public sealed class IrcSessionProcessor
     public void CancelWhoRequest(Guid requestId)
     {
         _identityQueries.CancelWho(requestId);
+    }
+
+    public void BeginAutomaticVersionProbe()
+    {
+        _automaticVersionProbeState = AutomaticVersionProbeState.AwaitingVersion;
+    }
+
+    public void CancelAutomaticVersionProbe()
+    {
+        _automaticVersionProbeState = AutomaticVersionProbeState.None;
     }
 
     public Guid BeginWhoisRequest(string nickname, bool includeIdle, bool automatic = false)
@@ -68,6 +80,8 @@ public sealed class IrcSessionProcessor
         var now = DateTimeOffset.Now;
         var sender = NickFromPrefix(message.Prefix);
         var senderIdentity = ParsePrefix(message.Prefix);
+        var suppressAutomaticVersionOutput =
+            ObserveAutomaticVersionProbe(message);
         ObserveConnectionMetadata(message);
 
         if (_pendingMessageGuard is { } pending && message.Command != "717")
@@ -114,7 +128,14 @@ public sealed class IrcSessionProcessor
                 {
                     _identityQueries.ReindexNames();
                 }
-                events.Add(Status(SessionEventKind.Server, $"Server features: {string.Join(' ', message.Parameters.Skip(1))}", now));
+
+                if (!suppressAutomaticVersionOutput)
+                {
+                    events.Add(Status(
+                        SessionEventKind.Server,
+                        $"Server features: {string.Join(' ', message.Parameters.Skip(1))}",
+                        now));
+                }
                 break;
             case var welcomeNumeric when IsWelcomeNumeric(welcomeNumeric):
                 events.Add(Status(SessionEventKind.Server, string.Join(' ', message.Parameters.Skip(1)), now));
@@ -707,6 +728,16 @@ public sealed class IrcSessionProcessor
                     now,
                     Fields(("numeric", "421"), ("routeActive", "true"))));
                 break;
+            case "351":
+                if (!suppressAutomaticVersionOutput)
+                {
+                    events.Add(Status(
+                        SessionEventKind.Server,
+                        $"Server version: {string.Join(' ', message.Parameters.Skip(1))}",
+                        now,
+                        Fields(("numeric", "351"))));
+                }
+                break;
             case "372":
             case "375":
             case "376":
@@ -962,6 +993,47 @@ public sealed class IrcSessionProcessor
 
     private sealed record PendingMessageGuard(string Target, string Text);
 
+    private enum AutomaticVersionProbeState
+    {
+        None,
+        AwaitingVersion,
+        ReceivingIsupport
+    }
+
+    private bool ObserveAutomaticVersionProbe(IrcMessage message)
+    {
+        switch (_automaticVersionProbeState)
+        {
+            case AutomaticVersionProbeState.AwaitingVersion
+                when message.Command == "351":
+                _automaticVersionProbeState =
+                    AutomaticVersionProbeState.ReceivingIsupport;
+                return true;
+
+            case AutomaticVersionProbeState.ReceivingIsupport
+                when message.Command == "005":
+                return true;
+
+            case AutomaticVersionProbeState.ReceivingIsupport:
+                _automaticVersionProbeState =
+                    AutomaticVersionProbeState.None;
+                return false;
+
+            case AutomaticVersionProbeState.AwaitingVersion
+                when message.Command == "421" &&
+                     message.Parameters.Count >= 2 &&
+                     message.Parameters[1].Equals(
+                         "VERSION",
+                         StringComparison.OrdinalIgnoreCase):
+                _automaticVersionProbeState =
+                    AutomaticVersionProbeState.None;
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
     private void ObserveConnectionMetadata(IrcMessage message)
     {
         if (message.Command == "004" && message.Parameters.Count >= 2)
@@ -1001,6 +1073,15 @@ public sealed class IrcSessionProcessor
         else if (irssiProxySignature)
         {
             _state.SetBouncer("Irssi Proxy");
+
+            const string proxySuffix = ".proxy";
+            if (message.Prefix?.EndsWith(
+                    proxySuffix,
+                    StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var networkName = message.Prefix[..^proxySuffix.Length];
+                Features.ObserveNetworkName(networkName);
+            }
         }
     }
 

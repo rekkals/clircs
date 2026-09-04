@@ -126,6 +126,16 @@ public sealed class ServerFeatures
         DetectDaemonFamily();
     }
 
+    public void ObserveNetworkName(string? networkName)
+    {
+        if (string.IsNullOrWhiteSpace(networkName))
+        {
+            return;
+        }
+
+        NetworkName = networkName.Trim();
+    }
+
     public bool TryGetPrefixMode(char symbol, out char mode) => _prefixSymbols.TryGetValue(symbol, out mode);
 
     public bool IsPrefixMode(char mode) => _prefixModes.ContainsKey(mode);

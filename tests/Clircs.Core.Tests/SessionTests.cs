@@ -79,6 +79,7 @@ internal static class SessionTests
         suite.Add("LIST replies produce a formatted routed channel table", ListProducesChannelTable);
         suite.Add("bouncer metadata separates client and upstream TLS", BouncerMetadataSeparatesTlsHops);
         suite.Add("Irssi Proxy is detected from its registration signature", IrssiProxyIsDetected);
+        suite.Add("automatic VERSION probes silently collect server features", AutomaticVersionProbeCollectsFeaturesSilently);
         suite.Add("PREFIX CHANMODES and ban changes update channel policy state", ModesAndBansMaintainState);
         suite.Add("channel list numerics produce formatted b e I and q results", ChannelListsAreFormatted);
         suite.Add("empty channel lists produce one concise result", EmptyChannelListsAreConcise);
@@ -158,6 +159,7 @@ internal static class SessionTests
             ":EFNet.proxy 002 me :Your host is irssi-proxy, running version 1.4.5"));
 
         Assert.Equal("Irssi Proxy", state.BouncerName!);
+        Assert.Equal("EFNet", processor.Features.NetworkName!);
         Assert.False(state.ClientTransportTls);
         Assert.True(state.UpstreamTls is null);
 
@@ -173,6 +175,38 @@ internal static class SessionTests
             ":irc.choopa.net 318 me me :End of WHOIS list.")).Count);
 
         Assert.True(state.UpstreamTls == true);
+    }
+
+    private static void AutomaticVersionProbeCollectsFeaturesSilently()
+    {
+        var (_, processor) = CreateProcessor();
+
+        processor.BeginAutomaticVersionProbe();
+
+        var version = processor.Process(IrcMessageParser.Parse(
+            ":irc.deft.com 351 me ircd-ratbox-3.0.10. irc.deft.com :egGHIKMpZ6 TS6ow 1UP"));
+
+        var firstFeatures = processor.Process(IrcMessageParser.Parse(
+            ":irc.deft.com 005 me MODES=4 NETWORK=EFnet :are supported by this server"));
+
+        var secondFeatures = processor.Process(IrcMessageParser.Parse(
+            ":irc.deft.com 005 me NICKLEN=9 CASEMAPPING=rfc1459 :are supported by this server"));
+
+        Assert.Equal(0, version.Count);
+        Assert.Equal(0, firstFeatures.Count);
+        Assert.Equal(0, secondFeatures.Count);
+        Assert.Equal("EFnet", processor.Features.NetworkName!);
+        Assert.Equal(4, processor.Features.ModesPerCommand);
+        Assert.True(processor.Features.Supports("NICKLEN"));
+
+        var manualVersion = processor.Process(IrcMessageParser.Parse(
+            ":irc.deft.com 351 me ircd-ratbox-3.0.10. irc.deft.com :egGHIKMpZ6 TS6ow 1UP"));
+
+        Assert.Equal(1, manualVersion.Count);
+        Assert.Equal(
+            "Server version: ircd-ratbox-3.0.10. irc.deft.com egGHIKMpZ6 TS6ow 1UP",
+            manualVersion[0].Text);
+        Assert.Equal("351", manualVersion[0].Fields!["numeric"]!);
     }
 
     private static void SelfKillIsFormatted()

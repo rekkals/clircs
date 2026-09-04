@@ -22,7 +22,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     private bool? _initialBouncerAwayState;
     private int _synchronizationVersion;
     private TaskCompletionSource<bool>? _registrationCompletion;
-    private bool _upstreamTlsProbeStarted;
+    private bool _bouncerMetadataProbeStarted;
     private bool _connectionAttemptInProgress;
 
     public IrcNetworkSession(
@@ -100,7 +100,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _synchronizationCompleted = false;
         _initialBouncerAwayState = null;
         _synchronizationVersion = 0;
-        _upstreamTlsProbeStarted = false;
+        _bouncerMetadataProbeStarted = false;
         var registrationCompletion =
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _registrationCompletion = registrationCompletion;
@@ -353,7 +353,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             : _processor.Process(message);
         if (_synchronizationCompleted)
         {
-            StartUpstreamTlsProbe();
+            StartBouncerMetadataProbe();
         }
         foreach (var processedEvent in processedEvents)
         {
@@ -675,27 +675,57 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 });
         }
         _initialBouncerAwayState = null;
-        StartUpstreamTlsProbe();
+        StartBouncerMetadataProbe();
         SynchronizationCompleted?.Invoke(this);
     }
 
-    private void StartUpstreamTlsProbe()
+    private void StartBouncerMetadataProbe()
     {
-        if (_upstreamTlsProbeStarted || State.BouncerName is null ||
+        if (_bouncerMetadataProbeStarted ||
+            !_synchronizationCompleted ||
+            State.BouncerName is null ||
             _connection.State != IrcConnectionState.Online)
         {
             return;
         }
-        _upstreamTlsProbeStarted = true;
-        _ = ProbeUpstreamTlsAsync();
+
+        _bouncerMetadataProbeStarted = true;
+        _ = ProbeBouncerMetadataAsync();
     }
 
-    private async Task ProbeUpstreamTlsAsync()
+    private async Task ProbeBouncerMetadataAsync()
     {
-        var requestId = BeginWhoisRequest(CurrentNickname, includeIdle: false, automatic: true);
+        if (string.Equals(
+        State.BouncerName,
+        "Irssi Proxy",
+        StringComparison.OrdinalIgnoreCase))
+        {
+            _processor.BeginAutomaticVersionProbe();
+
+            try
+            {
+                await SendAsync(
+                    "VERSION",
+                    [],
+                    IrcOutboundPriority.Automation).ConfigureAwait(false);
+            }
+            catch
+            {
+                _processor.CancelAutomaticVersionProbe();
+            }
+        }
+
+        var requestId = BeginWhoisRequest(
+            CurrentNickname,
+            includeIdle: false,
+            automatic: true);
+
         try
         {
-            await SendAsync("WHOIS", [CurrentNickname], IrcOutboundPriority.Automation).ConfigureAwait(false);
+            await SendAsync(
+                "WHOIS",
+                [CurrentNickname],
+                IrcOutboundPriority.Automation).ConfigureAwait(false);
         }
         catch
         {
