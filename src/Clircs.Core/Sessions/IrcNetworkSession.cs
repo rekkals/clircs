@@ -700,6 +700,11 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         "Irssi Proxy",
         StringComparison.OrdinalIgnoreCase))
         {
+            // Irssi proxy is probably going to send a more-than-15-parameter 005, which
+            // the parser rejects because RFC 1459, so we request VERSION. That said, I'm
+            // going to make the parser accept more than 15 parameters, so this will be
+            // reassessed.
+
             _processor.BeginAutomaticVersionProbe();
 
             try

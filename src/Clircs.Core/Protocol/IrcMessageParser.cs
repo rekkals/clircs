@@ -21,6 +21,12 @@ public static class IrcMessageParser
         var position = 0;
         string? prefix = null;
 
+        // TODO: Need to revisit message-tag handling with bouncers. ZNC is an example of it working
+        // right, with independent CAP negotiations from client -> bouncer and bouncer -> server with
+        // translation in between. Irssi proxy, however, doesn't negotiate CAP with the connecting
+        // client, and just sends upstream-negotiated message tags downstream, which is a problem in
+        // the case of the connecting client not supporting, say, IRCv3 features.
+
         if (line[0] == ':')
         {
             var prefixEnd = line.IndexOf(' ');
