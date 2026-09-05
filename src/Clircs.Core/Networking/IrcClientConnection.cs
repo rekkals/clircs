@@ -17,6 +17,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private readonly HashSet<string> _requestedCapabilities = new(StringComparer.Ordinal);
     private CapabilityNegotiationStage _capabilityStage;
     private SaslRegistrationStage _saslStage;
+    private bool _reportedExcessParameterDiagnostic;
     private int _finishStarted;
     private int _disposed;
     private TaskCompletionSource<bool>? _finishCompletion;
@@ -68,6 +69,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _requestedCapabilities.Clear();
         _capabilityStage = CapabilityNegotiationStage.AwaitingCapabilities;
         _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
+        _reportedExcessParameterDiagnostic = false;
         _transport = null;
         _outbound = null;
         _receiveTask = null;
@@ -227,6 +229,18 @@ public sealed class IrcClientConnection : IAsyncDisposable
                     {
                         Diagnostic?.Invoke($"Ignored malformed IRC line: {exception.Message}");
                         continue;
+                    }
+                    if (message.ExceedsTraditionalParameterLimit &&
+                        !_reportedExcessParameterDiagnostic)
+                    {
+                        _reportedExcessParameterDiagnostic = true;
+
+                        // TODO: Reassess whether this protocol-violation diagnostic should remain
+                        // user-visible. It is currently exposed to help test real-world compatibility.
+                        Diagnostic?.Invoke(
+                            $"Accepted a nonstandard IRC message with {message.Parameters.Count} parameters; " +
+                            $"the traditional limit is {IrcMessage.TraditionalParameterLimit}. " +
+                            "Further occurrences will be accepted silently.");
                     }
 
                     await HandleProtocolMessageAsync(message, cancellationToken).ConfigureAwait(false);

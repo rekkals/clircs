@@ -2,8 +2,6 @@ namespace Clircs.Protocol;
 
 public static class IrcMessageParser
 {
-    public const int MaximumParameterCount = 15;
-
     public static IrcMessage Parse(string line)
     {
         ArgumentNullException.ThrowIfNull(line);
@@ -58,11 +56,6 @@ public static class IrcMessageParser
 
         while (position < line.Length)
         {
-            if (parameters.Count == MaximumParameterCount)
-            {
-                throw new IrcProtocolException($"An IRC message cannot contain more than {MaximumParameterCount} parameters.");
-            }
-
             if (line[position] == ':')
             {
                 parameters.Add(line[(position + 1)..]);

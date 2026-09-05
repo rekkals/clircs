@@ -12,9 +12,11 @@ public static class IrcLineBuilder
             throw new ArgumentException("The IRC command must be a single safe token.", nameof(command));
         }
 
-        if (parameters.Length > IrcMessageParser.MaximumParameterCount)
+        if (parameters.Length > IrcMessage.TraditionalParameterLimit)
         {
-            throw new ArgumentException($"IRC messages may contain at most {IrcMessageParser.MaximumParameterCount} parameters.", nameof(parameters));
+            throw new ArgumentException(
+                $"IRC messages may contain at most {IrcMessage.TraditionalParameterLimit} parameters.",
+                nameof(parameters));
         }
 
         var parts = new List<string> { command.ToUpperInvariant() };

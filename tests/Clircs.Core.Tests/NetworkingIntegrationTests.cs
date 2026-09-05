@@ -28,6 +28,7 @@ internal static class NetworkingIntegrationTests
         suite.Add("reconnect waits for an in-progress disconnect", ReconnectWaitsForDisconnectAsync);
         suite.Add("disconnect cancels an in-progress DNS or transport connection", DisconnectCancelsInProgressConnectAsync);
         suite.Add("oversized incoming lines are discarded without disconnecting", OversizedIncomingLineDoesNotDisconnectAsync);
+        suite.Add("excess incoming parameters are accepted with one diagnostic", ExcessIncomingParametersProduceOneDiagnosticAsync);
         suite.Add("raw IRC observers receive exact inbound and outbound wire lines", RawWireLinesAreObservableAsync);
         suite.Add("self-signed TLS is accepted only through an explicit certificate policy", SelfSignedTlsUsesPolicyAsync);
         suite.Add("self-signed TLS is rejected when no policy is provided", SelfSignedTlsRejectsByDefaultAsync);
@@ -687,6 +688,106 @@ internal static class NetworkingIntegrationTests
             1,
             diagnostics.Count(message =>
                 message == "Ignored an oversized IRC line exceeding 510 payload bytes."));
+
+        await connection.DisconnectAsync("done", timeout.Token);
+
+        Assert.Equal("QUIT done", (await serverTask)!);
+        listener.Stop();
+    }
+
+    private static async ValueTask ExcessIncomingParametersProduceOneDiagnosticAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var pongReceived = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+            await using var stream = client.GetStream();
+            using var reader = new StreamReader(
+                stream,
+                new UTF8Encoding(false),
+                detectEncodingFromByteOrderMarks: false,
+                leaveOpen: true);
+            await using var writer = new StreamWriter(
+                stream,
+                new UTF8Encoding(false),
+                leaveOpen: true)
+            {
+                AutoFlush = true,
+                NewLine = "\r\n"
+            };
+
+            _ = await CompleteEmptyCapabilityNegotiationAsync(
+                reader,
+                writer,
+                "TestNick",
+                timeout.Token);
+
+            await writer.WriteLineAsync(
+                ":server 001 TestNick :Welcome".AsMemory(),
+                timeout.Token);
+
+            var parameters = string.Join(
+                ' ',
+                Enumerable.Range(
+                    1,
+                    IrcMessage.TraditionalParameterLimit + 1)
+                    .Select(index => $"parameter{index}"));
+
+            await writer.WriteLineAsync(
+                $":server TEST {parameters}".AsMemory(),
+                timeout.Token);
+            await writer.WriteLineAsync(
+                $":server TEST {parameters}".AsMemory(),
+                timeout.Token);
+            await writer.WriteLineAsync(
+                "PING :after-excess-parameters".AsMemory(),
+                timeout.Token);
+
+            var pong = (await reader.ReadLineAsync(timeout.Token))!;
+            pongReceived.TrySetResult(pong);
+
+            return await reader.ReadLineAsync(timeout.Token);
+        }, timeout.Token);
+
+        var options = new IrcConnectionOptions(
+            new IrcEndpoint("127.0.0.1", port, useTls: false),
+            new IrcIdentity(["TestNick"], "test", "Test User"));
+
+        await using var connection = new IrcClientConnection(
+            new TcpIrcTransportFactory());
+
+        var diagnostics = new List<string>();
+        var received = new List<IrcMessage>();
+        connection.Diagnostic += diagnostics.Add;
+        connection.MessageReceived += message =>
+        {
+            received.Add(message);
+            return ValueTask.CompletedTask;
+        };
+
+        await connection.ConnectAsync(options, timeout.Token);
+
+        Assert.Equal(
+            "PONG after-excess-parameters",
+            await pongReceived.Task.WaitAsync(timeout.Token));
+        Assert.Equal(IrcConnectionState.Online, connection.State);
+        Assert.Equal(
+            2,
+            received.Count(message =>
+                message.Command == "TEST" &&
+                message.ExceedsTraditionalParameterLimit));
+        Assert.Equal(
+            1,
+            diagnostics.Count(message =>
+                message.StartsWith(
+                    "Accepted a nonstandard IRC message with ",
+                    StringComparison.Ordinal)));
 
         await connection.DisconnectAsync("done", timeout.Token);
 

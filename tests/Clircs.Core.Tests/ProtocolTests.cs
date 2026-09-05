@@ -11,11 +11,13 @@ internal static class ProtocolTests
         suite.Add("parser handles prefix, command, middle, and trailing parameters", ParserHandlesMessage);
         suite.Add("parser preserves an empty trailing parameter", ParserPreservesEmptyTrailing);
         suite.Add("parser rejects line injection", ParserRejectsLineInjection);
+        suite.Add("parser accepts and marks excess parameters", ParserAcceptsAndMarksExcessParameters);
         suite.Add("framer handles split TCP input", FramerHandlesSplitInput);
         suite.Add("framer accepts the maximum payload", FramerAcceptsMaximumPayload);
         suite.Add("framer discards an oversized payload and recovers", FramerDiscardsOversizedPayloadAndRecovers);
         suite.Add("framer discards split oversized input exactly once", FramerDiscardsSplitOversizedInput);
         suite.Add("builder emits a bounded CRLF line", BuilderEmitsWireLine);
+        suite.Add("builder rejects excess parameters", BuilderRejectsExcessParameters);
         suite.Add("encoding falls back to Windows-1252", EncodingFallsBack);
         suite.Add("transcript harness ignores outbound and comments", TranscriptHarnessReplaysInbound);
         suite.Add("RFC1459 case mapping follows traditional equivalences", Rfc1459CaseMapping);
@@ -41,6 +43,21 @@ internal static class ProtocolTests
 
     private static void ParserRejectsLineInjection() =>
         Assert.Throws<IrcProtocolException>(() => IrcMessageParser.Parse("PING x\r\nOPER bad"));
+
+    private static void ParserAcceptsAndMarksExcessParameters()
+    {
+        var parameters = Enumerable
+            .Range(1, IrcMessage.TraditionalParameterLimit + 1)
+            .Select(index => $"parameter{index}");
+
+        var message = IrcMessageParser.Parse(
+            $"TEST {string.Join(' ', parameters)}");
+
+        Assert.Equal(
+            IrcMessage.TraditionalParameterLimit + 1,
+            message.Parameters.Count);
+        Assert.True(message.ExceedsTraditionalParameterLimit);
+    }
 
     private static void FramerHandlesSplitInput()
     {
@@ -109,6 +126,16 @@ internal static class ProtocolTests
     {
         var line = IrcLineBuilder.Build("privmsg", "#clirc", "hello there");
         Assert.Equal("PRIVMSG #clirc :hello there\r\n", Encoding.UTF8.GetString(line));
+    }
+
+    private static void BuilderRejectsExcessParameters()
+    {
+        var parameters = Enumerable
+            .Repeat("parameter", IrcMessage.TraditionalParameterLimit + 1)
+            .ToArray();
+
+        Assert.Throws<ArgumentException>(
+            () => IrcLineBuilder.Build("TEST", parameters));
     }
 
     private static void EncodingFallsBack()
