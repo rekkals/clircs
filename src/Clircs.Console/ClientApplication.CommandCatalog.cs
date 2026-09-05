@@ -81,13 +81,13 @@ internal sealed partial class ClientApplication
         Register("remuser", [], "Remove a user from the active network's user directory.", RemoveUserAsync);
         Register("addhost", [], "Add a hostmask to a user.", AddHostAsync);
         Register("remhost", [], "Remove a hostmask from a user.", RemoveHostAsync);
-        Register("chattr", [], "Change global or channel user roles and permissions.", ChangeAttributesAsync);
+        Register("chattr", [], "Change global or channel user flags.", ChangeAttributesAsync);
         Register("addchan", [], "Add a channel to the user policy entry.", AddUserChannelAsync);
         Register("remchan", [], "Remove a channel from the user policy entry.", RemoveUserChannelAsync);
         Register("chinfo", [], "Set a global or channel-specific JOIN infoline for a user.", ChangeUserInfoAsync);
         Register("uwhois", [], "Show a user record or match a visible nickname.", UserWhoisAsync);
         Register("users", [], "List active network's user records.", UsersAsync);
-        Register("usersum", [], "Summarize active network's user roles.", UserSummaryAsync);
+        Register("usersum", [], "Summarize active network's user flags.", UserSummaryAsync);
         Register("notify", [], "Manage the active network's notify list.", NotifyAsync);
         Register("accept", [], "Manage the server-side accept list.", AcceptAsync);
         Register("cprot", [], "Configure channel protection.", ChannelProtectionAsync);

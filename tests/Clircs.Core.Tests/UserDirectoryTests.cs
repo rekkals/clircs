@@ -13,7 +13,7 @@ internal static class UserDirectoryTests
         suite.Add("network user directories persist roles masks comments and channel policy", PersistenceRoundTrip);
         suite.Add("hostmask matching uses IRC case folding and deterministic specificity", MatchingIsDeterministic);
         suite.Add("role changes accept descriptive and ircN-style shorthand", RoleChangesParse);
-        suite.Add("user flags and eligibility have distinct readable output", UserRoleOutputIsReadable);
+        suite.Add("user roles use ircN-style flag output", UserRoleOutputUsesFlags);
         suite.Add("user list rows show matching masks first", UserRowsShowMatchingMasksFirst);
         suite.Add("damaged user directories are preserved", DamagedFileIsPreserved);
     }
@@ -78,13 +78,21 @@ internal static class UserDirectoryTests
         Assert.True(descriptive.Remove.HasFlag(UserRole.Protected));
     }
 
-    private static void UserRoleOutputIsReadable()
+    private static void UserRoleOutputUsesFlags()
     {
-        var roles = UserRole.Protected | UserRole.AutoOp | UserRole.OperatorEligible;
-        Assert.Equal("+ap", UserRoleParser.FormatFlags(roles));
-        Assert.Equal("operator", UserRoleParser.FormatEligibility(roles));
+        var roles =
+            UserRole.Bot |
+            UserRole.OperatorEligible |
+            UserRole.AutoOp |
+            UserRole.VoiceEligible |
+            UserRole.AutoVoice |
+            UserRole.Protected |
+            UserRole.Deop |
+            UserRole.KickOnJoin |
+            UserRole.ProtectionExempt;
+
+        Assert.Equal("+boavfdke", UserRoleParser.FormatFlags(roles));
         Assert.Equal("none", UserRoleParser.FormatFlags(UserRole.None));
-        Assert.Equal("none", UserRoleParser.FormatEligibility(UserRole.None));
     }
 
     private static void UserRowsShowMatchingMasksFirst()
@@ -102,7 +110,7 @@ internal static class UserDirectoryTests
         Assert.Equal(2, rows.Count);
         Assert.Equal("rekkals", rows[0][0]);
         Assert.Equal("*!~slakker@current.example", rows[0][1]);
-        Assert.Equal("+p", rows[0][2]);
+        Assert.Equal("+f", rows[0][2]);
         Assert.Equal(string.Empty, rows[1][0]);
         Assert.Equal("*!~rekkals@old.example", rows[1][1]);
     }

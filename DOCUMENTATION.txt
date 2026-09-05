@@ -77,7 +77,7 @@ Output families such as WHO, WHOIS, WHOWAS, CTCP, notices, invites, links, list,
 
 Channel Management and Protection
 
-The userlist stores network user records, masks, roles, comments, and channel policy. Use '/help adduser', '/help users', '/help uwhois', '/help cprot', and '/help pprot' for current syntax.
+The userlist stores network user records, masks, flags, comments, and channel policy. Use '/help adduser', '/help users', '/help uwhois', '/help cprot', and '/help pprot' for current syntax.
 
 Channel protection watches channel events and can monitor, kick, or kickban according to how you configure the settings. Personal protection watches events directed at the client and temporarily ignores offenders when enforcement is enabled.
 

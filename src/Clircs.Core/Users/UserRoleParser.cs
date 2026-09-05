@@ -46,29 +46,20 @@ public static class UserRoleParser
         return (add, remove);
     }
 
-    public static string Format(UserRole roles) => roles == UserRole.None
-        ? "none"
-        : string.Join(',', Enum.GetValues<UserRole>().Where(role => role != UserRole.None && roles.HasFlag(role)).Select(role => role.ToString()));
-
     public static string FormatFlags(UserRole roles)
     {
         var flags = new List<char>();
+
         if (roles.HasFlag(UserRole.Bot)) flags.Add('b');
+        if (roles.HasFlag(UserRole.OperatorEligible)) flags.Add('o');
         if (roles.HasFlag(UserRole.AutoOp)) flags.Add('a');
-        if (roles.HasFlag(UserRole.AutoVoice)) flags.Add('v');
-        if (roles.HasFlag(UserRole.Protected)) flags.Add('p');
+        if (roles.HasFlag(UserRole.VoiceEligible) || roles.HasFlag(UserRole.AutoVoice)) flags.Add('v');
+        if (roles.HasFlag(UserRole.Protected)) flags.Add('f');
         if (roles.HasFlag(UserRole.Deop)) flags.Add('d');
         if (roles.HasFlag(UserRole.KickOnJoin)) flags.Add('k');
         if (roles.HasFlag(UserRole.ProtectionExempt)) flags.Add('e');
-        return flags.Count == 0 ? "none" : $"+{new string([.. flags])}";
-    }
 
-    public static string FormatEligibility(UserRole roles)
-    {
-        var eligible = new List<string>();
-        if (roles.HasFlag(UserRole.OperatorEligible)) eligible.Add("operator");
-        if (roles.HasFlag(UserRole.VoiceEligible)) eligible.Add("voice");
-        return eligible.Count == 0 ? "none" : string.Join(',', eligible);
+        return flags.Count == 0 ? "none" : $"+{new string([.. flags])}";
     }
 
     private static UserRole ParseToken(string value)

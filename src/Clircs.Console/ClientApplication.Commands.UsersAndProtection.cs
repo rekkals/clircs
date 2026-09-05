@@ -150,7 +150,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count is < 2 or > 3)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /chattr <handle> <changes> [channel]"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /chattr <handle> <flags> [channel]"));
         }
 
         try
@@ -171,8 +171,8 @@ internal sealed partial class ClientApplication
             user.ChangeRoles(changes.Add, changes.Remove, channel, session!.State.CaseMapping);
             SaveUserDirectory(directory);
             return ValueTask.FromResult(CommandResult.Success(
-                $"{user.Handle} roles{(channel is null ? string.Empty : $" in {channel}")}: " +
-                UserRoleParser.Format(user.EffectiveRoles(channel, session.State.CaseMapping))));
+                $"{user.Handle} flags{(channel is null ? string.Empty : $" in {channel}")}: " +
+                UserRoleParser.FormatFlags(user.EffectiveRoles(channel, session.State.CaseMapping))));
         }
         catch (ArgumentException exception)
         {
@@ -325,7 +325,7 @@ internal sealed partial class ClientApplication
             .ToArray();
         return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
             "USERS:",
-            Table: new PresentationTable(["Handle", "Masks", "Flags", "Roles", "Channels"], rows),
+            Table: new PresentationTable(["Handle", "Masks", "Flags", "Channels"], rows),
             Summary: $"{users.Count} user{(users.Count == 1 ? string.Empty : "s")}",
             TitleHighlight: network)));
     }
@@ -1326,13 +1326,11 @@ internal sealed partial class ClientApplication
             new("Hostmasks", user.Hostmasks.Count == 0 ? "none" : string.Join(", ", user.Hostmasks)),
             new("Flags", UserRoleParser.FormatFlags(user.Roles))
         };
-        var roles = UserRoleParser.FormatEligibility(user.Roles);
-        if (roles != "none") fields.Add(new PresentationField("Roles", roles));
         if (user.ChannelRoles.Count > 0)
         {
             fields.Add(new PresentationField("Channels", string.Join(", ", user.ChannelRoles
                 .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(pair => $"{pair.Key}: {UserRoleParser.Format(pair.Value)}"))));
+                .Select(pair => $"{pair.Key}: {UserRoleParser.FormatFlags(pair.Value)}"))));
         }
         if (user.Comment.Length > 0) fields.Add(new PresentationField("Infoline", user.Comment));
         if (user.ChannelComments.Count > 0)
@@ -1361,10 +1359,12 @@ internal sealed partial class ClientApplication
 
         var channels = user.ChannelRoles.Count == 0
             ? "none"
-            : string.Join(", ", user.ChannelRoles.Keys.OrderBy(channel => channel, StringComparer.OrdinalIgnoreCase));
+            : string.Join(", ", user.ChannelRoles
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => $"{pair.Key}: {UserRoleParser.FormatFlags(pair.Value)}"));
         return masks.Select((mask, index) => (IReadOnlyList<string>)(index == 0
-            ? [user.Handle, mask, UserRoleParser.FormatFlags(user.Roles), UserRoleParser.FormatEligibility(user.Roles), channels]
-            : [string.Empty, mask, string.Empty, string.Empty, string.Empty])).ToArray();
+            ? [user.Handle, mask, UserRoleParser.FormatFlags(user.Roles), channels]
+            : [string.Empty, mask, string.Empty, string.Empty])).ToArray();
     }
 
 }
