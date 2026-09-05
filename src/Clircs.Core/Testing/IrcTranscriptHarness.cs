@@ -41,7 +41,9 @@ public sealed class IrcTranscriptHarness
         for (var offset = 0; offset < bytes.Length; offset += chunkSize)
         {
             var length = Math.Min(chunkSize, bytes.Length - offset);
-            foreach (var line in framer.Push(bytes.Slice(offset, length)))
+            var framingResult = framer.Push(bytes.Slice(offset, length));
+
+            foreach (var line in framingResult.Lines)
             {
                 messages.Add(IrcMessageParser.Parse(IrcTextEncoding.Decode(line)));
             }

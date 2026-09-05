@@ -1,17 +1,33 @@
 namespace Clircs.Protocol;
 
+public sealed record IrcLineFramingResult(
+    IReadOnlyList<byte[]> Lines,
+    int DiscardedOversizedLineCount);
+
 public sealed class IrcLineFramer
 {
     public const int MaximumPayloadBytes = 510;
 
     private readonly List<byte> _pending = [];
+    private bool _discardingOversizedLine;
 
-    public IReadOnlyList<byte[]> Push(ReadOnlySpan<byte> bytes)
+    public IrcLineFramingResult Push(ReadOnlySpan<byte> bytes)
     {
         var lines = new List<byte[]>();
+        var discardedOversizedLineCount = 0;
 
         foreach (var value in bytes)
         {
+            if (_discardingOversizedLine)
+            {
+                if (value == (byte)'\n')
+                {
+                    _discardingOversizedLine = false;
+                }
+
+                continue;
+            }
+
             if (value == (byte)'\n')
             {
                 var payloadLength = _pending.Count;
@@ -23,7 +39,8 @@ public sealed class IrcLineFramer
                 if (payloadLength > MaximumPayloadBytes)
                 {
                     _pending.Clear();
-                    throw new IrcProtocolException($"An IRC line exceeded {MaximumPayloadBytes} payload bytes.");
+                    discardedOversizedLineCount++;
+                    continue;
                 }
 
                 lines.Add(_pending.Take(payloadLength).ToArray());
@@ -35,12 +52,17 @@ public sealed class IrcLineFramer
             if (_pending.Count > MaximumPayloadBytes + 1)
             {
                 _pending.Clear();
-                throw new IrcProtocolException($"An IRC line exceeded {MaximumPayloadBytes} payload bytes.");
+                _discardingOversizedLine = true;
+                discardedOversizedLineCount++;
             }
         }
 
-        return lines;
+        return new IrcLineFramingResult(lines, discardedOversizedLineCount);
     }
 
-    public void Reset() => _pending.Clear();
+    public void Reset()
+    {
+        _pending.Clear();
+        _discardingOversizedLine = false;
+    }
 }

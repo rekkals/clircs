@@ -202,7 +202,19 @@ public sealed class IrcClientConnection : IAsyncDisposable
                 }
                 LastReceivedAt = DateTimeOffset.UtcNow;
 
-                foreach (var framedLine in framer.Push(buffer.AsSpan(0, count)))
+                var framingResult = framer.Push(buffer.AsSpan(0, count));
+
+                if (framingResult.DiscardedOversizedLineCount > 0)
+                {
+                    var description = framingResult.DiscardedOversizedLineCount == 1
+                        ? "an oversized IRC line"
+                        : $"{framingResult.DiscardedOversizedLineCount} oversized IRC lines";
+
+                    Diagnostic?.Invoke(
+                        $"Ignored {description} exceeding {IrcLineFramer.MaximumPayloadBytes} payload bytes.");
+                }
+
+                foreach (var framedLine in framingResult.Lines)
                 {
                     var rawLine = IrcTextEncoding.Decode(framedLine);
                     RaiseWireLine(IrcWireDirection.Received, rawLine);

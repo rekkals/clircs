@@ -12,7 +12,9 @@ internal static class ProtocolTests
         suite.Add("parser preserves an empty trailing parameter", ParserPreservesEmptyTrailing);
         suite.Add("parser rejects line injection", ParserRejectsLineInjection);
         suite.Add("framer handles split TCP input", FramerHandlesSplitInput);
-        suite.Add("framer rejects an oversized payload", FramerRejectsOversizedPayload);
+        suite.Add("framer accepts the maximum payload", FramerAcceptsMaximumPayload);
+        suite.Add("framer discards an oversized payload and recovers", FramerDiscardsOversizedPayloadAndRecovers);
+        suite.Add("framer discards split oversized input exactly once", FramerDiscardsSplitOversizedInput);
         suite.Add("builder emits a bounded CRLF line", BuilderEmitsWireLine);
         suite.Add("encoding falls back to Windows-1252", EncodingFallsBack);
         suite.Add("transcript harness ignores outbound and comments", TranscriptHarnessReplaysInbound);
@@ -43,17 +45,64 @@ internal static class ProtocolTests
     private static void FramerHandlesSplitInput()
     {
         var framer = new IrcLineFramer();
-        Assert.Equal(0, framer.Push("PING :ser"u8).Count);
-        var lines = framer.Push("ver\r\nNOTICE me :hi\r\n"u8);
-        Assert.Equal(2, lines.Count);
-        Assert.Equal("PING :server", Encoding.UTF8.GetString(lines[0]));
-        Assert.Equal("NOTICE me :hi", Encoding.UTF8.GetString(lines[1]));
+
+        var first = framer.Push("PING :ser"u8);
+        Assert.Equal(0, first.Lines.Count);
+        Assert.Equal(0, first.DiscardedOversizedLineCount);
+
+        var second = framer.Push("ver\r\nNOTICE me :hi\r\n"u8);
+        Assert.Equal(2, second.Lines.Count);
+        Assert.Equal(0, second.DiscardedOversizedLineCount);
+        Assert.Equal("PING :server", Encoding.UTF8.GetString(second.Lines[0]));
+        Assert.Equal("NOTICE me :hi", Encoding.UTF8.GetString(second.Lines[1]));
     }
 
-    private static void FramerRejectsOversizedPayload()
+    private static void FramerAcceptsMaximumPayload()
     {
-        var oversized = Enumerable.Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes + 1).Append((byte)'\n').ToArray();
-        Assert.Throws<IrcProtocolException>(() => new IrcLineFramer().Push(oversized));
+        var input = Enumerable
+            .Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes)
+            .Concat("\r\n"u8.ToArray())
+            .ToArray();
+
+        var result = new IrcLineFramer().Push(input);
+
+        Assert.Equal(1, result.Lines.Count);
+        Assert.Equal(IrcLineFramer.MaximumPayloadBytes, result.Lines[0].Length);
+        Assert.Equal(0, result.DiscardedOversizedLineCount);
+    }
+
+    private static void FramerDiscardsOversizedPayloadAndRecovers()
+    {
+        var input = Enumerable
+            .Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes + 1)
+            .Concat("\r\nPING :server\r\n"u8.ToArray())
+            .ToArray();
+
+        var result = new IrcLineFramer().Push(input);
+
+        Assert.Equal(1, result.DiscardedOversizedLineCount);
+        Assert.Equal(1, result.Lines.Count);
+        Assert.Equal("PING :server", Encoding.UTF8.GetString(result.Lines[0]));
+    }
+
+    private static void FramerDiscardsSplitOversizedInput()
+    {
+        var framer = new IrcLineFramer();
+        var beginning = Enumerable
+            .Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes + 1)
+            .ToArray();
+
+        var first = framer.Push(beginning);
+        Assert.Equal(0, first.Lines.Count);
+        Assert.Equal(0, first.DiscardedOversizedLineCount);
+
+        var second = framer.Push("more garbage\r\nNOTICE me :still connected\r\n"u8);
+
+        Assert.Equal(1, second.DiscardedOversizedLineCount);
+        Assert.Equal(1, second.Lines.Count);
+        Assert.Equal(
+            "NOTICE me :still connected",
+            Encoding.UTF8.GetString(second.Lines[0]));
     }
 
     private static void BuilderEmitsWireLine()

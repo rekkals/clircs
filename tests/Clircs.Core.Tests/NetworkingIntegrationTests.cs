@@ -27,6 +27,7 @@ internal static class NetworkingIntegrationTests
         suite.Add("cancelled registration does not render a generic connection-lost error", CancelledRegistrationIsQuietAsync);
         suite.Add("reconnect waits for an in-progress disconnect", ReconnectWaitsForDisconnectAsync);
         suite.Add("disconnect cancels an in-progress DNS or transport connection", DisconnectCancelsInProgressConnectAsync);
+        suite.Add("oversized incoming lines are discarded without disconnecting", OversizedIncomingLineDoesNotDisconnectAsync);
         suite.Add("raw IRC observers receive exact inbound and outbound wire lines", RawWireLinesAreObservableAsync);
         suite.Add("self-signed TLS is accepted only through an explicit certificate policy", SelfSignedTlsUsesPolicyAsync);
         suite.Add("self-signed TLS is rejected when no policy is provided", SelfSignedTlsRejectsByDefaultAsync);
@@ -614,6 +615,83 @@ internal static class NetworkingIntegrationTests
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         return transcript.ToArray();
+    }
+
+    private static async ValueTask OversizedIncomingLineDoesNotDisconnectAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var pongReceived = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+            await using var stream = client.GetStream();
+            using var reader = new StreamReader(
+                stream,
+                new UTF8Encoding(false),
+                detectEncodingFromByteOrderMarks: false,
+                leaveOpen: true);
+            await using var writer = new StreamWriter(
+                stream,
+                new UTF8Encoding(false),
+                leaveOpen: true)
+            {
+                AutoFlush = true,
+                NewLine = "\r\n"
+            };
+
+            _ = await CompleteEmptyCapabilityNegotiationAsync(
+                reader,
+                writer,
+                "TestNick",
+                timeout.Token);
+
+            await writer.WriteLineAsync(
+                ":server 001 TestNick :Welcome".AsMemory(),
+                timeout.Token);
+
+            var oversizedThenPing = Enumerable
+                .Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes + 1)
+                .Concat("\r\nPING :after-oversized\r\n"u8.ToArray())
+                .ToArray();
+
+            await stream.WriteAsync(oversizedThenPing, timeout.Token);
+
+            var pong = (await reader.ReadLineAsync(timeout.Token))!;
+            pongReceived.TrySetResult(pong);
+
+            return await reader.ReadLineAsync(timeout.Token);
+        }, timeout.Token);
+
+        var options = new IrcConnectionOptions(
+            new IrcEndpoint("127.0.0.1", port, useTls: false),
+            new IrcIdentity(["TestNick"], "test", "Test User"));
+
+        await using var connection = new IrcClientConnection(
+            new TcpIrcTransportFactory());
+
+        var diagnostics = new List<string>();
+        connection.Diagnostic += diagnostics.Add;
+
+        await connection.ConnectAsync(options, timeout.Token);
+
+        Assert.Equal(
+            "PONG after-oversized",
+            await pongReceived.Task.WaitAsync(timeout.Token));
+        Assert.Equal(IrcConnectionState.Online, connection.State);
+        Assert.Equal(
+            1,
+            diagnostics.Count(message =>
+                message == "Ignored an oversized IRC line exceeding 510 payload bytes."));
+
+        await connection.DisconnectAsync("done", timeout.Token);
+
+        Assert.Equal("QUIT done", (await serverTask)!);
+        listener.Stop();
     }
 
     private static async Task<(string Nick, string User)> CompleteEmptyCapabilityNegotiationAsync(
