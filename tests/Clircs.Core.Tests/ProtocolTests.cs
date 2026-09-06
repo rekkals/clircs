@@ -14,6 +14,7 @@ internal static class ProtocolTests
         suite.Add("parser accepts and marks excess parameters", ParserAcceptsAndMarksExcessParameters);
         suite.Add("framer handles split TCP input", FramerHandlesSplitInput);
         suite.Add("framer accepts the maximum payload", FramerAcceptsMaximumPayload);
+        suite.Add("framer accepts the maximum inbound payload", FramerAcceptsMaximumInboundPayload);
         suite.Add("framer discards an oversized payload and recovers", FramerDiscardsOversizedPayloadAndRecovers);
         suite.Add("framer discards split oversized input exactly once", FramerDiscardsSplitOversizedInput);
         suite.Add("builder emits a bounded CRLF line", BuilderEmitsWireLine);
@@ -88,10 +89,24 @@ internal static class ProtocolTests
         Assert.Equal(0, result.DiscardedOversizedLineCount);
     }
 
+    private static void FramerAcceptsMaximumInboundPayload()
+    {
+        var input = Enumerable
+            .Repeat((byte)'x', IrcLineFramer.MaximumInboundPayloadBytes)
+            .Concat("\r\n"u8.ToArray())
+            .ToArray();
+
+        var result = new IrcLineFramer().Push(input);
+
+        Assert.Equal(1, result.Lines.Count);
+        Assert.Equal(IrcLineFramer.MaximumInboundPayloadBytes, result.Lines[0].Length);
+        Assert.Equal(0, result.DiscardedOversizedLineCount);
+    }
+
     private static void FramerDiscardsOversizedPayloadAndRecovers()
     {
         var input = Enumerable
-            .Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes + 1)
+            .Repeat((byte)'x', IrcLineFramer.MaximumInboundPayloadBytes + 1)
             .Concat("\r\nPING :server\r\n"u8.ToArray())
             .ToArray();
 
@@ -106,7 +121,7 @@ internal static class ProtocolTests
     {
         var framer = new IrcLineFramer();
         var beginning = Enumerable
-            .Repeat((byte)'x', IrcLineFramer.MaximumPayloadBytes + 1)
+            .Repeat((byte)'x', IrcLineFramer.MaximumInboundPayloadBytes + 1)
             .ToArray();
 
         var first = framer.Push(beginning);

@@ -8,6 +8,11 @@ public sealed class IrcLineFramer
 {
     public const int MaximumPayloadBytes = 510;
 
+    // IRCv3 message tags may add a whopping 8191 bytes to the traditional 512 limit.
+    // Allowing it inbound so extended messages from modern servers/bouncers can't
+    // break the connection. Whatever ... I'm still honoring RFC 1459 outbound.
+    public const int MaximumInboundPayloadBytes = MaximumPayloadBytes + 8191;
+
     private readonly List<byte> _pending = [];
     private bool _discardingOversizedLine;
 
@@ -36,7 +41,7 @@ public sealed class IrcLineFramer
                     payloadLength--;
                 }
 
-                if (payloadLength > MaximumPayloadBytes)
+                if (payloadLength > MaximumInboundPayloadBytes)
                 {
                     _pending.Clear();
                     discardedOversizedLineCount++;
@@ -49,7 +54,7 @@ public sealed class IrcLineFramer
             }
 
             _pending.Add(value);
-            if (_pending.Count > MaximumPayloadBytes + 1)
+            if (_pending.Count > MaximumInboundPayloadBytes + 1)
             {
                 _pending.Clear();
                 _discardingOversizedLine = true;

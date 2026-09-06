@@ -18,6 +18,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private CapabilityNegotiationStage _capabilityStage;
     private SaslRegistrationStage _saslStage;
     private bool _reportedExcessParameterDiagnostic;
+    private bool _reportedExtendedLengthDiagnostic;
     private int _finishStarted;
     private int _disposed;
     private TaskCompletionSource<bool>? _finishCompletion;
@@ -70,6 +71,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _capabilityStage = CapabilityNegotiationStage.AwaitingCapabilities;
         _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
         _reportedExcessParameterDiagnostic = false;
+        _reportedExtendedLengthDiagnostic = false;
         _transport = null;
         _outbound = null;
         _receiveTask = null;
@@ -213,11 +215,22 @@ public sealed class IrcClientConnection : IAsyncDisposable
                         : $"{framingResult.DiscardedOversizedLineCount} oversized IRC lines";
 
                     Diagnostic?.Invoke(
-                        $"Ignored {description} exceeding {IrcLineFramer.MaximumPayloadBytes} payload bytes.");
+                        $"Ignored {description} exceeding {IrcLineFramer.MaximumInboundPayloadBytes} payload bytes.");
                 }
 
                 foreach (var framedLine in framingResult.Lines)
                 {
+                    if (framedLine.Length > IrcLineFramer.MaximumPayloadBytes && !_reportedExtendedLengthDiagnostic)
+                    {
+                        _reportedExtendedLengthDiagnostic = true;
+
+                        // TODO: Reassess whether this compatibility diagnostic should remain
+                        // user-visible after extended inbound framing has received wider testing.
+                        Diagnostic?.Invoke(
+                            $"Accepted an IRC line with {framedLine.Length} payload bytes; " +
+                            $"the traditional limit is {IrcLineFramer.MaximumPayloadBytes}. " +
+                            "Further occurrences will be accepted silently.");
+                    }
                     var rawLine = IrcTextEncoding.Decode(framedLine);
                     RaiseWireLine(IrcWireDirection.Received, rawLine);
                     IrcMessage message;
