@@ -118,7 +118,7 @@ internal static class CapabilityNegotiationTests
     {
         Assert.Equal("CAP LS 302", await transport.NextSentAsync(cancellationToken));
         Assert.Equal("NICK TestNick", await transport.NextSentAsync(cancellationToken));
-        Assert.Equal("USER test 0 * :Test User", await transport.NextSentAsync(cancellationToken));
+        Assert.Equal("USER test 0 * :TestUser", await transport.NextSentAsync(cancellationToken));
     }
 
     private static async Task DisconnectAsync(
@@ -134,7 +134,7 @@ internal static class CapabilityNegotiationTests
         "test",
         new IrcConnectionOptions(
             new IrcEndpoint("irc.example.test", 6667, useTls: false),
-            new IrcIdentity(["TestNick"], "test", "Test User")),
+            new IrcIdentity(["TestNick"], "test", "TestUser")),
         new ScriptedTransportFactory(transport));
 
     private sealed class ScriptedTransportFactory(ScriptedTransport transport) : IIrcTransportFactory

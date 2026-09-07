@@ -2,7 +2,16 @@ namespace Clircs.Protocol;
 
 public static class IrcLineBuilder
 {
-    public static byte[] Build(string command, params string[] parameters)
+    public static byte[] Build(string command, params string[] parameters) =>
+    BuildCore(command, parameters, forceTrailingParameter: false);
+
+    public static byte[] BuildWithTrailingParameter(string command, params string[] parameters) =>
+        BuildCore(command, parameters, forceTrailingParameter: true);
+
+    private static byte[] BuildCore(
+        string command,
+        string[] parameters,
+        bool forceTrailingParameter)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(command);
         ArgumentNullException.ThrowIfNull(parameters);
@@ -29,7 +38,10 @@ public static class IrcLineBuilder
             }
 
             var isLast = index == parameters.Length - 1;
-            var needsTrailing = parameter.Length == 0 || parameter[0] == ':' || parameter.Any(char.IsWhiteSpace);
+            var needsTrailing = (forceTrailingParameter && isLast)
+                || parameter.Length == 0
+                || parameter[0] == ':'
+                || parameter.Any(char.IsWhiteSpace);
             if (!isLast && needsTrailing)
             {
                 throw new ArgumentException("Only the final IRC parameter may be empty or contain spaces.", nameof(parameters));

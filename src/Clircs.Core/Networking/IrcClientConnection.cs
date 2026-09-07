@@ -99,7 +99,8 @@ public sealed class IrcClientConnection : IAsyncDisposable
                 "USER",
                 [options.Identity.Username, "0", "*", options.Identity.RealName],
                 IrcOutboundPriority.Critical,
-                connectionToken).ConfigureAwait(false);
+                connectionToken,
+                forceTrailingParameter: true).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -113,11 +114,14 @@ public sealed class IrcClientConnection : IAsyncDisposable
         string command,
         IReadOnlyList<string> parameters,
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool forceTrailingParameter = false)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         var outbound = _outbound ?? throw new InvalidOperationException("Not connected to a server.");
-        var line = IrcLineBuilder.Build(command, parameters.ToArray());
+        var line = forceTrailingParameter
+            ? IrcLineBuilder.BuildWithTrailingParameter(command, parameters.ToArray())
+            : IrcLineBuilder.Build(command, parameters.ToArray());
         await outbound.EnqueueAsync(line, priority, cancellationToken).ConfigureAwait(false);
         RaiseWireLine(IrcWireDirection.Sent, IrcTextEncoding.Decode(line.AsSpan(0, line.Length - 2)));
     }
