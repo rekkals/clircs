@@ -38,6 +38,7 @@ internal static class SessionTests
         suite.Add("ISON replies remain internal instead of rendering raw 303", IsonRepliesAreSilent);
         suite.Add("MONITOR replies remain internal instead of rendering raw numerics", MonitorRepliesAreSilent);
         suite.Add("caller-ID permission and ACCEPT replies are formatted", CallerIdRepliesAreFormatted);
+        suite.Add("numeric 531 preserves its server-provided explanation", RestrictedMessageErrorPreservesServerText);
         suite.Add("incoming caller-ID blocks are formatted and routed", IncomingCallerIdBlockIsFormatted);
         suite.Add("channel permission errors are formatted without raw numerics", PermissionErrorsAreFormatted);
         suite.Add("numeric 421 becomes a readable unknown-command error", UnknownCommandIsFormatted);
@@ -813,6 +814,22 @@ internal static class SessionTests
         Assert.False(channel[0].Text.Contains("482", StringComparison.Ordinal));
         Assert.False(general[0].Text.Contains("481", StringComparison.Ordinal));
         Assert.False(alreadyJoined[0].Text.Contains("443", StringComparison.Ordinal));
+    }
+
+    private static void RestrictedMessageErrorPreservesServerText()
+    {
+        var (_, processor) = CreateProcessor();
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":server 531 slakker slakker- :You cannot send messages to this user whilst they have the +c (deaf_commonchan) mode set."));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal(SessionEventKind.Error, events[0].Kind);
+        Assert.Equal(
+            "Message to slakker- failed: You cannot send messages to this user whilst they have the +c (deaf_commonchan) mode set.",
+            events[0].Text);
+        Assert.Equal("531", events[0].Fields!["numeric"]!);
+        Assert.Equal("slakker-", events[0].Fields!["target"]!);
+        Assert.Equal("true", events[0].Fields!["routeActive"]!);
     }
 
     private static void UnknownCommandIsFormatted()

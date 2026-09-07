@@ -566,6 +566,23 @@ public sealed class IrcSessionProcessor
                     $"Cannot send to {blockedTarget}: {Last(message).TrimEnd('.')}", now,
                     Fields(("numeric", "404"), ("routeActive", "true"))));
                 break;
+            case "531":
+                var restrictedMessageTarget = message.Parameters.Count >= 2
+                    ? message.Parameters[1]
+                    : "that user";
+
+                // On this one, we preserve what the server sends because 531 has wildly different
+                // outputs across IRCds. We format the target and route it, but let the server
+                // explain the why.
+                events.Add(Status(
+                    SessionEventKind.Error,
+                    $"Message to {restrictedMessageTarget} failed: {Last(message)}",
+                    now,
+                    Fields(
+                        ("numeric", "531"),
+                        ("target", restrictedMessageTarget),
+                        ("routeActive", "true"))));
+                break;
             case "442":
                 var missingMembershipChannel = message.Parameters.Count >= 2 ? message.Parameters[1] : "that channel";
                 events.Add(Status(SessionEventKind.Error, $"You are not on {missingMembershipChannel}", now,
