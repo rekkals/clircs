@@ -10,9 +10,9 @@ Additionally, we're not all aboard the current IRCv3 "make IRC into Discord" tra
 
 ## Current Version
 
-This is the current development build, which includes normal IRC functions, multiple network support, TLS, SASL, bouncer connectivity, channel management, flood protection, logging, scripting, regular-old and the now-more-secure DCC SCHAT and SSEND including passive and resumed file transfers.
+This is the current development build, which includes normal IRC functions, multi-net, TLS, SASL, bouncer support (ZNC, soju, psyBNC), channel management, flood protection, logging, scripting, regular-old and the now-more-secure DCC SCHAT and SSEND including passive and resumed file transfers.
 
-Support for all the various IRCds could be ... mixed, but shouldn't be terrible. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises, at least presently, on how well it may perform on, say, InspIRCd with a bunch of optional modules installed.
+Support for all the various IRCds could be ... mixed, but shouldn't be terrible. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises, at least presently, that it won't display some things a little funny, depending on what it's running.
 
 ## Requirements
 
@@ -58,6 +58,8 @@ Use `/help` for a list of commands and `/help <command>` for help with `<command
 
 DOCUMENTATION.txt contains detailed user documentation, settings, command notes, scripting information, and current limitations.
 
+CONTRIBUTING.md contains guidelines and instructions on how to contribute to the clircs project.
+
 SCRIPTING.md contains info on adding scripts via Jint.
 
 VERSIONS.txt contains the glorious, me-struggling-through-C# version history.
@@ -67,14 +69,6 @@ THIRD-PARTY-NOTICES.txt contains third-party licensing notices as required.
 ## License
 
 clircs is free software licensed under the GNU General Public License, either version 3 or (at your option) any later version. See [LICENSE](LICENSE).
-
-## AI Policy
-
-clircs started out as a simple curiosity project. A lot of my nerd friends wouldn't shut up about coding with AI, so I figured I'd give it a shot, fully anticipating it'd suck just as badly at that as it does at writing. Two weeks later I'm on freeCodeCamp frantically trying to power through guided projects.
-
-Which is to say, a not-insignificant portion of this code was developed with OpenAI Codex, including writing and reviewing code, testing, and even some of the documentation. The direction, feature decisions, priorities, and final decisions are still mine.
-
-So AI contributions are welcome, but it's the standard "you have to be able to explain the code" rule. We're not trying to cram vibe coded features into clircs. This isn't that client.
 
 ## Contact
 

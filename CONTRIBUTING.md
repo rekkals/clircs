@@ -12,6 +12,14 @@ By contributing to clircs, you agree that your contribution is licensed under th
 
 The SDK version policy is recorded in `global.json`. NuGet dependencies come from the source declared in `NuGet.Config`.
 
+## AI Policy
+
+clircs started out as a simple curiosity project. A lot of my nerd friends wouldn't shut up about coding with AI, so I figured I'd give it a shot, fully anticipating it'd suck just as badly at that as it does at writing. Two weeks later I'm on freeCodeCamp frantically trying to power through guided projects.
+
+Which is to say, a not-insignificant portion of early development was done with the help of OpenAI Codex, including writing and reviewing code, testing, and even some of the documentation. Now, clircs has moved from "curiosity project" to "learning project," as I have been figuring out just how well decades of IRC and mIRC scripting knowledge transfers to picking up C#.
+
+What this means to you, potential future contributor, is that AI contributions are welcome, but it's the standard "you have to be able to explain the code" rule. We're not trying to cram vibe coded features into clircs. This isn't that client.
+
 ## Build, test, and run
 
 From the repository root:
