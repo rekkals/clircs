@@ -68,13 +68,13 @@ internal sealed class TlsCertificatePromptPolicy : ITlsCertificatePolicy
         if (!certificate.IsCurrentlyValid)
         {
             Report(certificate.Endpoint, "This certificate is outside its validity period and cannot be remembered.", success: false);
-            var expiredChoice = _presenter.ReadLine("Accept [o]nce or [r]eject (default)? ");
+            var expiredChoice = _presenter.ReadPrompt("Accept [o]nce or [r]eject (default)? ");
             return expiredChoice?.Trim().Equals("o", StringComparison.OrdinalIgnoreCase) == true
                 ? TlsCertificateDecision.Accept
                 : TlsCertificateDecision.Reject;
         }
 
-        var choice = _presenter.ReadLine("Accept [o]nce, [a]lways for this exact server/certificate, or [r]eject (default)? ");
+        var choice = _presenter.ReadPrompt("Accept [o]nce, [a]lways for this exact server/certificate, or [r]eject (default)? ");
         if (choice?.Trim().Equals("o", StringComparison.OrdinalIgnoreCase) == true)
         {
             return TlsCertificateDecision.Accept;

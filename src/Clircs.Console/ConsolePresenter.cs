@@ -19,12 +19,15 @@ internal sealed class ConsolePresenter
         (ConsoleColor.White, ConsoleColor.DarkRed)
     ];
     private readonly object _consoleLock = new();
+    private readonly object _specialInputGate = new();
+    private bool _specialInputActive;
     private readonly StringBuilder _input = new();
     private readonly InputHistory _defaultInputHistory = new();
     private readonly Dictionary<BufferId, InputHistory> _inputHistories = [];
     private InputHistory _activeInputHistory;
     private readonly NicknameCompletion _nicknameCompletion = new();
     private string _prompt = string.Empty;
+    private string? _normalPrompt;
     private string? _pendingInput;
     private int _inputCursor;
     private int _inputViewStart;
@@ -142,10 +145,11 @@ internal sealed class ConsolePresenter
         ArgumentNullException.ThrowIfNull(model);
         lock (_consoleLock)
         {
+            _normalPrompt = model.Prompt;
             var previousHeaderVisible = _topicBar is not null;
             var changed = !HeaderEquals(_bufferHeader, model.Header) ||
                 !StatusEquals(_statusBar, model.Status) ||
-                (_readingInput && !string.Equals(_prompt, model.Prompt, StringComparison.Ordinal));
+                (_readingInput && !_specialInputActive && !string.Equals(_prompt, model.Prompt, StringComparison.Ordinal));
             if (!changed) return false;
 
             if (_eventBatchDepth == 0 && _chromeVisible && HasInteractiveConsole) ClearInputUnsafe();
@@ -166,13 +170,17 @@ internal sealed class ConsolePresenter
 
     private void ApplyChromeUnsafe(WindowChromeModel model)
     {
+        _normalPrompt = model.Prompt;
         _bufferHeader = model.Header;
         _topicBar = BufferHeaderComposer.Compose(
             model.Header,
             HasInteractiveConsole ? Math.Max(1, Console.BufferWidth - 1) : 119,
             _theme.HeaderSeparator);
         _statusBar = model.Status;
-        if (_readingInput) _prompt = model.Prompt;
+        if (_readingInput && !_specialInputActive)
+        {
+            _prompt = model.Prompt;
+        }
     }
 
     private static bool HeaderEquals(BufferHeaderModel left, BufferHeaderModel right) =>
@@ -633,6 +641,185 @@ internal sealed class ConsolePresenter
         "help",
         presentation);
 
+    public string? ReadPrompt(string prompt)
+    {
+        return ReadSpecialInput(prompt, maskInput: false);
+    }
+
+    private string? ReadSpecialInput(string prompt, bool maskInput)
+    {
+        return WithSpecialInput(() =>
+        {
+            if (!HasInteractiveConsole)
+            {
+                Console.Write(prompt);
+                return Console.ReadLine();
+            }
+
+            var value = new StringBuilder();
+
+            lock (_consoleLock)
+            {
+                var chromeWasVisible = _chromeVisible;
+                _prompt = prompt;
+                _input.Clear();
+                _inputCursor = 0;
+                _inputViewStart = 0;
+                _maskInput = maskInput;
+                _readingInput = true;
+                _chromeVisible = true;
+                _nicknameMatchProvider = null;
+                _nicknameCompletion.Reset();
+
+                if (ShouldReserveChromeRows(chromeWasVisible))
+                {
+                    ReserveChromeRowsUnsafe();
+                }
+                else
+                {
+                    ClearInputUnsafe();
+                }
+
+                RenderInputUnsafe();
+                SetCursorVisibleUnsafe(true);
+            }
+
+            while (true)
+            {
+                var receivedKey = false;
+
+                lock (_consoleLock)
+                {
+                    receivedKey = TryReadInputKeyUnsafe(
+                            specialInput: true, out var key);
+
+                    if (receivedKey)
+                    {
+                        if (key.Key == ConsoleKey.Enter)
+                        {
+                            return value.ToString();
+                        }
+
+                        if (key.Key == ConsoleKey.Escape)
+                        {
+                            return null;
+                        }
+
+                        if (key.Key == ConsoleKey.Backspace)
+                        {
+                            if (value.Length > 0)
+                            {
+                                UpdateInputRowUnsafe(() =>
+                                {
+                                    value.Length--;
+                                    _input.Length--;
+                                    _inputCursor = _input.Length;
+                                });
+                            }
+                        }
+                        else if (!char.IsControl(key.KeyChar))
+                        {
+                            UpdateInputRowUnsafe(() =>
+                            {
+                                value.Append(key.KeyChar);
+                                _input.Append(maskInput ? '*' : key.KeyChar);
+                                _inputCursor = _input.Length;
+                            });
+                        }
+                    }
+                }
+
+                if (!receivedKey)
+                {
+                    Thread.Sleep(25);
+                }
+            }
+        });
+    }
+
+    private string? WithSpecialInput(Func<string?> readInput)
+    {
+        lock (_specialInputGate)
+        {
+            Action restoreInput;
+
+            lock (_consoleLock)
+            {
+                var savedPrompt = _prompt;
+                var savedInput = _input.ToString();
+                var savedCursor = _inputCursor;
+                var savedViewStart = _inputViewStart;
+                var savedReadingInput = _readingInput;
+                var savedChromeVisible = _chromeVisible;
+                var savedMaskInput = _maskInput;
+                var savedHistory = _activeInputHistory;
+                var savedMatchProvider = _nicknameMatchProvider;
+
+                restoreInput = () =>
+                {
+                    _prompt = savedReadingInput
+                        ? _normalPrompt ?? savedPrompt
+                        : savedPrompt;
+                    _input.Clear();
+                    _input.Append(savedInput);
+                    _inputCursor = savedCursor;
+                    _inputViewStart = savedViewStart;
+                    _readingInput = savedReadingInput;
+                    _chromeVisible = savedChromeVisible;
+                    _maskInput = savedMaskInput;
+                    _activeInputHistory = savedHistory;
+                    _nicknameMatchProvider = savedMatchProvider;
+                    _nicknameCompletion.Reset();
+                };
+
+                _specialInputActive = true;
+            }
+
+            try
+            {
+                return readInput();
+            }
+            finally
+            {
+                lock (_consoleLock)
+                {
+                    try
+                    {
+                        ClearInputUnsafe();
+                    }
+                    finally
+                    {
+                        restoreInput();
+                        _specialInputActive = false;
+                        Monitor.PulseAll(_consoleLock);
+                    }
+
+                    if (_chromeVisible)
+                    {
+                        RenderInputUnsafe();
+                    }
+
+                    SetCursorVisibleUnsafe(_readingInput);
+                }
+            }
+        }
+    }
+
+    private bool TryReadInputKeyUnsafe(
+    bool specialInput,
+    out ConsoleKeyInfo key)
+    {
+        key = default;
+
+        if (_specialInputActive != specialInput || !Console.KeyAvailable)
+        {
+            return false;
+        }
+
+        key = Console.ReadKey(intercept: true);
+        return true;
+    }
+
     public string? ReadLine(
         string prompt,
         Func<string, IReadOnlyList<string>>? nicknameMatchProvider = null,
@@ -648,6 +835,11 @@ internal sealed class ConsolePresenter
 
         lock (_consoleLock)
         {
+            while (_specialInputActive)
+            {
+                Monitor.Wait(_consoleLock);
+            }
+
             _prompt = prompt;
             _input.Clear();
             if (_pendingInput is { } pendingInput)
@@ -680,26 +872,28 @@ internal sealed class ConsolePresenter
 
         while (true)
         {
-            if (!Console.KeyAvailable)
-            {
-                if (ResizeReady()) resizeViewport?.Invoke();
-                Thread.Sleep(25);
-                continue;
-            }
-            var key = Console.ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.PageUp)
-            {
-                scrollViewport?.Invoke(1);
-                continue;
-            }
-            if (key.Key == ConsoleKey.PageDown)
-            {
-                scrollViewport?.Invoke(-1);
-                continue;
-            }
+            var scrollDirection = 0;
+            var checkResize = false;
+            var receivedKey = false;
+
             lock (_consoleLock)
             {
-                if (key.Key == ConsoleKey.Enter)
+                receivedKey = TryReadInputKeyUnsafe(
+                    specialInput: false, out var key);
+
+                if (!receivedKey)
+                {
+                    checkResize = !_specialInputActive;
+                }
+                else if (key.Key == ConsoleKey.PageUp)
+                {
+                    scrollDirection = 1;
+                }
+                else if (key.Key == ConsoleKey.PageDown)
+                {
+                    scrollDirection = -1;
+                }
+                else if (key.Key == ConsoleKey.Enter)
                 {
                     var result = _input.ToString();
                     _activeInputHistory.Commit(result);
@@ -713,8 +907,9 @@ internal sealed class ConsolePresenter
                     SetCursorVisibleUnsafe(false);
                     return result;
                 }
-
-                if (key.Key == ConsoleKey.Z && key.Modifiers.HasFlag(ConsoleModifiers.Control) && _input.Length == 0)
+                else if (key.Key == ConsoleKey.Z &&
+                         key.Modifiers.HasFlag(ConsoleModifiers.Control) &&
+                         _input.Length == 0)
                 {
                     ClearInputUnsafe();
                     _readingInput = false;
@@ -722,8 +917,24 @@ internal sealed class ConsolePresenter
                     _nicknameMatchProvider = null;
                     return null;
                 }
+                else
+                {
+                    UpdateInputRowUnsafe(() => ApplyKeyUnsafe(key));
+                }
+            }
 
-                UpdateInputRowUnsafe(() => ApplyKeyUnsafe(key));
+            if (scrollDirection != 0)
+            {
+                scrollViewport?.Invoke(scrollDirection);
+            }
+            else if (checkResize && ResizeReady())
+            {
+                resizeViewport?.Invoke();
+            }
+
+            if (!receivedKey)
+            {
+                Thread.Sleep(25);
             }
         }
     }
@@ -761,85 +972,7 @@ internal sealed class ConsolePresenter
 
     public string? ReadSecret(string prompt)
     {
-        if (!HasInteractiveConsole)
-        {
-            return Console.ReadLine();
-        }
-        var secret = new StringBuilder();
-        lock (_consoleLock)
-        {
-            var chromeWasVisible = _chromeVisible;
-            _prompt = prompt;
-            _input.Clear();
-            _inputCursor = 0;
-            _inputViewStart = 0;
-            _maskInput = true;
-            _readingInput = true;
-            _chromeVisible = true;
-            if (ShouldReserveChromeRows(chromeWasVisible))
-            {
-                ReserveChromeRowsUnsafe();
-            }
-            else
-            {
-                ClearInputUnsafe();
-            }
-            RenderInputUnsafe();
-        }
-        while (true)
-        {
-            var key = Console.ReadKey(intercept: true);
-            lock (_consoleLock)
-            {
-                if (key.Key == ConsoleKey.Enter)
-                {
-                    var result = secret.ToString();
-                    ClearInputUnsafe();
-                    _readingInput = false;
-                    _chromeVisible = false;
-                    _maskInput = false;
-                    _prompt = string.Empty;
-                    _input.Clear();
-                    _inputCursor = 0;
-                    _inputViewStart = 0;
-                    return result;
-                }
-                if (key.Key == ConsoleKey.Escape)
-                {
-                    ClearInputUnsafe();
-                    _readingInput = false;
-                    _chromeVisible = false;
-                    _maskInput = false;
-                    _prompt = string.Empty;
-                    _input.Clear();
-                    _inputCursor = 0;
-                    _inputViewStart = 0;
-                    return null;
-                }
-                if (key.Key == ConsoleKey.Backspace)
-                {
-                    if (secret.Length > 0)
-                    {
-                        UpdateInputRowUnsafe(() =>
-                        {
-                            secret.Length--;
-                            _input.Length--;
-                            _inputCursor--;
-                        });
-                    }
-                    continue;
-                }
-                if (!char.IsControl(key.KeyChar))
-                {
-                    UpdateInputRowUnsafe(() =>
-                    {
-                        secret.Append(key.KeyChar);
-                        _input.Append('*');
-                        _inputCursor++;
-                    });
-                }
-            }
-        }
+        return ReadSpecialInput(prompt, maskInput: true);
     }
 
     public void PrefillInput(string value)
@@ -847,7 +980,7 @@ internal sealed class ConsolePresenter
         ArgumentNullException.ThrowIfNull(value);
         lock (_consoleLock)
         {
-            if (!_readingInput)
+            if (!_readingInput || _specialInputActive)
             {
                 _pendingInput = value;
                 return;
