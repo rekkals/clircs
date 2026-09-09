@@ -835,7 +835,8 @@ internal sealed class ConsolePresenter
         Func<string, IReadOnlyList<string>>? nicknameMatchProvider = null,
         Action<int>? scrollViewport = null,
         Action? resizeViewport = null,
-        BufferId? historyKey = null)
+        BufferId? historyKey = null,
+        Func<string, bool>? shouldStoreInHistory = null)
     {
         if (!HasInteractiveConsole)
         {
@@ -906,7 +907,10 @@ internal sealed class ConsolePresenter
                 else if (key.Key == ConsoleKey.Enter)
                 {
                     var result = _input.ToString();
-                    _activeInputHistory.Commit(result);
+                    if (shouldStoreInHistory?.Invoke(result) != false)
+                    {
+                        _activeInputHistory.Commit(result);
+                    }
                     _readingInput = false;
                     _prompt = string.Empty;
                     _input.Clear();

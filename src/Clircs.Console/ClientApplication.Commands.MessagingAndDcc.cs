@@ -78,22 +78,15 @@ internal sealed partial class ClientApplication
         if (session is null) return failure;
 
         var text = input.RawArguments.Trim();
-        var localText = text;
+        IReadOnlyList<string> arguments = input.Arguments;
         if (input.Name.Equals("nickserv", StringComparison.OrdinalIgnoreCase) &&
-            input.Arguments.Count > 0 &&
+            input.Arguments.Count == 1 &&
             input.Arguments[0].Equals("identify", StringComparison.OrdinalIgnoreCase))
         {
-            if (input.Arguments.Count == 1)
-            {
-                var password = _presenter.ReadSecret("NickServ password: ");
-                if (string.IsNullOrEmpty(password)) return CommandResult.Failure("NickServ identification canceled");
-                text = $"identify {password}";
-                localText = "identify ********";
-            }
-            else
-            {
-                localText = MaskServiceCommand(input.Name, text, input.Arguments);
-            }
+            var password = _presenter.ReadSecret("NickServ password: ");
+            if (string.IsNullOrEmpty(password)) return CommandResult.Failure("NickServ identification canceled");
+            text = $"identify {password}";
+            arguments = [.. input.Arguments, password];
         }
 
         if (text.Length == 0)
@@ -101,25 +94,12 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure($"Usage: /{input.Name} <command> [arguments]");
         }
 
+        var privacy = ServiceCommandPrivacy.Apply(input.Name, text, arguments);
+
         await session.SendMessageAsync(target, text, cancellationToken, createQueryBuffer: false);
         session.State.TryGetBuffer(target, out var destination);
-        EchoInActiveBuffer(session, SessionEventKind.Message, $"-> {target}: {localText}", destination?.Id);
+        EchoInActiveBuffer(session, SessionEventKind.Message, $"-> {target}: {privacy.DisplayText}", destination?.Id);
         return CommandResult.Success();
-    }
-
-    internal static string MaskServiceCommand(
-        string service,
-        string text,
-        IReadOnlyList<string> arguments)
-    {
-        if (!service.Equals("nickserv", StringComparison.OrdinalIgnoreCase) ||
-            arguments.Count < 2 ||
-            !arguments[0].Equals("identify", StringComparison.OrdinalIgnoreCase))
-        {
-            return text;
-        }
-        var password = arguments[^1];
-        return text[..Math.Max(0, text.Length - password.Length)] + "********";
     }
 
     private ValueTask<CommandResult> SayCommandAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>

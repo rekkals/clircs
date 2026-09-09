@@ -62,7 +62,8 @@ internal static class ThemeTests
         suite.Add("status labels distinguish IRC and bouncer TLS", StatusLabelsDistinguishTlsHops);
         suite.Add("channel status totals use compact labels", ChannelStatusTotalsUseCompactLabels);
         suite.Add("raw IRC debug lines expose direction and visible control delimiters", RawDebugLinesAreReadable);
-        suite.Add("NickServ identification masks supplied passwords locally", NickServPasswordsAreMasked);
+        suite.Add("service commands redact credentials locally", ServiceCommandCredentialsAreRedacted);
+        suite.Add("sensitive service commands are excluded from input history", SensitiveServiceCommandsAreExcludedFromHistory);
         suite.Add("buffer headers share space without losing auxiliary content", BufferHeadersCompose);
         suite.Add("plain local results use dim text without sentence punctuation", LocalResultsAreDim);
         suite.Add("traditional IRC colors map to the Windows console palette", IrcColorsUseConsolePalette);
@@ -108,20 +109,82 @@ internal static class ThemeTests
         Assert.Equal(">> WHO #clircs\\u202E", sent);
     }
 
-    private static void NickServPasswordsAreMasked()
+    private static void ServiceCommandCredentialsAreRedacted()
     {
-        Assert.Equal(
-            "identify slakker ********",
-            ClientApplication.MaskServiceCommand(
-                "nickserv",
-                "identify slakker hunter2",
-                ["identify", "slakker", "hunter2"]));
-        Assert.Equal(
+        (string Service, string Text, string[] Arguments, string Expected)[] cases =
+        [
+            ("nickserv", "identify slakker hunter2",
+                ["identify", "slakker", "hunter2"],
+                "identify slakker <redacted>"),
+            ("nickserv", "register hunter2 me@example.com",
+                ["register", "hunter2", "me@example.com"],
+                "register <redacted> <redacted>"),
+            ("nickserv", "set password newsecret",
+                ["set", "password", "newsecret"],
+                "set password <redacted>"),
+            ("nickserv", "confirm register 123456",
+                ["confirm", "register", "123456"],
+                "confirm register <redacted>"),
+            ("nickserv", "verify register token",
+                ["verify", "register", "token"],
+                "verify register <redacted>"),
+            ("nickserv", "recover slakker hunter2",
+                ["recover", "slakker", "hunter2"],
+                "recover slakker <redacted>"),
+            ("chanserv", "identify #clircs hunter2",
+                ["identify", "#clircs", "hunter2"],
+                "identify #clircs <redacted>"),
+            ("chanserv", "register #clircs hunter2 channel description",
+                ["register", "#clircs", "hunter2", "channel", "description"],
+                "register #clircs <redacted> channel description"),
+            ("operserv", "identify hunter2",
+                ["identify", "hunter2"],
+                "identify <redacted>")
+        ];
+
+        foreach (var test in cases)
+        {
+            var result = ServiceCommandPrivacy.Apply(
+                test.Service,
+                test.Text,
+                test.Arguments);
+
+            Assert.True(result.ContainsSensitiveData);
+            Assert.Equal(test.Expected, result.DisplayText);
+        }
+
+        var help = ServiceCommandPrivacy.Apply(
+            "nickserv",
             "help register",
-            ClientApplication.MaskServiceCommand(
-                "nickserv",
-                "help register",
-                ["help", "register"]));
+            ["help", "register"]);
+
+        Assert.False(help.ContainsSensitiveData);
+        Assert.Equal("help register", help.DisplayText);
+    }
+
+    private static void SensitiveServiceCommandsAreExcludedFromHistory()
+    {
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv identify slakker hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv register hunter2 me@example.com"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/chanserv identify #clircs hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/operserv identify hunter2"));
+
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv identify"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv help register"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/msg NickServ identify hunter2"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/quote PRIVMSG NickServ :identify hunter2"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "ordinary chat"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv \"unfinished"));
     }
 
     private static void DefaultStatusBarIsSubdued()

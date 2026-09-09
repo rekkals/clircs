@@ -276,7 +276,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
                 RefreshWindowChrome();
                 var line = _presenter.ReadLine(
                     Prompt(), NicknameMatches, ScrollActiveViewport, ResizeActiveViewport,
-                    historyKey: _windowStates.ActiveBufferId);
+                    historyKey: _windowStates.ActiveBufferId,
+                    shouldStoreInHistory: ShouldStoreInputInHistory);
                 if (line is null)
                 {
                     break;
@@ -331,6 +332,27 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             {
                 _presenter.ExitFullScreen();
             }
+        }
+    }
+
+    internal static bool ShouldStoreInputInHistory(string line)
+    {
+        try
+        {
+            if (CommandLineParser.Parse(line) is not CommandInput command ||
+                !ServiceTargets.ContainsKey(command.Name))
+            {
+                return true;
+            }
+
+            return !ServiceCommandPrivacy.Apply(
+                command.Name,
+                command.RawArguments.Trim(),
+                command.Arguments).ContainsSensitiveData;
+        }
+        catch (CommandLineException)
+        {
+            return true;
         }
     }
 
