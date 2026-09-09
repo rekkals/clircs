@@ -761,9 +761,19 @@ internal sealed class ConsolePresenter
                         ? _normalPrompt ?? savedPrompt
                         : savedPrompt;
                     _input.Clear();
-                    _input.Append(savedInput);
-                    _inputCursor = savedCursor;
-                    _inputViewStart = savedViewStart;
+                    if (savedReadingInput && _pendingInput is { } pendingInput)
+                    {
+                        _input.Append(pendingInput);
+                        _inputCursor = _input.Length;
+                        _inputViewStart = 0;
+                        _pendingInput = null;
+                    }
+                    else
+                    {
+                        _input.Append(savedInput);
+                        _inputCursor = savedCursor;
+                        _inputViewStart = savedViewStart;
+                    }
                     _readingInput = savedReadingInput;
                     _chromeVisible = savedChromeVisible;
                     _maskInput = savedMaskInput;
