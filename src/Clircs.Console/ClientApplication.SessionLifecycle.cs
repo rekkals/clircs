@@ -501,6 +501,12 @@ internal sealed partial class ClientApplication
             {
                 await session.SendAsync("MODE", [session.CurrentNickname, modes], IrcOutboundPriority.Automation, SessionWorkToken(session));
             }
+            if (session.State.UserModes.Length == 0)
+            {
+                // Some servers or bouncers may not send the current user modes during registration
+                // or attachment, but we only query if we don't observe live mode state.
+                await session.SynchronizeUserModesAsync(SessionWorkToken(session));
+            }
         }
         catch (OperationCanceledException) when (SessionWorkToken(session).IsCancellationRequested) { }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)

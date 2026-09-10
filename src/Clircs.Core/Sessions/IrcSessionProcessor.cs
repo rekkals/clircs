@@ -15,6 +15,7 @@ public sealed class IrcSessionProcessor
     private readonly List<string> _acceptResults = [];
     private PendingMessageGuard? _pendingMessageGuard;
     private AutomaticVersionProbeState _automaticVersionProbeState;
+    private bool _automaticUserModeQueryPending;
 
     public IrcSessionProcessor(NetworkSessionState state, string initialNickname)
     {
@@ -41,6 +42,7 @@ public sealed class IrcSessionProcessor
         _acceptResults.Clear();
         _pendingMessageGuard = null;
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
+        _automaticUserModeQueryPending = false;
     }
 
     public Guid BeginWhoRequest(IReadOnlyList<string> arguments, bool automatic = false)
@@ -61,6 +63,16 @@ public sealed class IrcSessionProcessor
     public void CancelAutomaticVersionProbe()
     {
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
+    }
+
+    public void BeginAutomaticUserModeQuery()
+    {
+        _automaticUserModeQueryPending = true;
+    }
+
+    public void CancelAutomaticUserModeQuery()
+    {
+        _automaticUserModeQueryPending = false;
     }
 
     public Guid BeginWhoisRequest(string nickname, bool includeIdle, bool automatic = false)
@@ -495,8 +507,16 @@ public sealed class IrcSessionProcessor
             case "221":
                 if (message.Parameters.Count >= 2)
                 {
+                    var suppressOutput = _automaticUserModeQueryPending;
+                    _automaticUserModeQueryPending = false;
                     _state.ApplyUserModes(message.Parameters[1], reset: true);
-                    events.Add(Status(SessionEventKind.Mode, $"User modes: {string.Join(' ', message.Parameters.Skip(1))}", now));
+                    if (!suppressOutput)
+                    {
+                        events.Add(Status(
+                            SessionEventKind.Mode,
+                            $"User modes: {string.Join(' ', message.Parameters.Skip(1))}",
+                            now));
+                    }
                 }
 
                 break;
@@ -1051,7 +1071,7 @@ public sealed class IrcSessionProcessor
         }
     }
 
-    private void ObserveConnectionMetadata(IrcMessage message)
+    internal void ObserveConnectionMetadata(IrcMessage message)
     {
         if (message.Command == "004" && message.Parameters.Count >= 2)
         {
@@ -1072,10 +1092,25 @@ public sealed class IrcSessionProcessor
             _state.SetUpstreamTls(true);
         }
 
+        var sojuSignature = message.Command == "004" &&
+            message.Parameters.Count >= 3 &&
+            message.Parameters[2].Equals("soju", StringComparison.OrdinalIgnoreCase);
+
         var irssiProxySignature = message.Command == "002" &&
             message.Parameters.Count >= 2 &&
             message.Parameters[^1].StartsWith(
                 "Your host is irssi-proxy, running version ", StringComparison.OrdinalIgnoreCase);
+
+        var lurkerSignature = message.Command == "CAP" &&
+            message.Prefix?.Equals("lurker.bouncer", StringComparison.OrdinalIgnoreCase) == true;
+
+        var ircCloudSignature = message.Command == "CAP" &&
+            message.Prefix?.Equals("bnc.irccloud.com", StringComparison.OrdinalIgnoreCase) == true;
+
+        var shroudBncSignature = message.Command == "NOTICE" &&
+            message.Parameters.Count >= 2 &&
+            message.Parameters[0].Equals("AUTH", StringComparison.OrdinalIgnoreCase) &&
+            message.Parameters[^1].StartsWith("*** shroudBNC ", StringComparison.OrdinalIgnoreCase);
 
         var zncToken = message.Command == "005" && message.Parameters
             .Skip(1)
@@ -1086,6 +1121,22 @@ public sealed class IrcSessionProcessor
         if (zncToken || zncPrefix)
         {
             _state.SetBouncer("ZNC");
+        }
+        else if (lurkerSignature)
+        {
+            _state.SetBouncer("Lurker");
+        }
+        else if (ircCloudSignature)
+        {
+            _state.SetBouncer("IRCCloud");
+        }
+        else if (shroudBncSignature)
+        {
+            _state.SetBouncer("shroudBNC");
+        }
+        else if (sojuSignature)
+        {
+            _state.SetBouncer("soju");
         }
         else if (irssiProxySignature)
         {

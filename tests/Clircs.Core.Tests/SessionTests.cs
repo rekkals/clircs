@@ -80,6 +80,9 @@ internal static class SessionTests
         suite.Add("LIST replies produce a formatted routed channel table", ListProducesChannelTable);
         suite.Add("bouncer metadata separates client and upstream TLS", BouncerMetadataSeparatesTlsHops);
         suite.Add("Irssi Proxy is detected from its registration signature", IrssiProxyIsDetected);
+        suite.Add("soju is detected from its 004 server software", SojuIsDetected);
+        suite.Add("IRCCloud is detected from its CAP server name", IrcCloudIsDetected);
+        suite.Add("shroudBNC is detected from its authentication banner", ShroudBncIsDetected);
         suite.Add("automatic VERSION probes silently collect server features", AutomaticVersionProbeCollectsFeaturesSilently);
         suite.Add("PREFIX CHANMODES and ban changes update channel policy state", ModesAndBansMaintainState);
         suite.Add("channel list numerics produce formatted b e I and q results", ChannelListsAreFormatted);
@@ -176,6 +179,45 @@ internal static class SessionTests
             ":irc.choopa.net 318 me me :End of WHOIS list.")).Count);
 
         Assert.True(state.UpstreamTls == true);
+    }
+
+    private static void SojuIsDetected()
+    {
+        var (state, processor) = CreateProcessor();
+        state.ResetForReconnect(clientTransportTls: true);
+
+        processor.Process(IrcMessageParser.Parse(
+            ":irc.clircs.org 004 me irc.clircs.org soju aiwroO OovaimnqpsrtklbeI"));
+
+        Assert.Equal("soju", state.BouncerName!);
+        Assert.True(state.ClientTransportTls);
+        Assert.True(state.UpstreamTls is null);
+    }
+
+    private static void IrcCloudIsDetected()
+    {
+        var (state, processor) = CreateProcessor();
+        state.ResetForReconnect(clientTransportTls: true);
+
+        processor.Process(IrcMessageParser.Parse(
+            ":bnc.irccloud.com CAP * LS :account-tag away-notify batch cap-notify server-time"));
+
+        Assert.Equal("IRCCloud", state.BouncerName!);
+        Assert.True(state.ClientTransportTls);
+        Assert.True(state.UpstreamTls is null);
+    }
+
+    private static void ShroudBncIsDetected()
+    {
+        var (state, processor) = CreateProcessor();
+        state.ResetForReconnect(clientTransportTls: true);
+
+        processor.Process(IrcMessageParser.Parse(
+            ":sbnc.beutner.name NOTICE AUTH :*** shroudBNC 1.3.10 - Copyright (C) 2005-2022 Gunnar Beutner"));
+
+        Assert.Equal("shroudBNC", state.BouncerName!);
+        Assert.True(state.ClientTransportTls);
+        Assert.True(state.UpstreamTls is null);
     }
 
     private static void AutomaticVersionProbeCollectsFeaturesSilently()
@@ -1185,14 +1227,20 @@ internal static class SessionTests
     {
         var (state, processor) = CreateProcessor();
 
-        processor.Process(IrcMessageParser.Parse(":server 221 me +iw"));
+        processor.BeginAutomaticUserModeQuery();
+        var automatic = processor.Process(IrcMessageParser.Parse(":server 221 me +iw"));
+        Assert.Equal(0, automatic.Count);
         Assert.Equal("+iw", state.UserModes);
 
         processor.Process(IrcMessageParser.Parse(":me MODE me -w+s"));
         Assert.Equal("+is", state.UserModes);
 
+        var manual = processor.Process(IrcMessageParser.Parse(":server 221 me +i"));
+        Assert.Equal(1, manual.Count);
+        Assert.Equal("+i", state.UserModes);
+
         processor.Process(IrcMessageParser.Parse(":server MODE somebody +o"));
-        Assert.Equal("+is", state.UserModes);
+        Assert.Equal("+i", state.UserModes);
     }
 
     private static void MessageGuardNumericsCombine()

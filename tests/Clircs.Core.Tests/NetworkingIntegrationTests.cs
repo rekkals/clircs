@@ -29,6 +29,7 @@ internal static class NetworkingIntegrationTests
         suite.Add("disconnect cancels an in-progress DNS or transport connection", DisconnectCancelsInProgressConnectAsync);
         suite.Add("oversized incoming lines are discarded without disconnecting", OversizedIncomingLineDoesNotDisconnectAsync);
         suite.Add("extended Soju CAP list is accepted during registration", ExtendedSojuCapabilityListIsAcceptedAsync);
+        suite.Add("Lurker CAP signatures reach live session metadata", LurkerCapabilitySignatureReachesSessionMetadataAsync);
         suite.Add("excess incoming parameters are accepted with one diagnostic", ExcessIncomingParametersProduceOneDiagnosticAsync);
         suite.Add("raw IRC observers receive exact inbound and outbound wire lines", RawWireLinesAreObservableAsync);
         suite.Add("self-signed TLS is accepted only through an explicit certificate policy", SelfSignedTlsUsesPolicyAsync);
@@ -692,6 +693,87 @@ internal static class NetworkingIntegrationTests
 
         await connection.DisconnectAsync("done", timeout.Token);
 
+        Assert.Equal("QUIT done", (await serverTask)!);
+        listener.Stop();
+    }
+
+    private static async ValueTask LurkerCapabilitySignatureReachesSessionMetadataAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+            await using var stream = client.GetStream();
+            using var reader = new StreamReader(
+                stream,
+                new UTF8Encoding(false),
+                detectEncodingFromByteOrderMarks: false,
+                leaveOpen: true);
+            await using var writer = new StreamWriter(
+                stream,
+                new UTF8Encoding(false),
+                leaveOpen: true)
+            {
+                AutoFlush = true,
+                NewLine = "\r\n"
+            };
+
+            Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("NICK TestNick", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("USER test 0 * :Test User", (await reader.ReadLineAsync(timeout.Token))!);
+
+            await writer.WriteLineAsync(
+                ":lurker.bouncer CAP * LS :sasl=PLAIN server-time message-tags echo-message".AsMemory(),
+                timeout.Token);
+
+            Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);
+
+            await writer.WriteLineAsync(
+                ":pine.fxnet.org 001 TestNick :Welcome".AsMemory(),
+                timeout.Token);
+
+            Assert.Equal("MODE TestNick", (await reader.ReadLineAsync(timeout.Token))!);
+
+            await writer.WriteLineAsync(
+                ":pine.fxnet.org 221 TestNick +i".AsMemory(),
+                timeout.Token);
+
+            return await reader.ReadLineAsync(timeout.Token);
+        }, timeout.Token);
+
+        var options = new IrcConnectionOptions(
+            new IrcEndpoint("127.0.0.1", port, useTls: false),
+            new IrcIdentity(["TestNick"], "test", "Test User"));
+
+        await using var session = new IrcNetworkSession(
+            "test",
+            options,
+            new TcpIrcTransportFactory());
+
+        var rendered = new List<SessionEvent>();
+        session.EventRaised += rendered.Add;
+
+        await session.ConnectAsync(timeout.Token);
+
+        Assert.Equal("Lurker", session.State.BouncerName!);
+        Assert.False(session.State.ClientTransportTls);
+        Assert.True(session.State.UpstreamTls is null);
+
+        var eventsBeforeQuery = rendered.Count;
+        await session.SynchronizeUserModesAsync(timeout.Token);
+
+        while (session.State.UserModes != "+i")
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+
+        Assert.Equal(eventsBeforeQuery, rendered.Count);
+
+        await session.DisconnectAsync("done", timeout.Token);
         Assert.Equal("QUIT done", (await serverTask)!);
         listener.Stop();
     }

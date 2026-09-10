@@ -168,6 +168,24 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public ValueTask SendNicknameAsync(string nickname, CancellationToken cancellationToken = default) =>
         _connection.SendNicknameAsync(nickname, cancellationToken);
 
+    public async ValueTask SynchronizeUserModesAsync(CancellationToken cancellationToken = default)
+    {
+        _processor.BeginAutomaticUserModeQuery();
+        try
+        {
+            await SendAsync(
+                "MODE",
+                [CurrentNickname],
+                IrcOutboundPriority.Automation,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _processor.CancelAutomaticUserModeQuery();
+            throw;
+        }
+    }
+
     public async ValueTask SendMessageAsync(
         string target,
         string text,
@@ -348,7 +366,13 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         var registrationNicknameFailure =
             _connection.State == IrcConnectionState.Registering &&
             message.Command is "433" or "437";
-        var processedEvents = IsRegistrationProtocolMessage(message)
+        var registrationProtocolMessage = IsRegistrationProtocolMessage(message);
+        if (registrationProtocolMessage)
+        {
+            _processor.ObserveConnectionMetadata(message);
+        }
+
+        var processedEvents = registrationProtocolMessage
             ? []
             : _processor.Process(message);
         if (_synchronizationCompleted)
