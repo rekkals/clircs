@@ -88,6 +88,8 @@ internal sealed partial class ClientApplication
         Register("uwhois", [], "Show a user record or match a visible nickname.", UserWhoisAsync);
         Register("users", [], "List active network's user records.", UsersAsync);
         Register("usersum", [], "Summarize active network's user flags.", UserSummaryAsync);
+        Register("ignore", [], "List or add entries ignored on the active network.", IgnoreAsync);
+        Register("unignore", [], "Remove an exact ignore entry from the active network.", UnignoreAsync);
         Register("notify", [], "Manage the active network's notify list.", NotifyAsync);
         Register("accept", [], "Manage the server-side accept list.", AcceptAsync);
         Register("cprot", [], "Configure channel protection.", ChannelProtectionAsync);
@@ -191,6 +193,18 @@ internal sealed partial class ClientApplication
             new("Enable EXTERNAL", "/network sasl <profile> external <certificate.pfx> [required|optional]"),
             new("Disable SASL", "/network sasl <profile> off"),
             new("Security", "SASL requires TLS; passwords are encrypted with Windows DPAPI")
+        ],
+        "ignore" =>
+        [
+            new("List", "/ignore"),
+            new("Nickname", "/ignore <nickname>"),
+            new("Address", "/ignore <nick!user@host>"),
+            new("Wildcards", "Address entries support * and ?.")
+        ],
+        "unignore" =>
+        [
+            new("Remove", "/unignore <nickname|nick!user@host>"),
+            new("Matching", "Removes one exact stored entry; wildcards are not expanded.")
         ],
         "dcc" =>
         [

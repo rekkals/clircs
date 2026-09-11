@@ -46,7 +46,7 @@ public sealed class UserDirectoryStore
         {
             var envelope = JsonSerializer.Deserialize<UserDirectoryEnvelope>(File.ReadAllText(path), _jsonOptions)
                 ?? throw new InvalidDataException("User directory file is empty.");
-            if (envelope.SchemaVersion is not (1 or 2))
+            if (envelope.SchemaVersion is not (1 or 2 or 3))
             {
                 throw new InvalidDataException($"Unsupported user directory schema {envelope.SchemaVersion}.");
             }
@@ -65,12 +65,14 @@ public sealed class UserDirectoryStore
                 user.Comment,
                 user.ChannelComments,
                 user.CreatedAt,
-                user.UpdatedAt)), envelope.PolicyBans.Select(ban => new PolicyBan(
+                user.UpdatedAt)),
+                envelope.PolicyBans.Select(ban => new PolicyBan(
                     ban.Id,
                     ban.Mask,
                     ban.Channels,
                     ban.Reason,
-                    ban.CreatedAt)));
+                    ban.CreatedAt)),
+                envelope.IgnoreEntries);
         }
         catch (JsonException exception)
         {
@@ -84,7 +86,7 @@ public sealed class UserDirectoryStore
         var path = PathFor(directory.NetworkProfileId);
         var envelope = new UserDirectoryEnvelope
         {
-            SchemaVersion = 2,
+            SchemaVersion = 3,
             NetworkProfileId = directory.NetworkProfileId.Value,
             Users = directory.Users.Select(user => new StoredUser
             {
@@ -105,7 +107,8 @@ public sealed class UserDirectoryStore
                 Channels = ban.Channels.ToArray(),
                 Reason = ban.Reason,
                 CreatedAt = ban.CreatedAt
-            }).ToArray()
+            }).ToArray(),
+            IgnoreEntries = directory.IgnoreEntries.ToArray()
         };
         _files.WriteText(path, JsonSerializer.Serialize(envelope, _jsonOptions));
     }
@@ -134,6 +137,8 @@ public sealed class UserDirectoryStore
         public StoredUser[] Users { get; set; } = [];
 
         public StoredPolicyBan[] PolicyBans { get; set; } = [];
+
+        public string[] IgnoreEntries { get; set; } = [];
     }
 
     private sealed class StoredUser

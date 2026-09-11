@@ -17,7 +17,7 @@ internal static class NetworkingIntegrationTests
 {
     public static void Register(TestSuite suite)
     {
-        suite.Add("TCP connection registers, falls back nick, answers PING, and quits", RegistrationPingAndQuitAsync);
+        suite.Add("TCP connection registers, falls back nick, applies CTCP ignores, answers PING, and quits", RegistrationPingAndQuitAsync);
         suite.Add("registration pauses for a user nickname after configured names fail", NicknameFallbackExhaustionAsync);
         suite.Add("two live sessions remain isolated through identical code paths", TwoLiveSessionsRemainIsolatedAsync);
         suite.Add("confirmed self joins automatically query channel modes", SelfJoinQueriesModesAsync);
@@ -439,7 +439,15 @@ internal static class NetworkingIntegrationTests
         var options = new IrcConnectionOptions(
             new IrcEndpoint("127.0.0.1", port, useTls: false),
             new IrcIdentity(["TestNick", "TestNick_"], "test", "Test User"));
-        await using var session = new IrcNetworkSession("test", options, new TcpIrcTransportFactory(), () => "Test quote");
+        await using var session = new IrcNetworkSession(
+            "test",
+            options,
+            new TcpIrcTransportFactory(),
+            () => "Test quote",
+            (_, nickname, username, host, _) =>
+                nickname.Equals("bob", StringComparison.OrdinalIgnoreCase) &&
+                username == "ignored" &&
+                host == "blocked.test");
         var receivedWelcome = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var receivedEchoMarker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var localEchoCount = 0;
@@ -609,6 +617,7 @@ internal static class NetworkingIntegrationTests
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         await writer.WriteLineAsync("PING :cookie".AsMemory(), cancellationToken);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        await writer.WriteLineAsync(":bob!ignored@blocked.test PRIVMSG TestNick_ :\u0001VERSION\u0001".AsMemory(), cancellationToken);
         await writer.WriteLineAsync(":alice!u@h PRIVMSG TestNick_ :\u0001VERSION\u0001".AsMemory(), cancellationToken);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         await writer.WriteLineAsync(":server 001 TestNick_ :Welcome to the test network".AsMemory(), cancellationToken);

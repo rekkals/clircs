@@ -1247,7 +1247,7 @@ public sealed class IrcSessionProcessor
         }
     }
 
-    private static (string Nickname, string? Username, string? Host) ParsePrefix(string? prefix)
+    internal static (string Nickname, string? Username, string? Host) ParsePrefix(string? prefix)
     {
         if (string.IsNullOrWhiteSpace(prefix))
         {

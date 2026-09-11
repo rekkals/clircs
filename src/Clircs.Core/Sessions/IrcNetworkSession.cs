@@ -10,6 +10,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     private readonly IrcClientConnection _connection;
     private readonly OutboundEchoTracker _echoTracker = new();
     private readonly AutomaticCtcpReplyLimiter _ctcpReplyLimiter = new();
+    // Persistent ignore storage remains an application concern; the session only
+    // asks whether it should suppress an automatic CTCP reply.
+    private readonly Func<NetworkSessionId, string, string?, string?, IrcCaseMapping, bool>? _ignoreMatcher;
     private readonly IrcSessionProcessor _processor;
     private int _disposed;
     private SessionDisconnectInfo? _pendingDisconnect;
@@ -29,13 +32,15 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         string displayName,
         IrcConnectionOptions options,
         IIrcTransportFactory transportFactory,
-        Func<string?>? versionQuote = null)
+        Func<string?>? versionQuote = null,
+        Func<NetworkSessionId, string, string?, string?, IrcCaseMapping, bool>? ignoreMatcher = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         Options = options.Validate();
         State = new NetworkSessionState(NetworkSessionId.New(), displayName, IrcCaseMapping.Rfc1459);
         State.ResetForReconnect(Options.Endpoint.UseTls);
         _processor = new IrcSessionProcessor(State, options.Identity.Nicknames[0]);
+        _ignoreMatcher = ignoreMatcher;
         _connection = new IrcClientConnection(transportFactory);
         _connection.MessageReceived += OnMessageReceivedAsync;
         _connection.Diagnostic += OnDiagnostic;
@@ -533,7 +538,18 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             return;
         }
 
-        var sender = IrcSessionProcessor.NickFromPrefix(message.Prefix);
+        var identity = IrcSessionProcessor.ParsePrefix(message.Prefix);
+        if (_ignoreMatcher?.Invoke(
+                State.Id,
+                identity.Nickname,
+                identity.Username,
+                identity.Host,
+                State.CaseMapping) == true)
+        {
+            return;
+        }
+
+        var sender = identity.Nickname;
         var source = message.Prefix ?? sender;
         if (!_ctcpReplyLimiter.TryAcquire(source, DateTimeOffset.UtcNow, out var reportSuppression))
         {

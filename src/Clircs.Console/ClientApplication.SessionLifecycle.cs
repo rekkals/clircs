@@ -25,7 +25,12 @@ internal sealed partial class ClientApplication
         int? preferredStatusNumber = null)
     {
         var displayName = UniqueDisplayName(requestedDisplayName ?? options.Endpoint.Host);
-        var session = new IrcNetworkSession(displayName, options, new TcpIrcTransportFactory(_tlsCertificatePolicy), () => _quotes.Next(220));
+        var session = new IrcNetworkSession(
+            displayName,
+            options,
+            new TcpIrcTransportFactory(_tlsCertificatePolicy),
+            () => _quotes.Next(220),
+            IsPermanentlyIgnored);
         lock (_windowTransactionGate)
         {
             _liveSessions.Add(session, options, profileId, _lifetime.Token);

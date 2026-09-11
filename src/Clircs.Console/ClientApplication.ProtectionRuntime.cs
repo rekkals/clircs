@@ -124,7 +124,7 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private bool IsPersonallyIgnored(SessionEvent sessionEvent)
+    private bool IsIgnoredCommunication(SessionEvent sessionEvent)
     {
         if (sessionEvent.Kind == SessionEventKind.Protection ||
             FindSession(sessionEvent.NetworkSessionId) is not { } session ||
@@ -132,18 +132,34 @@ internal sealed partial class ClientApplication
         {
             return false;
         }
-        var isPrivate = fields.GetValueOrDefault("private") == "true" ||
-            session.State.TryGetBuffer(sessionEvent.BufferId, out var buffer) && buffer!.Kind == BufferKind.Query;
+
         var actor = fields.GetValueOrDefault("nick");
-        if (!isPrivate || string.IsNullOrWhiteSpace(actor))
+        if (string.IsNullOrWhiteSpace(actor))
         {
             return false;
         }
-        var ignored = _userAndChannelPolicy.IsPersonallyIgnored(
-            session.State.Id,
-            ProtectionIdentityKey(session, actor, fields),
-            DateTimeOffset.UtcNow);
-        if (ignored && session.State.TryGetBuffer(sessionEvent.BufferId, out var ignoredBuffer) &&
+
+        var isPrivate = fields.GetValueOrDefault("private") == "true" ||
+            session.State.TryGetBuffer(sessionEvent.BufferId, out var buffer) &&
+            buffer!.Kind == BufferKind.Query;
+
+        var permanentlyIgnored = IsPermanentIgnoreCandidate(sessionEvent) &&
+            IsPermanentlyIgnored(
+                session.State.Id,
+                actor,
+                fields.GetValueOrDefault("username"),
+                fields.GetValueOrDefault("host"),
+                session.State.CaseMapping);
+
+        var temporarilyIgnored = isPrivate &&
+            _userAndChannelPolicy.IsPersonallyIgnored(
+                session.State.Id,
+                ProtectionIdentityKey(session, actor, fields),
+                DateTimeOffset.UtcNow);
+
+        var ignored = permanentlyIgnored || temporarilyIgnored;
+        if (ignored &&
+            session.State.TryGetBuffer(sessionEvent.BufferId, out var ignoredBuffer) &&
             ignoredBuffer!.Kind == BufferKind.Query)
         {
             var removeEmptyQuery = false;
@@ -155,9 +171,42 @@ internal sealed partial class ClientApplication
                     session.State.RemoveBuffer(ignoredBuffer.Id);
                 }
             }
-            if (removeEmptyQuery) _presenter.ForgetInputHistory(ignoredBuffer.Id);
+
+            if (removeEmptyQuery)
+            {
+                _presenter.ForgetInputHistory(ignoredBuffer.Id);
+            }
         }
+
         return ignored;
+    }
+
+    private static bool IsPermanentIgnoreCandidate(SessionEvent sessionEvent) =>
+        sessionEvent.Kind is
+            SessionEventKind.Message or
+            SessionEventKind.Highlight or
+            SessionEventKind.Notice or
+            SessionEventKind.Action ||
+        sessionEvent.Fields?.GetValueOrDefault("event") == "dcc.invalid";
+
+    private bool IsPermanentlyIgnored(
+        NetworkSessionId sessionId,
+        string nickname,
+        string? username,
+        string? host,
+        IrcCaseMapping mapping)
+    {
+        if (FindSession(sessionId) is not { } session ||
+            ProfileFor(session) is not { } profile)
+        {
+            return false;
+        }
+
+        var directory = _userAndChannelPolicy.GetDirectory(
+            profile.Id,
+            () => _userDirectoryStore.Load(profile.Id));
+
+        return directory.IsIgnored(nickname, username, host, mapping);
     }
 
     private static string ProtectionIdentityKey(

@@ -281,7 +281,8 @@ internal sealed partial class ClientApplication
                 if (input.Arguments.Count == 2)
                 {
                     return ValueTask.FromResult(CommandResult.Success(
-                        $"Import preview: {imported.Users.Count} user(s), {imported.PolicyBans.Count} policy ban(s). " +
+                        $"Import preview: {imported.Users.Count} user(s), {imported.PolicyBans.Count} policy ban(s), " +
+                        $"{imported.IgnoreEntries.Count} ignore entry(s). " +
                         "Re-run with --force to replace the active network directory."));
                 }
 
@@ -293,7 +294,8 @@ internal sealed partial class ClientApplication
                 _userDirectoryStore.Save(imported);
                 _userAndChannelPolicy.ReplaceDirectory(imported);
                 return ValueTask.FromResult(CommandResult.Success(
-                    $"Imported {imported.Users.Count} user(s) and {imported.PolicyBans.Count} policy ban(s). The previous file was backed up."));
+                    $"Imported {imported.Users.Count} user(s), {imported.PolicyBans.Count} policy ban(s), " +
+                    $"and {imported.IgnoreEntries.Count} ignore entry(s). The previous file was backed up."));
             }
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or IOException or UnauthorizedAccessException)
@@ -362,6 +364,109 @@ internal sealed partial class ClientApplication
         return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
             $"User summary: {network}",
             Grid: grid)));
+    }
+
+    private ValueTask<CommandResult> IgnoreAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserDirectory(out var session, out var directory, out var failure))
+        {
+            return ValueTask.FromResult(failure);
+        }
+
+        var network = ProfileFor(session!)?.DisplayName
+            ?? session!.Features.NetworkName
+            ?? session.State.DisplayName;
+
+        if (input.Arguments.Count == 0)
+        {
+            var entries = directory!.IgnoreEntries;
+            if (entries.Count == 0)
+            {
+                return ValueTask.FromResult(
+                    CommandResult.Success($"No ignore entries are defined for {network}."));
+            }
+
+            var rows = entries
+                .Select(entry => (IReadOnlyList<string>)new[] { entry })
+                .ToArray();
+
+            return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
+                "IGNORE:",
+                Table: new PresentationTable(["Entry"], rows),
+                Summary: $"{entries.Count} ignore {(entries.Count == 1 ? "entry" : "entries")}",
+                TitleHighlight: network)));
+        }
+
+        if (input.Arguments.Count != 1)
+        {
+            return ValueTask.FromResult(
+                CommandResult.Failure("Usage: /ignore [nickname|nick!user@host]"));
+        }
+
+        try
+        {
+            var entry = input.Arguments[0].Trim();
+            directory!.AddIgnore(entry, session!.State.CaseMapping);
+            SaveUserDirectory(directory);
+
+            return ValueTask.FromResult(
+                CommandResult.Success($"Added ignore entry '{entry}' for {network}."));
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+            or InvalidOperationException
+            or IOException
+            or UnauthorizedAccessException)
+        {
+            return ValueTask.FromResult(CommandResult.Failure(exception.Message));
+        }
+    }
+
+    private ValueTask<CommandResult> UnignoreAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserDirectory(out var session, out var directory, out var failure))
+        {
+            return ValueTask.FromResult(failure);
+        }
+
+        if (input.Arguments.Count != 1)
+        {
+            return ValueTask.FromResult(
+                CommandResult.Failure("Usage: /unignore <nickname|nick!user@host>"));
+        }
+
+        var network = ProfileFor(session!)?.DisplayName
+            ?? session!.Features.NetworkName
+            ?? session.State.DisplayName;
+
+        try
+        {
+            var entry = input.Arguments[0].Trim();
+            if (!directory!.RemoveIgnore(entry, session!.State.CaseMapping))
+            {
+                return ValueTask.FromResult(
+                    CommandResult.Failure($"No ignore entry '{entry}' exists for {network}."));
+            }
+
+            SaveUserDirectory(directory);
+
+            return ValueTask.FromResult(
+                CommandResult.Success($"Removed ignore entry '{entry}' from {network}."));
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+            or InvalidOperationException
+            or IOException
+            or UnauthorizedAccessException)
+        {
+            return ValueTask.FromResult(CommandResult.Failure(exception.Message));
+        }
     }
 
     private ValueTask<CommandResult> ChannelProtectionAsync(

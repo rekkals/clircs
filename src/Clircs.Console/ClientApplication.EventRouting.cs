@@ -91,7 +91,7 @@ internal sealed partial class ClientApplication
         {
             _presenter.PrefillInput(prefill);
         }
-        if (IsPersonallyIgnored(sessionEvent))
+        if (IsIgnoredCommunication(sessionEvent))
         {
             return false;
         }

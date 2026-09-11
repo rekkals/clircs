@@ -85,6 +85,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["remchan"] = "/remchan <handle> <channel>",
             ["chinfo"] = "/chinfo <handle> [channel] <text|off>",
             ["uwhois"] = "/uwhois <handle|nick>",
+            ["ignore"] = "/ignore [nickname|nick!user@host]",
+            ["unignore"] = "/unignore <nickname|nick!user@host>",
             ["notify"] = "/notify [list|add|remove] [nick]",
             ["accept"] = "/accept [[-]nick,...]",
             ["cprot"] = "/cprot <on|off|status|detector> [arguments]",

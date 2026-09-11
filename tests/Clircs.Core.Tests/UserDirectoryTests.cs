@@ -12,6 +12,7 @@ internal static class UserDirectoryTests
     {
         suite.Add("network user directories persist roles masks comments and channel policy", PersistenceRoundTrip);
         suite.Add("hostmask matching uses IRC case folding and deterministic specificity", MatchingIsDeterministic);
+        suite.Add("ignore entries match nicknames and wildcard addresses exactly", IgnoreEntriesMatchAndRemoveExactly);
         suite.Add("role changes accept descriptive and ircN-style shorthand", RoleChangesParse);
         suite.Add("user roles use ircN-style flag output", UserRoleOutputUsesFlags);
         suite.Add("user list rows show matching masks first", UserRowsShowMatchingMasksFirst);
@@ -29,6 +30,8 @@ internal static class UserDirectoryTests
         alice.SetComment("trusted operator");
         alice.SetComment("channel owner", "#[ops]");
         var policyBan = directory.AddPolicyBan("*!*@blocked.example", ["#[ops]"], "repeat abuse");
+        directory.AddIgnore("Trouble", IrcCaseMapping.Rfc1459);
+        directory.AddIgnore("*!*user@*.example.test", IrcCaseMapping.Rfc1459);
         store.Save(directory);
 
         var loaded = store.Load(profileId);
@@ -44,6 +47,9 @@ internal static class UserDirectoryTests
         Assert.True(reloaded.GetChannelComment("#[ops]") is null);
         Assert.Equal(1, loaded.PolicyBans.Count);
         Assert.Equal(policyBan.Id, loaded.PolicyBans[0].Id);
+        Assert.Equal(2, loaded.IgnoreEntries.Count);
+        Assert.Equal("Trouble", loaded.IgnoreEntries[0]);
+        Assert.Equal("*!*user@*.example.test", loaded.IgnoreEntries[1]);
         Assert.Equal("repeat abuse", loaded.PolicyBans[0].Reason);
     }
 
@@ -60,6 +66,55 @@ internal static class UserDirectoryTests
         Assert.False(directory.Match("nobody!u@elsewhere", IrcCaseMapping.Rfc1459).User is not null);
         Assert.True(NetworkUserDirectory.WildcardMatches("#[OPS]!*@*", "#{ops}!u@h", IrcCaseMapping.Rfc1459));
         Assert.True(broad != exact);
+    }
+
+    private static void IgnoreEntriesMatchAndRemoveExactly()
+    {
+        var directory = new NetworkUserDirectory(NetworkProfileId.New());
+
+        directory.AddIgnore("Trouble", IrcCaseMapping.Rfc1459);
+        directory.AddIgnore("*!*user@*.example.test", IrcCaseMapping.Rfc1459);
+
+        Assert.True(directory.IsIgnored(
+            "trouble",
+            username: null,
+            host: null,
+            IrcCaseMapping.Rfc1459));
+
+        Assert.True(directory.IsIgnored(
+            "Someone",
+            "~user",
+            "chat.example.test",
+            IrcCaseMapping.Rfc1459));
+
+        Assert.False(directory.IsIgnored(
+            "Someone",
+            "different",
+            "elsewhere.test",
+            IrcCaseMapping.Rfc1459));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            directory.AddIgnore("trouble", IrcCaseMapping.Rfc1459));
+
+        Assert.False(directory.RemoveIgnore(
+            "Someone!~user@chat.example.test",
+            IrcCaseMapping.Rfc1459));
+
+        Assert.True(directory.IsIgnored(
+            "Someone",
+            "~user",
+            "chat.example.test",
+            IrcCaseMapping.Rfc1459));
+
+        Assert.True(directory.RemoveIgnore(
+            "*!*user@*.example.test",
+            IrcCaseMapping.Rfc1459));
+
+        Assert.False(directory.IsIgnored(
+            "Someone",
+            "~user",
+            "chat.example.test",
+            IrcCaseMapping.Rfc1459));
     }
 
     private static void RoleChangesParse()
