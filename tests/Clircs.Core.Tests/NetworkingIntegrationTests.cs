@@ -17,7 +17,7 @@ internal static class NetworkingIntegrationTests
 {
     public static void Register(TestSuite suite)
     {
-        suite.Add("TCP connection registers, falls back nick, applies CTCP ignores, answers PING, and quits", RegistrationPingAndQuitAsync);
+        suite.Add("TCP connection registers, falls back nick, applies CTCP ignores, suppresses self CTCP, answers PING, and quits", RegistrationPingAndQuitAsync);
         suite.Add("registration pauses for a user nickname after configured names fail", NicknameFallbackExhaustionAsync);
         suite.Add("two live sessions remain isolated through identical code paths", TwoLiveSessionsRemainIsolatedAsync);
         suite.Add("confirmed self joins automatically query channel modes", SelfJoinQueriesModesAsync);
@@ -623,6 +623,9 @@ internal static class NetworkingIntegrationTests
         await writer.WriteLineAsync(":server 001 TestNick_ :Welcome to the test network".AsMemory(), cancellationToken);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         await writer.WriteLineAsync(":TestNick_!test@localhost PRIVMSG #test :hello".AsMemory(), cancellationToken);
+        await writer.WriteLineAsync(
+            ":TestNick_!test@localhost PRIVMSG alice :\u0001VERSION\u0001".AsMemory(),
+            cancellationToken);
         await writer.WriteLineAsync(":server NOTICE TestNick_ :echo complete".AsMemory(), cancellationToken);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
         transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
@@ -739,6 +742,12 @@ internal static class NetworkingIntegrationTests
                 ":lurker.bouncer CAP * LS :sasl=PLAIN server-time message-tags echo-message".AsMemory(),
                 timeout.Token);
 
+            Assert.Equal("CAP REQ echo-message", (await reader.ReadLineAsync(timeout.Token))!);
+
+            await writer.WriteLineAsync(
+                ":lurker.bouncer CAP * ACK :echo-message".AsMemory(),
+                timeout.Token);
+
             Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);
 
             await writer.WriteLineAsync(
@@ -831,11 +840,11 @@ internal static class NetworkingIntegrationTests
             await writer.WriteLineAsync(capLine.AsMemory(), timeout.Token);
 
             Assert.Equal(
-                "CAP REQ multi-prefix",
+                "CAP REQ :multi-prefix echo-message",
                 (await reader.ReadLineAsync(timeout.Token))!);
 
             await writer.WriteLineAsync(
-                ":irc.clircs.org CAP * ACK :multi-prefix".AsMemory(),
+                ":irc.clircs.org CAP * ACK :multi-prefix echo-message".AsMemory(),
                 timeout.Token);
 
             Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);

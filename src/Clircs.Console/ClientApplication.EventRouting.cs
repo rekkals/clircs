@@ -87,16 +87,22 @@ internal sealed partial class ClientApplication
     private bool AdmitSessionEvent(SessionEventDispatchContext context)
     {
         var sessionEvent = context.Event;
+        context.IsSelfMessage =
+            sessionEvent.Fields?.GetValueOrDefault("self") == "true" &&
+            sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Action or SessionEventKind.Notice;
         if (sessionEvent.Fields?.GetValueOrDefault("prefill") is { } prefill)
         {
             _presenter.PrefillInput(prefill);
         }
-        if (IsIgnoredCommunication(sessionEvent))
+        if (!context.IsSelfMessage && IsIgnoredCommunication(sessionEvent))
         {
             return false;
         }
 
-        RecordAwayMessage(sessionEvent);
+        if (!context.IsSelfMessage)
+        {
+            RecordAwayMessage(sessionEvent);
+        }
         var awayChanged = sessionEvent.Fields?.GetValueOrDefault("event") == "away";
         context.ReturnedFromAway = awayChanged &&
             sessionEvent.Fields!.GetValueOrDefault("away") == "false";
@@ -122,7 +128,7 @@ internal sealed partial class ClientApplication
 
     private bool ApplyProtectionAndDcc(SessionEventDispatchContext context)
     {
-        if (!context.IsHighlightEcho && !context.IsReplay)
+        if (!context.IsHighlightEcho && !context.IsReplay && !context.IsSelfMessage)
         {
             HandleProtectionMonitoring(context.Event);
             HandleAutomaticKickRejoin(context.Event);
@@ -260,6 +266,7 @@ internal sealed partial class ClientApplication
         public (NetworkSessionId? SessionId, BufferId? BufferId) ActiveBefore { get; set; }
         public bool IsHighlightEcho { get; set; }
         public bool IsReplay { get; set; }
+        public bool IsSelfMessage { get; set; }
         public bool ReturnedFromAway { get; set; }
         public bool EchoHighlight { get; set; }
         public StoredWindowEvent Stored { get; set; }

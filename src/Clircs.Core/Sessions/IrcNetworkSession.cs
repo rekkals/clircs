@@ -521,6 +521,14 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             return;
         }
 
+        var identity = IrcSessionProcessor.ParsePrefix(message.Prefix);
+        if (new IrcNameComparer(State.CaseMapping).Equals(
+                identity.Nickname,
+                _processor.CurrentNickname))
+        {
+            return;
+        }
+
         var request = text[1..^1];
         var separator = request.IndexOf(' ');
         var command = (separator < 0 ? request : request[..separator]).ToUpperInvariant();
@@ -538,7 +546,6 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             return;
         }
 
-        var identity = IrcSessionProcessor.ParsePrefix(message.Prefix);
         if (_ignoreMatcher?.Invoke(
                 State.Id,
                 identity.Nickname,

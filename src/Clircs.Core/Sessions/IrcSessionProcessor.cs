@@ -812,10 +812,15 @@ public sealed class IrcSessionProcessor
         var target = Features.NormalizeMessageTarget(wireTarget);
         var text = message.Parameters[1];
         var isChannel = Features.IsChannel(target);
+        var selfMessage = IsCurrentNickname(sender);
 
         if (text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
         {
             var ctcp = text[1..^1];
+            if (selfMessage && !ctcp.StartsWith("ACTION ", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
             if (ctcp.StartsWith("DCC ", StringComparison.OrdinalIgnoreCase))
             {
                 var identity = ParsePrefix(message.Prefix);
@@ -863,9 +868,10 @@ public sealed class IrcSessionProcessor
                 var actionText = IrcTextFormatting.Parse(ctcp[7..]);
                 var actionBuffer = isChannel
                     ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
-                    : AutomaticQueryBuffer(sender);
+                    : AutomaticQueryBuffer(selfMessage ? target : sender);
                 events.Add(Event(actionBuffer, SessionEventKind.Action, $"* {sender} {actionText.PlainText}", now,
-                    Fields(("nick", sender), ("username", ParsePrefix(message.Prefix).Username),
+                    Fields(("nick", sender), ("self", selfMessage ? "true" : null),
+                        ("username", ParsePrefix(message.Prefix).Username),
                         ("host", ParsePrefix(message.Prefix).Host), ("message", actionText.PlainText),
                         ("channel", isChannel ? target : null), ("private", isChannel ? null : "true")),
                     formattedContent: actionText));
@@ -892,9 +898,9 @@ public sealed class IrcSessionProcessor
         var plainText = formattedText.PlainText;
         var buffer = isChannel
             ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
-            : AutomaticQueryBuffer(sender);
+            : AutomaticQueryBuffer(selfMessage ? target : sender);
 
-        var kind = Features.IsChannel(target) && ContainsNickname(plainText, CurrentNickname)
+        var kind = isChannel && !selfMessage && ContainsNickname(plainText, CurrentNickname)
             ? SessionEventKind.Highlight
             : SessionEventKind.Message;
         string? nickPrefix = null;
@@ -904,7 +910,8 @@ public sealed class IrcSessionProcessor
             nickPrefix = Features.HighestPrefix(messageMember!.PrefixModes)?.ToString();
         }
         events.Add(Event(buffer, kind, $"<{nickPrefix}{sender}> {plainText}", now,
-            Fields(("nick", sender), ("username", ParsePrefix(message.Prefix).Username),
+            Fields(("nick", sender), ("self", selfMessage ? "true" : null),
+                ("username", ParsePrefix(message.Prefix).Username),
                 ("host", ParsePrefix(message.Prefix).Host), ("nickPrefix", nickPrefix), ("message", plainText),
                 ("channel", isChannel ? target : null), ("private", isChannel ? null : "true"),
                 ("controlCount", text.Count(character => char.IsControl(character)).ToString())),
@@ -931,9 +938,14 @@ public sealed class IrcSessionProcessor
         var buffer = Features.IsChannel(target)
             ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
             : _state.StatusBuffer;
+        var selfMessage = IsCurrentNickname(sender);
         var text = message.Parameters[1];
         if (text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
         {
+            if (selfMessage)
+            {
+                return;
+            }
             var ctcp = text[1..^1];
             if (ctcp.StartsWith("PING ", StringComparison.OrdinalIgnoreCase) &&
                 long.TryParse(ctcp[5..], out var sentAt))
@@ -965,9 +977,15 @@ public sealed class IrcSessionProcessor
         var noticeIsChannel = Features.IsChannel(target);
         var noticeIdentity = ParsePrefix(message.Prefix);
         var formattedText = IrcTextFormatting.Parse(text);
-        events.Add(Event(buffer, SessionEventKind.Notice, $"-{sender}- {formattedText.PlainText}", now,
-            Fields(("nick", sender), ("username", noticeIdentity.Username), ("host", noticeIdentity.Host),
-                ("message", formattedText.PlainText), ("channel", noticeIsChannel ? target : null),
+        var displayedText = selfMessage
+            ? $"->{target}<- {formattedText.PlainText}"
+            : $"-{sender}- {formattedText.PlainText}";
+        events.Add(Event(buffer, SessionEventKind.Notice, displayedText, now,
+            Fields(("nick", sender), ("self", selfMessage ? "true" : null),
+                ("username", noticeIdentity.Username),
+                ("host", noticeIdentity.Host),
+                ("message", formattedText.PlainText),
+                ("channel", noticeIsChannel ? target : null),
                 ("private", noticeIsChannel ? null : "true"),
                 ("outputFamily", noticeIsChannel ? null : "notice"),
                 ("routeConfigured", noticeIsChannel ? null : "true")),

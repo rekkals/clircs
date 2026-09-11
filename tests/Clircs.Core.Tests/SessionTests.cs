@@ -67,6 +67,7 @@ internal static class SessionTests
         suite.Add("channel topics retain IRC formatting for history and the topic bar", TopicColorsArePreserved);
         suite.Add("structured IRC output preserves colors while measuring plain text", StructuredOutputPreservesIrcColors);
         suite.Add("outbound echo tracking consumes only exact self echoes", OutboundEchoTrackingIsNarrow);
+        suite.Add("echoed self messages use outbound conversation semantics", EchoedSelfMessagesUseOutboundSemantics);
         suite.Add("outbound notices never create conversation buffers", OutboundNoticesDoNotCreateBuffers);
         suite.Add("NAMES and WHO build synchronized channel member state", NamesAndWhoBuildMemberState);
         suite.Add("NAMES completion produces a semantic information box", NamesProducesInformationBox);
@@ -1258,6 +1259,55 @@ internal static class SessionTests
         Assert.Equal("Message to Alice was blocked by server-side ignore (+R); they were notified", notified[0].Text);
         Assert.Equal("messageguard", notified[0].Fields!["outputFamily"]!);
         Assert.Equal("true", notified[0].Fields!["routeConfigured"]!);
+    }
+
+    private static void EchoedSelfMessagesUseOutboundSemantics()
+    {
+        var (state, processor) = CreateProcessor();
+
+        var channelMessage = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h PRIVMSG #clirc :hello me"));
+
+        Assert.Equal(1, channelMessage.Count);
+        Assert.Equal(SessionEventKind.Message, channelMessage[0].Kind);
+        Assert.Equal("true", channelMessage[0].Fields!["self"]!);
+        Assert.True(state.TryGetBuffer("#clirc", out var channel));
+        Assert.Equal(channel!.Id, channelMessage[0].BufferId);
+
+        var privateMessage = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h PRIVMSG Alice :hello privately"));
+
+        Assert.Equal(1, privateMessage.Count);
+        Assert.True(state.TryGetBuffer("Alice", out var query));
+        Assert.Equal(BufferKind.Query, query!.Kind);
+        Assert.Equal(query.Id, privateMessage[0].BufferId);
+        Assert.Equal("true", privateMessage[0].Fields!["self"]!);
+        Assert.False(state.TryGetBuffer("me", out _));
+
+        var action = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h PRIVMSG Alice :\u0001ACTION waves\u0001"));
+
+        Assert.Equal(1, action.Count);
+        Assert.Equal(SessionEventKind.Action, action[0].Kind);
+        Assert.Equal(query.Id, action[0].BufferId);
+        Assert.Equal("true", action[0].Fields!["self"]!);
+
+        var notice = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h NOTICE #clirc :maintenance"));
+
+        Assert.Equal(1, notice.Count);
+        Assert.Equal(SessionEventKind.Notice, notice[0].Kind);
+        Assert.Equal("->#clirc<- maintenance", notice[0].Text);
+        Assert.Equal("true", notice[0].Fields!["self"]!);
+
+        var ctcpRequest = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h PRIVMSG Bob :\u0001VERSION\u0001"));
+        var ctcpReply = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h NOTICE Bob :\u0001VERSION clircs\u0001"));
+
+        Assert.Equal(0, ctcpRequest.Count);
+        Assert.Equal(0, ctcpReply.Count);
+        Assert.False(state.TryGetBuffer("Bob", out _));
     }
 
     private static void OutboundEchoTrackingIsNarrow()

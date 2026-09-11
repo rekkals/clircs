@@ -9,14 +9,14 @@ internal static class CapabilityNegotiationTests
 {
     public static void Register(TestSuite suite)
     {
-        suite.Add("CAP negotiation requests multi-prefix without SASL", MultiPrefixIsRequestedWithoutSaslAsync);
+        suite.Add("CAP negotiation requests supported capabilities without SASL", SupportedCapabilitiesAreRequestedWithoutSaslAsync);
         suite.Add("CAP negotiation accepts a multiline capability list", MultilineCapabilityListIsCollectedAsync);
         suite.Add("CAP negotiation continues when multi-prefix is rejected", RejectedMultiPrefixIsNonfatalAsync);
         suite.Add("servers without CAP support complete ordinary registration", UnsupportedCapabilityNegotiationIsNonfatalAsync);
-        suite.Add("CAP NEW can enable multi-prefix after registration", NewMultiPrefixIsRequestedAsync);
+        suite.Add("CAP NEW can enable supported capabilities after registration", NewCapabilitiesAreRequestedAsync);
     }
 
-    private static async ValueTask MultiPrefixIsRequestedWithoutSaslAsync()
+    private static async ValueTask SupportedCapabilitiesAreRequestedWithoutSaslAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var transport = new ScriptedTransport();
@@ -24,9 +24,9 @@ internal static class CapabilityNegotiationTests
         var connecting = session.ConnectAsync(timeout.Token).AsTask();
 
         await AssertRegistrationStartAsync(transport, timeout.Token);
-        transport.Receive(":server CAP * LS :away-notify multi-prefix");
-        Assert.Equal("CAP REQ multi-prefix", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix");
+        transport.Receive(":server CAP * LS :away-notify echo-message multi-prefix");
+        Assert.Equal("CAP REQ :multi-prefix echo-message", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
         Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
@@ -43,10 +43,10 @@ internal static class CapabilityNegotiationTests
         var connecting = session.ConnectAsync(timeout.Token).AsTask();
 
         await AssertRegistrationStartAsync(transport, timeout.Token);
-        transport.Receive(":server CAP * LS * :away-notify account-notify");
+        transport.Receive(":server CAP * LS * :away-notify echo-message account-notify");
         transport.Receive(":server CAP * LS :multi-prefix");
-        Assert.Equal("CAP REQ multi-prefix", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix");
+        Assert.Equal("CAP REQ :multi-prefix echo-message", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
         Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
@@ -93,7 +93,7 @@ internal static class CapabilityNegotiationTests
         await DisconnectAsync(session, transport, timeout.Token);
     }
 
-    private static async ValueTask NewMultiPrefixIsRequestedAsync()
+    private static async ValueTask NewCapabilitiesAreRequestedAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var transport = new ScriptedTransport();
@@ -106,9 +106,9 @@ internal static class CapabilityNegotiationTests
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
 
-        transport.Receive(":server CAP TestNick NEW :multi-prefix");
-        Assert.Equal("CAP REQ multi-prefix", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix");
+        transport.Receive(":server CAP TestNick NEW :away-notify echo-message multi-prefix");
+        Assert.Equal("CAP REQ :multi-prefix echo-message", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
         await DisconnectAsync(session, transport, timeout.Token);
     }
 

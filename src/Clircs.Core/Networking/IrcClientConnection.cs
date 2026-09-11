@@ -4,6 +4,11 @@ namespace Clircs.Networking;
 
 public sealed class IrcClientConnection : IAsyncDisposable
 {
+    private static readonly string[] AutomaticallyRequestedCapabilities =
+    [
+        "multi-prefix",
+        "echo-message"
+    ];
     private readonly IIrcTransportFactory _transportFactory;
     private CancellationTokenSource? _connectionLifetime;
     private IIrcTransport? _transport;
@@ -361,13 +366,24 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
         if (subcommand == "NEW")
         {
+            var newlyAdvertisedCapabilities = ParseCapabilityNames(message.Parameters[^1])
+                .ToHashSet(StringComparer.Ordinal);
             AddAdvertisedCapabilities(message.Parameters[^1]);
-            if (_state == IrcConnectionState.Online &&
-                _advertisedCapabilities.ContainsKey("multi-prefix") &&
-                !_enabledCapabilities.Contains("multi-prefix"))
+
+            if (_state == IrcConnectionState.Online)
             {
-                await RequestCapabilitiesAsync(["multi-prefix"], cancellationToken).ConfigureAwait(false);
+                var requested = AutomaticallyRequestedCapabilities
+                    .Where(capability =>
+                        newlyAdvertisedCapabilities.Contains(capability) &&
+                        !_enabledCapabilities.Contains(capability))
+                    .ToArray();
+
+                if (requested.Length > 0)
+                {
+                    await RequestCapabilitiesAsync(requested, cancellationToken).ConfigureAwait(false);
+                }
             }
+
             return;
         }
 
@@ -424,11 +440,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
     private async ValueTask RequestRegistrationCapabilitiesAsync(CancellationToken cancellationToken)
     {
-        var requested = new List<string>();
-        if (_advertisedCapabilities.ContainsKey("multi-prefix"))
-        {
-            requested.Add("multi-prefix");
-        }
+        var requested = AutomaticallyRequestedCapabilities
+            .Where(_advertisedCapabilities.ContainsKey)
+            .ToList();
 
         if (_options?.Sasl is { } sasl)
         {
