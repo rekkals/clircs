@@ -1,5 +1,9 @@
+using System.Text;
 using Clircs;
 using Clircs.ConsoleClient;
+
+Console.InputEncoding = Encoding.UTF8;
+Console.OutputEncoding = Encoding.UTF8;
 
 if (args.Contains("--version", StringComparer.OrdinalIgnoreCase))
 {
