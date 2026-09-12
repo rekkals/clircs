@@ -2,17 +2,19 @@
 
 Command line IRC software (for Windows)
 
+![Screenshot](docs/images/screen-clircs.png)
+
 clircs is a Windows-native console IRC client written in C# for .NET 10 with scriptability via Jint. It does not require WSL or Cygwin to run. That's actually the whole point of the client.
 
-That, and for it to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do much until you install a bunch of other shit. I love mIRC, but it and many other amazing clients like it don't do much for a normal human new to IRC, at least until you add some scripts. I know it sounds crazy, and you can call Ripley's if you don't believe me, but some people actually, really do, just want to chat.
+That, and for it to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do much until you install a bunch of other shit. Yes, the beauty of IRC is that it's decentralized and extensible and customizable. That's why I love it. But two things can exist at the same time, and in this case, that other thing is some people really do just want to chat without learning how to script or any of that other nerd stuff.
 
 Additionally, we're not all aboard the current IRCv3 "make IRC into Discord" train that's rolling through. clircs operates in "back to basics" territory.
 
 ## Current Version
 
-This is the current development build, which includes normal IRC functions, multi-net, TLS, SASL, bouncer support (ZNC, soju, psyBNC), channel management, flood protection, logging, scripting, regular-old and the now-more-secure DCC SCHAT and SSEND including passive and resumed file transfers.
+This is the current development build, which includes normal IRC functions, multi-net, TLS, SASL, bouncer support, channel management, flood protection, logging, scripting, regular-old and the now-more-secure DCC SCHAT and SSEND including passive and resumed file transfers.
 
-Support for all the various IRCds could be ... mixed, but shouldn't be terrible. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises, at least presently, that it won't display some things a little funny, depending on what it's running.
+Support for all the various IRCds could be ... mixed, at least cosmetically. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises that it won't display some things a little funny, depending on the IRCd and what it's running.
 
 ## Requirements
 
@@ -36,6 +38,8 @@ Then run clircs with:
 dotnet run --project src/Clircs.Console/Clircs.Console.csproj
 ```
 
+![Startup](docs/images/clircs-screenshot.png)
+
 ## Connecting
 
 You can connect to an IRC server with:
@@ -47,24 +51,38 @@ You can connect to an IRC server with:
 Open a new network window with `--new`.
 
 ```text
-/server irc.efnet.org 6697 --tls --new
+/server irc.efnet.org 9999 --tls --new
 ```
 
 You can also connect via SASL after setting up a network profile with `/network`.
 
-Use `/help` for a list of commands and `/help <command>` for help with `<command>`.
+### Bouncers
+
+The following bouncers/proxies are compatible with clircs:
+
++ ZNC
++ soju
++ Lurker
++ IRCCloud
++ shroudBNC
+
+![Lurker](docs/images/lurker-screenshot.png)
+
+## Help
+
+Use `/help` for a list of commands and `/help <command>` for help with a `<command>`.
 
 ## More Info
 
-DOCUMENTATION.txt contains detailed user documentation, settings, command notes, scripting information, and current limitations.
+[DOCUMENTATION](DOCUMENTATION.md) contains detailed user documentation, settings, command notes, scripting information, and current limitations.
 
-CONTRIBUTING.md contains guidelines and instructions on how to contribute to the clircs project.
+[CONTRIBUTING](CONTRIBUTING.md) contains guidelines and instructions on how to contribute to the clircs project.
 
-SCRIPTING.md contains info on adding scripts via Jint.
+[SCRIPTING](SCRIPTING.md) contains info on adding scripts via Jint.
 
-VERSIONS.txt contains the glorious, me-struggling-through-C# version history.
+[VERSIONS](VERSIONS.txt) contains the glorious, me-struggling-through-C# version history.
 
-THIRD-PARTY-NOTICES.txt contains third-party licensing notices as required.
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.txt) contains third-party licensing notices as required.
 
 ## License
 
@@ -76,4 +94,4 @@ Report all issues (other than security) via GitHub at: https://github.com/rekkal
 
 Please send security issues by email: slakker@clircs.org
 
-Join the #clircs IRC channel on EFnet: irc://irc.efnet.org/clircs
+Join the #clircs IRC channel on EFnet: ircs://irc.efnet.org:9999/clircs | irc://irc.efnet.org/clircs

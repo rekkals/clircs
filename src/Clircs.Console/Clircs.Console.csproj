@@ -11,8 +11,8 @@
       <Link>README.md</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <Content Include="..\..\DOCUMENTATION.txt">
-      <Link>DOCUMENTATION.txt</Link>
+    <Content Include="..\..\DOCUMENTATION.md">
+      <Link>DOCUMENTATION.md</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="..\..\VERSIONS.txt">

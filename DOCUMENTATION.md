@@ -1,0 +1,229 @@
+# clircs Documentación
+
+Hey! This is the longer reference. If all you want to do is get shit moving, start with [README](README.md). Or just launch the client and use `/help`. Also, `/help <command>`. It's pretty easy.
+
+## Data and Configuration
+
+User data is stored under the clircs directory in the current Windows roaming application-data folder. Use `/config` to display the exact location.
+
+Use `/set` to inspect or change client settings. Use `/help set` to see a list of settings and `/help set <setting>` for an explanation of that setting.
+
+Use `/network` to inspect live network sessions and saved profiles. Network-specific stuff like servers, autojoin channels, user modes, and SASL settings belong to profiles instead of individual server addresses.
+
+Use `/backup create` to make a backup of the complete user-data directory and `/backup list` show saved backups. Restore is, for now, a manual process.
+
+## Connecting
+
+`/server <host|profile> [port] [--tls] [--new] [--password]`
+
+The '--new' option creates another network session instead of replacing the current connection. TLS certificates are validated normally. A self-signed or otherwise untrusted certificate is shown to the user and may be accepted once or pinned for later. They're not accepted blindly.
+
+Automatic reconnect (after unintentional disconnection) can be enabled via the `network.reconnect` setting, including after KILL by turning `kill.reconnect` on. Existing channel and query windows are preserved.
+
+Saved TLS profiles support `SASL PLAIN` account authentication before IRC registration completes:
+
+```
+/network sasl <profile> <account>
+/network sasl <profile> <account> required
+/network sasl <profile> <account> optional
+/network sasl <profile>
+/network sasl <profile> off
+```
+
+The command prompts you for the password and doesn't echo it locally. `PLAIN` is allowed only over TLS.
+
+The default is `required`. If SASL is unavailable or authentication fails, clircs disconnects instead of trying to continue unidentified. Using `optional` reports the failure and allows client registration to continue.
+
+The account, mechanism, and failure policy are readable in `networks.toml`. The password is stored separately in `network-secrets.json` using Windows DPAPI. Reconnects authenticate again using the saved profile credentials.
+
+`SASL EXTERNAL` authenticates with a TLS client certificate instead of an account password:
+
+```
+/network sasl <profile> external C:\path\irc-client.pfx
+/network sasl <profile> external "C:\path with spaces\irc-client.p12" optional
+```
+
+The file must be a PKCS#12 bundle (.pfx or .p12) containing both the certificate and its private key. clircs prompts for its password without echoing it; submit a blank password if the bundle is unencrypted.
+
+After validating the bundle, clircs displays its SHA-256 fingerprint for use with the network's account services. The certificate password is stored with the same Windows protection as a `PLAIN` password. `networks.toml` contains only the mechanism, certificate path, and failure policy.
+
+The server must advertise `SASL EXTERNAL`, and the certificate fingerprint must already be associated with the IRC account according to that network's services instructions.
+
+Use `/network sasl <profile>` to inspect and `/network sasl <profile> off` to remove the settings.
+
+### Bouncers/Proxies/Relays
+
+clircs officially supports the following bouncers:
+
++ ZNC
++ soju
++ Lurker
++ IRCCloud
++ shroudBNC
+
+clircs keeps the client-to-bouncer connection separate from the bouncer-to-IRC-server state when it can so that, ideally, ordinary IRC can still feel like ordinary IRC. Connecting to bouncers via TLS is also supported.
+
+You may need to temporarily `/set username` and issue a properly-formatted `--password` to comply with specific bouncers' authentication requirements. Check the appropriate bouncer's documentation if you're unsure.
+
+## Windows and Input
+
+Windows like `status`, `channel`, `query`, `result`, `DCC`, and `debug` are managed with a stable number-based system. Use `/window` (or `/win`) to list them, `/win <number|name>` to switch directly, `/next` or `/wn` to move forward, and `/previous` or `/wp` to move backward. Unread activity is indicated in the status bar and in `/window`.
+
+`Page Up` and `Page Down` move through window scrollback. `Up Arrow` and `Down Arrow` go through command history for the current window. `Tab` completes nicknames and cycles through multiple matches.
+
+Traditional IRC formatting controls are available. `Ctrl-B` toggles bold, `Ctrl-I` toggles italic, `Ctrl-U` toggles underline, `Ctrl-R` toggles reverse, and `Ctrl-O` resets formatting. `Ctrl-K` handles color formatting like mIRC: enter a foreground color number and optionally a comma followed by a background color number.
+
+Use `/close` to close the active window. Closing a joined channel parts it. Closing a connected status window requires `/close --force` since that also closes the network connection and its associated windows.
+
+## Everyday IRC
+
+The usual commands: `/join /part /cycle /msg /query /notice /me /nick /away /back /who /whois /iwhois /whowas /list /links /invite /ignore /unignore /kick /ban /kb /op /voice /mode /topic /names`. Convenience aliases are part of the client.
+
+`/msg` sends from the active window. It does not open a query by itself. If a query already exists, the outgoing line is recorded there. Incoming private messages open the query. `/query` explicitly opens one.
+
+Service shortcuts are available as `/nickserv`, `/chanserv`, `/memoserv`, `/operserv`, `/hostserv`, `/botserv`, and `/limitserv`. They send the remaining command text to the named service without opening a query.
+
+`/nickserv identify` prompts for a password without echoing it. A password supplied directly on the command line is sent normally but masked in local output. Ordinary `/msg` remains an ordinary message and is not inspected for passwords.
+
+Notify lists are network-specific and use `MONITOR` when available. Use `/notify add <nickname>`, `/notify remove <nickname>`, and `/notify list`. Servers without `MONITOR` use silent batched `ISON` polling.
+
+`Caller-ID` mode and `ACCEPT` are available on servers that support them. Use `/mode <nickname> +g` to enable `Caller-ID` mode. See `/help accept` for `ACCEPT` syntax.
+
+Output families such as `WHO`, `WHOIS`, `WHOWAS`, `CTCP`, `notices`, `invites`, `links`, `list`, and `DNS` have routing settings. Depending on how you have them set up, information may go to the active window, status, or a dedicated result window. You'll find the `*.output` settings in `/set`.
+
+## Channel Management and Protection
+
+The userlist stores network user records, masks, flags, comments, and channel policy. Use `/help adduser`, `/help users`, `/help uwhois`, `/help cprot`, and `/help pprot` for current syntax.
+
+Channel protection watches channel events and can monitor, kick, or kickban according to how you configure the settings. Personal protection watches events directed at the client and temporarily ignores offenders when enforcement is enabled.
+
+Protection settings may inherit from global to network to channel scope. `/cprot` and `/pprot` display the effective result. A monitor-only safety override is reported directly as the current protection state and records detections without taking action.
+
+Clone detection is separate from flood protection. It reports users sharing an address and is enabled by default. Use `/clones` for details.
+
+## Logging and Debugging
+
+Use `/logging` or `/log` to checking logging settings for the active window. Logging may be enabled network-wide and overridden for an individual `status`, `channel`, `query`, `DCC CHAT`, or `debug` window. Logs are stored as daily UTF-8 text files under the clircs user-data directory.
+
+`/debug` opens a window for monitoring raw incoming and outgoing IRC traffic for the active network. Be careful using it if you're authenticating or whatever, since anything sent to and from the server will be clearly visible in this window.
+
+That includes `PASS`, service identification, oper credentials, the reversible Base64 `AUTHENTICATE` payload used by `SASL PLAIN`, and anything else actually sent on the wire. `debug` windows can also be logged. Close the `debug` window before entering sensitive information if you do not want it retained, and inspect copied debug output before sharing it.
+
+## Scripting
+
+Scripts are optional JavaScript addons executed inside clircs through Jint. Use `/script` to `list`, `load`, `reload`, `unload`, and `inspect` them.
+
+Loaded script state is remembered across restarts. Script data belongs to that script, script secrets use Windows-protected storage, and runtime limits stop a runaway script from blocking the client indefinitely.
+
+Script manifests declare permissions. clircs does not grant IRC command access, local-network access, secret storage, or other capabilities automatically. Scripts receive only the APIs clircs deliberately exposes. They cannot launch programs, access arbitrary files or the Windows registry, load unrestricted CLR or .NET APIs, open raw sockets, or make unrestricted external network connections. `clircs.run()` runs clircs slash commands; it is not a Windows command runner.
+
+The bundled script-demo is a small API example. The musikcube addon is the more useful example. It connects to an already-running musikcube WebSocket service on the local machine through clircs's restricted local-network API. It registers commands, handles permissions and storage, and contributes content to the generic header area without adding musikcube-specific code to clircs itself.
+
+## DCC
+
+You might think nobody uses DCC anymore, like I did. Then you remember eggdrops are still controlled via `DCC CHAT`, and then you learn they do that with TLS now, and next thing you know your client has to do all the DCC things.
+
+### Ordinary DCC
+
+clircs manages pending and active `CHAT` and `SEND` requests, uses dedicated windows, supports active and passive connections, `RESUME`, collision-safe renaming, traditional integer IPv4 offers, and literal IPv6 offers.
+
+Incoming requests receive an ID and require an explicit `/dcc accept <id>` or `/dcc reject <id>`. Incoming `CHAT` offers do not open a `DCC` window until accepted. Existing files are never overwritten; clircs chooses a numbered filename instead.
+
+`DCC RESUME` is also supported.
+
+To offer an ordinary file transfer:
+
+```
+/dcc send <nick> <file>
+/dcc send <nick> <file> --passive
+```
+
+To start an ordinary direct chat:
+
+```
+/dcc chat <nick>
+/dcc chat <nick> --passive
+```
+
+### Secure DCC
+
+Secure `DCC CHAT` uses the established `SCHAT` extension and TLS 1.2 or TLS 1.3:
+
+```
+/dcc schat <nick>
+/dcc schat <nick> --passive
+```
+
+Secure `DCC SEND` uses the established `SSEND` extension and the same TLS versions:
+
+```
+/dcc ssend <nick> <file>
+/dcc ssend <nick> <file> --passive
+```
+
+Incoming `SCHAT` and `SSEND` requests use the ordinary `/dcc accept`, `/dcc reject`, `/dcc resume`, and `/dcc cancel` commands. Failed secure connections are not retried as plaintext.
+
+`SCHAT` encrypts the direct connection, but legacy DCC has no useful certificate identity convention. clircs therefore reports that the peer's identity was not verified. It does not enable obsolete anonymous-DH ciphers.
+
+A KVIrc peer accepting a secure connection needs a usable certificate configured on its listening side. Eggdrop normally supplies the certificate for its secure chat listener.
+
+### XDCC Downloads
+
+XDCC pack requests use the normal incoming DCC transfer system:
+
+```
+/xdcc get <bot> <pack>
+/xdcc sget <bot> <pack>
+```
+
+The first asks the bot for an ordinary `SEND`. The second asks for `SSEND` and never falls back to plaintext. Pack numbers may be written as `42` or `#42`.
+
+The resulting offer still requires `/dcc accept <id>` or `/dcc reject <id>`. Normal download, validation, progress, resume, cancellation, and collision-safe filename behavior applies.
+
+### DCC Settings and Passive Connections
+
+Use `/set` to configure the advertised DCC address, listening ports, and download directory. The relevant settings include `dcc.address`, `dcc.ports`, and `dcc.downloads`.
+
+Passive DCC is supported.
+
+Check `/help dcc` and `/help dcc <type>` for current commands and details.
+
+## Themes
+
+Use `/theme` to show the current and available themes. Use `/theme list`, `/theme reload`, or `/theme use <name>` to manage them.
+
+Theme files control colors and presentation choices including window-name and nick-prefix display. Individual color values are edited in the theme file rather than through a forest of command-line settings.
+
+## Building from Source
+
+Requirements:
+
+Windows 10 or Windows 11
+.NET 10 SDK
+
+From the source directory:
+
+``` Powershell
+dotnet build clircs.sln
+```
+To run the test program:
+
+``` Powershell
+dotnet run --project tests\Clircs.Core.Tests\Clircs.Core.Tests.csproj
+```
+
+To publish a development package:
+
+``` Powershell
+dotnet publish src\Clircs.Console\Clircs.Console.csproj -c Release -o artifacts\clircs-version-windows
+```
+
+## Current Limitations
+
+Many.
+
+More specifically: extended IRCv3 messages, and especially when those capabilities are forced downstream when clircs didn't negotiate them (*cough*`server-time`*cough*).
+
+IRC daemon compatibility is intentionally broader than ratbox now, but unusual numerics and daemon-specific behavior can still require formatting work.
+
+The installer, self-contained release packages, signing, and other public-release machinery are still being prepared.
