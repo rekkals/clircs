@@ -14,6 +14,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     // asks whether it should suppress an automatic CTCP reply.
     private readonly Func<NetworkSessionId, string, string?, string?, IrcCaseMapping, bool>? _ignoreMatcher;
     private readonly IrcSessionProcessor _processor;
+    private readonly object _healthMonitorGate = new();
     private int _disposed;
     private SessionDisconnectInfo? _pendingDisconnect;
     private Dictionary<string, string?> _channelsToRestore = new(new IrcNameComparer(IrcCaseMapping.Rfc1459));
@@ -315,9 +316,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             return;
         }
 
-        _healthMonitor?.Cancel();
-        _healthMonitor?.Dispose();
-        _healthMonitor = null;
+        StopHealthMonitor();
         _connection.MessageReceived -= OnMessageReceivedAsync;
         _connection.WireLineTransferred -= OnWireLineTransferred;
         _connection.Diagnostic -= OnDiagnostic;
@@ -642,9 +641,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     private void OnConnectionClosed(Exception? exception)
     {
-        _healthMonitor?.Cancel();
-        _healthMonitor?.Dispose();
-        _healthMonitor = null;
+        StopHealthMonitor();
         _healthPingToken = null;
         _healthPingSentAt = null;
         CaptureJoinedChannels();
@@ -787,12 +784,19 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     private void ScheduleSynchronizationCompletion()
     {
-        if (_synchronizationCompleted || _healthMonitor is null)
+        CancellationToken cancellationToken;
+        lock (_healthMonitorGate)
         {
-            return;
+            if (_synchronizationCompleted || _healthMonitor is null)
+            {
+                return;
+            }
+
+            cancellationToken = _healthMonitor.Token;
         }
+
         var version = Interlocked.Increment(ref _synchronizationVersion);
-        _ = CompleteSynchronizationAfterDelayAsync(version, _healthMonitor.Token);
+        _ = CompleteSynchronizationAfterDelayAsync(version, cancellationToken);
     }
 
     private async Task CompleteSynchronizationAfterDelayAsync(int version, CancellationToken cancellationToken)
@@ -810,12 +814,56 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         }
     }
 
+    private void StopHealthMonitor()
+    {
+        CancellationTokenSource? healthMonitor;
+        lock (_healthMonitorGate)
+        {
+            healthMonitor = _healthMonitor;
+            _healthMonitor = null;
+        }
+
+        CancelAndDisposeHealthMonitor(healthMonitor);
+    }
+
+    private static void CancelAndDisposeHealthMonitor(CancellationTokenSource? healthMonitor)
+    {
+        if (healthMonitor is null)
+        {
+            return;
+        }
+
+        try
+        {
+            healthMonitor.Cancel();
+        }
+        finally
+        {
+            healthMonitor.Dispose();
+        }
+    }
+
     private void StartHealthMonitor()
     {
-        _healthMonitor?.Cancel();
-        _healthMonitor?.Dispose();
-        _healthMonitor = new CancellationTokenSource();
-        _ = MonitorConnectionHealthAsync(_healthMonitor.Token);
+        var healthMonitor = new CancellationTokenSource();
+        var cancellationToken = healthMonitor.Token;
+        CancellationTokenSource? previousHealthMonitor;
+
+        lock (_healthMonitorGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0 ||
+                _connection.State != IrcConnectionState.Online)
+            {
+                healthMonitor.Dispose();
+                return;
+            }
+
+            previousHealthMonitor = _healthMonitor;
+            _healthMonitor = healthMonitor;
+        }
+
+        CancelAndDisposeHealthMonitor(previousHealthMonitor);
+        _ = MonitorConnectionHealthAsync(cancellationToken);
     }
 
     private async Task MonitorConnectionHealthAsync(CancellationToken cancellationToken)
