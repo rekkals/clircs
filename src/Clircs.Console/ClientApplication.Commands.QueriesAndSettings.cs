@@ -795,7 +795,11 @@ internal sealed partial class ClientApplication
         }
 
         var buffer = session.State.GetOrCreateBuffer(BufferKind.Diagnostics, "=debug");
-        return ValueTask.FromResult(SwitchTo(session, buffer));
+        SwitchTo(session, buffer);
+        _presenter.Result(
+            "Warning: Using /debug can expose passwords and other secrets.",
+            success: false);
+        return ValueTask.FromResult(CommandResult.Success());
     }
 
     internal static string FormatWireDebugLine(IrcWireLine wireLine)

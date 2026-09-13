@@ -267,6 +267,10 @@ internal sealed partial class ClientApplication
             new("Detectors", "message, notice, ctcp.user, invite"),
             new("Example", "/pprot message 6 5 EFnet")
         ],
+        "debug" =>
+        [
+            new("Warning", "\u000304Using /debug can expose passwords and other secrets.\u000f")
+        ],
         _ => []
     };
 
