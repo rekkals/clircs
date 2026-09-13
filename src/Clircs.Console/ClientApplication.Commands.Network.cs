@@ -143,7 +143,7 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                     "Network Profiles",
                     Table: new PresentationTable(
-                        ["Network", "Server(s)", "Nick", "SASL"],
+                        ["Network", "No.", "Server", "Nick", "SASL"],
                         profileRows))));
             case "use":
                 if (input.Arguments.Count != 2)
@@ -221,6 +221,8 @@ internal sealed partial class ClientApplication
                 {
                     return ValueTask.FromResult(CommandResult.Failure(exception.Message));
                 }
+            case "server":
+                return ValueTask.FromResult(RemoveNetworkServer(input, sessions));
             case "remove":
                 if (input.Arguments.Count != 2)
                 {
@@ -252,11 +254,87 @@ internal sealed partial class ClientApplication
             case "sasl":
                 return ValueTask.FromResult(ConfigureNetworkSasl(input));
             default:
-                return ValueTask.FromResult(CommandResult.Failure("Usage: /network list|profiles|add|remove|use|status|sasl"));
+                return ValueTask.FromResult(CommandResult.Failure(
+                    "Usage: /network list|profiles|add|server|remove|use|status|sasl"));
         }
     }
 
-    internal static IReadOnlyList<IReadOnlyList<string>> NetworkProfileRows(IEnumerable<NetworkProfile> profiles)
+    private CommandResult RemoveNetworkServer(
+        CommandInput input,
+        IReadOnlyList<IrcNetworkSession> sessions)
+    {
+        const string usage = "Usage: /network server remove <profile> <number>";
+
+        if (input.Arguments.Count != 4 ||
+            !input.Arguments[1].Equals("remove", StringComparison.OrdinalIgnoreCase))
+        {
+            return CommandResult.Failure(usage);
+        }
+
+        var profile = _profileStore.Find(input.Arguments[2]);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                $"No saved network profile matches '{input.Arguments[2]}'.");
+        }
+
+        if (profile.Endpoints.Count == 0)
+        {
+            return CommandResult.Failure(
+                $"Network profile {profile.DisplayName} has no server endpoints.");
+        }
+
+        if (!int.TryParse(
+                input.Arguments[3],
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var serverNumber) ||
+            serverNumber < 1 ||
+            serverNumber > profile.Endpoints.Count)
+        {
+            return CommandResult.Failure(
+                $"Server number must be from 1 through {profile.Endpoints.Count} for {profile.DisplayName}.");
+        }
+
+        var endpoint = profile.Endpoints[serverNumber - 1];
+        var endpointIsLive = sessions.Any(session =>
+            ProfileIdFor(session) == profile.Id &&
+            session.Options.Endpoint.Port == endpoint.Port &&
+            session.Options.Endpoint.UseTls == endpoint.UseTls &&
+            session.Options.Endpoint.Host.Equals(
+                endpoint.Host,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (endpointIsLive)
+        {
+            return CommandResult.Failure(
+                $"Disconnect the session using {endpoint} before removing that server from {profile.DisplayName}.");
+        }
+
+        try
+        {
+            var updated = profile.WithoutEndpoint(endpoint);
+            _profileStore.Replace(updated);
+
+            var unconfigured = updated.IsConfigured
+                ? string.Empty
+                : " The profile now has no server endpoints.";
+
+            return CommandResult.Success(
+                $"Removed server {serverNumber} ({endpoint}) from {profile.DisplayName}.{unconfigured}");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or
+            InvalidOperationException or
+            IOException or
+            UnauthorizedAccessException)
+        {
+            return CommandResult.Failure(exception.Message);
+        }
+    }
+
+    internal static IReadOnlyList<IReadOnlyList<string>> NetworkProfileRows(
+        IEnumerable<NetworkProfile> profiles)
     {
         var rows = new List<IReadOnlyList<string>>();
         foreach (var profile in profiles)
@@ -268,8 +346,23 @@ internal sealed partial class ClientApplication
                 ? profile.Endpoints.Select(endpoint => endpoint.ToString()).ToArray()
                 : ["[no server configured]"];
 
-            rows.Add([profile.DisplayName, servers[0], profile.Identity.Nicknames[0], sasl]);
-            rows.AddRange(servers.Skip(1).Select(server => (IReadOnlyList<string>)[string.Empty, server, string.Empty, string.Empty]));
+            rows.Add(
+            [
+                profile.DisplayName,
+                profile.IsConfigured ? "1" : string.Empty,
+                servers[0],
+                profile.Identity.Nicknames[0],
+                sasl
+            ]);
+
+            rows.AddRange(servers.Skip(1).Select((server, index) => (IReadOnlyList<string>)
+            [
+                string.Empty,
+                (index + 2).ToString(CultureInfo.InvariantCulture),
+                server,
+                string.Empty,
+                string.Empty
+            ]));
         }
 
         return rows;

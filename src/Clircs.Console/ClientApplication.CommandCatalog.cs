@@ -188,6 +188,9 @@ internal sealed partial class ClientApplication
         ],
         "network" =>
         [
+            new("Profiles", "/network profiles"),
+            new("Remove server", "/network server remove <profile> <number>"),
+            new("Remove profile", "/network remove <profile>"),
             new("SASL status", "/network sasl <profile>"),
             new("Enable PLAIN", "/network sasl <profile> [plain] <account> [required|optional]"),
             new("Enable EXTERNAL", "/network sasl <profile> external <certificate.pfx> [required|optional]"),

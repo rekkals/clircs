@@ -21,11 +21,11 @@ internal static class NetworkProfileStoreTests
         suite.Add("SASL profile policy round-trips without storing its password", SaslPolicyRoundTripsWithoutPassword);
         suite.Add("SASL EXTERNAL profile settings round-trip without storing its certificate password", SaslExternalSettingsRoundTrip);
         suite.Add("SASL passwords are protected by the current Windows user", SaslPasswordsUseWindowsProtection);
-        suite.Add("network profile presentation gives each server its own row", NetworkProfilePresentationUsesServerRows);
+        suite.Add("network profile presentation numbers each server row", NetworkProfilePresentationNumbersServerRows);
         suite.Add("adduser usage describes hostmask and nickname shorthand", AddUserUsageIsConcise);
     }
 
-    private static void NetworkProfilePresentationUsesServerRows()
+    private static void NetworkProfilePresentationNumbersServerRows()
     {
         var configured = new NetworkProfile(
             NetworkProfileId.New(),
@@ -44,14 +44,24 @@ internal static class NetworkProfileStoreTests
         var rows = ClientApplication.NetworkProfileRows([configured, unconfigured]);
 
         Assert.Equal(3, rows.Count);
+
         Assert.Equal("EFnet", rows[0][0]);
-        Assert.Equal("irc1.example.test:6697 (TLS)", rows[0][1]);
-        Assert.Equal("TestNick", rows[0][2]);
+        Assert.Equal("1", rows[0][1]);
+        Assert.Equal("irc1.example.test:6697 (TLS)", rows[0][2]);
+        Assert.Equal("TestNick", rows[0][3]);
+        Assert.Equal("off", rows[0][4]);
+
         Assert.Equal(string.Empty, rows[1][0]);
-        Assert.Equal("irc2.example.test:6667", rows[1][1]);
-        Assert.Equal(string.Empty, rows[1][2]);
+        Assert.Equal("2", rows[1][1]);
+        Assert.Equal("irc2.example.test:6667", rows[1][2]);
+        Assert.Equal(string.Empty, rows[1][3]);
+        Assert.Equal(string.Empty, rows[1][4]);
+
         Assert.Equal("FutureNet", rows[2][0]);
-        Assert.Equal("[no server configured]", rows[2][1]);
+        Assert.Equal(string.Empty, rows[2][1]);
+        Assert.Equal("[no server configured]", rows[2][2]);
+        Assert.Equal("OtherNick", rows[2][3]);
+        Assert.Equal("off", rows[2][4]);
     }
 
     private static void AddUserUsageIsConcise()
