@@ -718,9 +718,9 @@ internal sealed partial class ClientApplication
                 return;
             }
 
-            if (!ScriptCommandRequestPolicy.IsAllowed(command))
+            if (!ScriptCommandRequestPolicy.IsAllowed(_commands, command))
             {
-                PrintScriptOutput(scriptId, "Scripts cannot request /script");
+                PrintScriptOutput(scriptId, $"Command /{command.Name} is not available to scripts");
                 return;
             }
 
