@@ -40,6 +40,7 @@ internal static class ThemeTests
         suite.Add("viewport paging slices large field boxes instead of repeating them", ViewportPagingSlicesFieldBoxes);
         suite.Add("viewport paging retains mixed fields and tables", ViewportPagingRetainsMixedPresentations);
         suite.Add("transient viewport events replace one history entry and become permanent", TransientViewportEventsReplaceInPlace);
+        suite.Add("unread activity distinguishes parts, quits, and kicks", UnreadActivityDistinguishesDepartures);
         suite.Add("window activation resets unread and scroll state through one owner", WindowActivationResetsTransientState);
         suite.Add("window removal clears all terminal state without reusing numbers", WindowRemovalClearsTerminalState);
         suite.Add("viewport history snapshots are isolated from live event arrival", ViewportHistorySnapshotsAreIsolated);
@@ -667,6 +668,67 @@ internal static class ThemeTests
             new[] { "large", "latest" }, offsetRows: 0, rowBudget: 5,
             item => item == "large" ? 10 : 2);
         Assert.Equal("large,latest", string.Join(',', crossing.Select(slice => slice.Item)));
+    }
+
+    private static void UnreadActivityDistinguishesDepartures()
+    {
+        var states = new WindowStateRegistry();
+        var session = NetworkSessionId.New();
+        var buffer = BufferId.New();
+        var now = DateTimeOffset.Now;
+
+        SessionEvent[] events =
+        [
+            new(session, buffer, SessionEventKind.Part, "Alice left", now),
+            new(
+                session,
+                buffer,
+                SessionEventKind.Part,
+                "Bob quit",
+                now,
+                new Dictionary<string, string?> { ["event"] = "quit" }),
+            new(
+                session,
+                buffer,
+                SessionEventKind.Part,
+                "Carol was kicked",
+                now,
+                new Dictionary<string, string?> { ["event"] = "kick" })
+        ];
+
+        foreach (var sessionEvent in events)
+        {
+            states.StoreEvent(
+                sessionEvent,
+                incomingRows: 1,
+                measureRows: _ => 1,
+                isReplay: false,
+                trackUnread: true,
+                now);
+        }
+
+        var activity = states.UnreadActivities(buffer);
+
+        Assert.True(activity.Any(item => item.Subtype == SessionEventSubtype.None));
+        Assert.True(activity.Any(item => item.Subtype == SessionEventSubtype.Quit));
+        Assert.True(activity.Any(item => item.Subtype == SessionEventSubtype.Kick));
+        Assert.Equal("part", ClientApplication.ActivityName(
+            new WindowStateRegistry.WindowActivityKind(
+                SessionEventKind.Part,
+                SessionEventSubtype.None)));
+        Assert.Equal("quit", ClientApplication.ActivityName(
+            new WindowStateRegistry.WindowActivityKind(
+                SessionEventKind.Part,
+                SessionEventSubtype.Quit)));
+        Assert.Equal("kick", ClientApplication.ActivityName(
+            new WindowStateRegistry.WindowActivityKind(
+                SessionEventKind.Part,
+                SessionEventSubtype.Kick)));
+
+        Assert.Equal(SessionEventKind.Part, states.UnreadKinds(buffer).Single());
+        Assert.Equal(
+            SessionEventKind.Part,
+            states.ChromeState(null).Activity.Single().Kinds.Single());
     }
 
     private static void WindowActivationResetsTransientState()

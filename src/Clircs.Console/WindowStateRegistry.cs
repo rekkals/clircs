@@ -157,7 +157,9 @@ internal sealed class WindowStateRegistry
 
             var suppressActivity = sessionEvent.Fields?.GetValueOrDefault("suppressActivity") == "true";
             if (trackUnread && !isActive && !isReplay && !suppressActivity)
-                state.Unread.Add(sessionEvent.Kind);
+                state.Unread.Add(new WindowActivityKind(
+                    sessionEvent.Kind,
+                    SessionEventPresentation.From(sessionEvent).Subtype));
 
             return new WindowEventStoreResult(
                 true,
@@ -255,13 +257,31 @@ internal sealed class WindowStateRegistry
 
     public void MarkUnread(BufferId bufferId, SessionEventKind kind)
     {
-        lock (_gate) EnsureUnsafe(bufferId).Unread.Add(kind);
+        lock (_gate)
+        {
+            EnsureUnsafe(bufferId).Unread.Add(
+                new WindowActivityKind(kind, SessionEventSubtype.None));
+        }
     }
 
     public SessionEventKind[] UnreadKinds(BufferId bufferId)
     {
         lock (_gate)
-            return _windows.TryGetValue(bufferId, out var state) ? [.. state.Unread] : [];
+        {
+            return _windows.TryGetValue(bufferId, out var state)
+                ? [.. state.Unread.Select(activity => activity.Kind).Distinct()]
+                : [];
+        }
+    }
+
+    public WindowActivityKind[] UnreadActivities(BufferId bufferId)
+    {
+        lock (_gate)
+        {
+            return _windows.TryGetValue(bufferId, out var state)
+                ? [.. state.Unread]
+                : [];
+        }
     }
 
     public WindowChromeState ChromeState(BufferId? bufferId)
@@ -273,7 +293,10 @@ internal sealed class WindowStateRegistry
                 : 0;
             var activity = _windows
                 .Where(entry => entry.Value.Number is not null && entry.Value.Unread.Count > 0)
-                .Select(entry => new WindowActivity(entry.Key, entry.Value.Number!.Value, [.. entry.Value.Unread]))
+                .Select(entry => new WindowActivity(
+                    entry.Key,
+                    entry.Value.Number!.Value,
+                    [.. entry.Value.Unread.Select(activity => activity.Kind).Distinct()]))
                 .ToArray();
             return new WindowChromeState(offset, activity);
         }
@@ -353,6 +376,10 @@ internal sealed class WindowStateRegistry
         return state;
     }
 
+    internal readonly record struct WindowActivityKind(
+        SessionEventKind Kind,
+        SessionEventSubtype Subtype);
+
     internal sealed record WindowActivity(BufferId BufferId, int Number, SessionEventKind[] Kinds);
     internal sealed record WindowChromeState(int ScrollOffset, WindowActivity[] Activity);
     internal sealed record WindowViewportSnapshot(SessionEvent[] History, int ScrollOffset);
@@ -367,7 +394,7 @@ internal sealed class WindowStateRegistry
     private sealed class WindowState
     {
         public WindowEventHistory History { get; } = new();
-        public HashSet<SessionEventKind> Unread { get; } = [];
+        public HashSet<WindowActivityKind> Unread { get; } = [];
         public int? Number { get; set; }
         public int ScrollOffset { get; set; }
     }

@@ -150,9 +150,10 @@ internal sealed partial class ClientApplication
     }
 
     private string ActivitySuffix(BufferId id)
-        => string.Join(',', _windowStates.UnreadKinds(id)
-            .OrderByDescending(ActivityPriority)
-            .Select(ActivityName));
+        => string.Join(',', _windowStates.UnreadActivities(id)
+            .OrderByDescending(activity => ActivityPriority(activity.Kind))
+            .Select(ActivityName)
+            .Distinct(StringComparer.Ordinal));
 
     private static int ActivityPriority(SessionEventKind kind) => kind switch
     {
@@ -170,7 +171,13 @@ internal sealed partial class ClientApplication
         _ => 10
     };
 
-    private static string ActivityName(SessionEventKind kind) => kind.ToString().ToLowerInvariant();
+    internal static string ActivityName(WindowStateRegistry.WindowActivityKind activity) =>
+        activity.Subtype switch
+        {
+            SessionEventSubtype.Quit => "quit",
+            SessionEventSubtype.Kick => "kick",
+            _ => activity.Kind.ToString().ToLowerInvariant()
+        };
 
     private static bool TryParseDuration(string value, out TimeSpan duration)
     {
