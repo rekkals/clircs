@@ -797,6 +797,35 @@ internal sealed partial class ClientApplication
         return CommandResult.Success();
     }
 
+    private async ValueTask<CommandResult> OperAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (input.Arguments.Count != 1)
+        {
+            return CommandResult.Failure("Usage: /oper <name>");
+        }
+
+        var session = RequireSession(out var failure);
+        if (session is null)
+        {
+            return failure;
+        }
+
+        var password = _presenter.ReadSecret($"IRC operator password for {input.Arguments[0]}: ");
+        if (string.IsNullOrEmpty(password))
+        {
+            return CommandResult.Failure("IRC operator authentication canceled");
+        }
+
+        await session.SendOperAsync(
+            input.Arguments[0],
+            password,
+            cancellationToken);
+        return CommandResult.Success();
+    }
+
     private async ValueTask<CommandResult> AwayAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
         var session = RequireSession(out var failure);

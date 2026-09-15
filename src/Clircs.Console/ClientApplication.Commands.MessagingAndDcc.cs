@@ -64,6 +64,29 @@ internal sealed partial class ClientApplication
         return CommandResult.Success();
     }
 
+    private async ValueTask<CommandResult> WallopsAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (input.RawArguments.Length == 0)
+        {
+            return CommandResult.Failure("Usage: /wallops <message>");
+        }
+
+        var session = RequireSession(out var failure);
+        if (session is null)
+        {
+            return failure;
+        }
+
+        await session.SendAsync(
+            "WALLOPS",
+            [input.RawArguments],
+            cancellationToken: cancellationToken);
+        return CommandResult.Success();
+    }
+
     private async ValueTask<CommandResult> ServiceAsync(
         CommandContext context,
         CommandInput input,

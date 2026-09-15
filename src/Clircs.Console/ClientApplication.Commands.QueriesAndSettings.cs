@@ -212,7 +212,9 @@ internal sealed partial class ClientApplication
                 .Where(_outputRouting.Supports)
                 .Select(key => new PresentationField(
                     key == "messageguard" ? "messageguard" : $"{key}.output",
-                    FormatOutputDestination(_outputRouting.DestinationFor(key), key == "notice"))));
+                    FormatOutputDestination(
+                        _outputRouting.DestinationFor(key),
+                        key is "notice" or "wallops"))));
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock("Client Settings", fields)));
         }
 
@@ -369,6 +371,7 @@ internal sealed partial class ClientApplication
             case "whowas.output":
             case "ctcp.output":
             case "notice.output":
+            case "wallops.output":
             case "invite.output":
             case "links.output":
             case "list.output":
@@ -377,8 +380,8 @@ internal sealed partial class ClientApplication
                 if (!TryParseOutputDestination(value, out var destination))
                 {
                     return ValueTask.FromResult(CommandResult.Failure(
-                        setting == "notice.output"
-                            ? "notice.output must be active, status, or window."
+                        setting is "notice.output" or "wallops.output"
+                            ? $"{setting} must be active, status, or window."
                             : "Output destination must be active, status, or dedicated."));
                 }
 
@@ -442,6 +445,7 @@ internal sealed partial class ClientApplication
         "output.whowas" => "whowas.output",
         "output.ctcp" => "ctcp.output",
         "output.notice" => "notice.output",
+        "output.wallops" => "wallops.output",
         "output.invite" => "invite.output",
         "output.links" => "links.output",
         "output.list" => "list.output",

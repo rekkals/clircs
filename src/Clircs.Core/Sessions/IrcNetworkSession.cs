@@ -174,6 +174,26 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public ValueTask SendNicknameAsync(string nickname, CancellationToken cancellationToken = default) =>
         _connection.SendNicknameAsync(nickname, cancellationToken);
 
+    public async ValueTask SendOperAsync(
+        string name,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        _processor.BeginOperAttempt();
+        try
+        {
+            await SendAsync(
+                "OPER",
+                [name, password],
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _processor.CancelOperAttempt();
+            throw;
+        }
+    }
+
     public async ValueTask SynchronizeUserModesAsync(CancellationToken cancellationToken = default)
     {
         _processor.BeginAutomaticUserModeQuery();

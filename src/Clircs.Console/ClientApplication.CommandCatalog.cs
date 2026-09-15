@@ -35,6 +35,7 @@ internal sealed partial class ClientApplication
         Register("rj", [], "Remove a channel from the active network profile's autojoin list.", AutojoinRemoveAliasAsync);
         Register("msg", ["m"], "Send a message to a nickname or channel.", MessageAsync);
         Register("notice", ["n"], "Send a notice to a nickname or channel.", NoticeAsync);
+        Register("wallops", [], "Send a message to all IRC operators.", WallopsAsync);
         Register("say", [], "Send text to the active channel/query.", SayCommandAsync);
         Register("me", [], "Send an action to the active channel/query.", MeAsync);
         Register("describe", [], "Send an action to a nickname or channel.", DescribeAsync);
@@ -48,6 +49,7 @@ internal sealed partial class ClientApplication
         Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
         Register("time", [], "Show local time or query a [nickname].", TimeAsync);
         Register("raw", ["quote"], "Send raw input to the IRC server.", RawAsync);
+        Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
         Register("join", ["j"], "Join a channel.", JoinAsync);
         Register("part", ["p"], "Part a channel.", PartAsync);
         Register("cycle", [], "Part and rejoin the active channel.", CycleAsync);
@@ -239,7 +241,7 @@ internal sealed partial class ClientApplication
             new("Network", "usermodes, network.reconnect, kill.reconnect"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
-            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, invite.output, links.output, list.output, dns.output, messageguard")
+            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, wallops.output, invite.output, links.output, list.output, dns.output, messageguard")
         ],
         "protect" =>
         [
@@ -354,6 +356,8 @@ internal sealed partial class ClientApplication
                 ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", $"/set {setting} host"),
             "notice.output" =>
                 ("<active|status|window>", "active", "Selects the window used for ordinary incoming notices.", "/set notice.output window"),
+            "wallops.output" =>
+                ("<active|status|window>", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
             "list.output" =>
                 ("<active|status|dedicated>", "dedicated", "Selects the window used for channel-list results.", "/set list.output dedicated"),
             _ when setting.EndsWith(".output", StringComparison.Ordinal) || setting == "messageguard" =>
@@ -399,7 +403,9 @@ internal sealed partial class ClientApplication
         "messageguard" => FormatOutputDestination(_outputRouting.DestinationFor("messageguard")),
         _ when setting.EndsWith(".output", StringComparison.Ordinal) &&
             _outputRouting.TryGetDestination(setting[..^".output".Length], out var destination) =>
-                FormatOutputDestination(destination, setting == "notice.output"),
+                FormatOutputDestination(
+                    destination,
+                    setting is "notice.output" or "wallops.output"),
         _ => null
     };
 

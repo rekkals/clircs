@@ -69,12 +69,16 @@ internal static class ProtocolRoutingTests
         var routing = new OutputRoutingCoordinator();
         Assert.Equal(OutputDestination.Active, routing.DestinationFor("whois"));
         Assert.Equal(OutputDestination.Dedicated, routing.DestinationFor("list"));
+        Assert.Equal(OutputDestination.Active, routing.DestinationFor("wallops"));
         Assert.True(routing.TrySetDestination("whois", OutputDestination.Status));
         Assert.Equal(OutputDestination.Status, routing.DestinationFor("whois"));
+        Assert.True(routing.TrySetDestination("wallops", OutputDestination.Dedicated));
+        Assert.Equal(OutputDestination.Dedicated, routing.DestinationFor("wallops"));
         Assert.False(routing.TrySetDestination("made-up-family", OutputDestination.Status));
 
         var snapshot = routing.DestinationSnapshot();
         Assert.Equal(OutputDestination.Status, snapshot["whois"]);
+        Assert.Equal(OutputDestination.Dedicated, snapshot["wallops"]);
         Assert.False(snapshot.ContainsKey("made-up-family"));
     }
 

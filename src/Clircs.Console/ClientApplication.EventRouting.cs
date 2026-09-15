@@ -622,6 +622,8 @@ internal sealed partial class ClientApplication
             var configured = _outputRouting.DestinationFor(family);
             destination = configured switch
             {
+                OutputDestination.Active when routeSession is not null &&
+                    _windowStates.ActiveBufferFor(routeSession.State.Id) is { } active => active,
                 OutputDestination.Dedicated => routeSession?.State
                     .GetOrCreateBuffer(BufferKind.Results, $"={family}").Id ?? sessionEvent.BufferId,
                 _ => routeSession?.State.StatusBuffer.Id ?? sessionEvent.BufferId

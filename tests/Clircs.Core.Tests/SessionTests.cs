@@ -62,6 +62,7 @@ internal static class SessionTests
         suite.Add("WHOWAS replies produce a formatted result without raw numerics", WhowasIsFormatted);
         suite.Add("716 and 717 combine into one routed message-guard notice", MessageGuardNumericsCombine);
         suite.Add("ordinary notices carry configurable notice routing", OrdinaryNoticesAreTagged);
+        suite.Add("WALLOPS carries configurable routing and sender identity", WallopsIsFormattedAndTagged);
         suite.Add("channel notices remain routed to their channel", ChannelNoticesRemainInChannel);
         suite.Add("traditional IRC colors are parsed without leaking control parameters", IrcColorsAreParsed);
         suite.Add("channel topics retain IRC formatting for history and the topic bar", TopicColorsArePreserved);
@@ -76,6 +77,7 @@ internal static class SessionTests
         suite.Add("self KILL messages are formatted and classified", SelfKillIsFormatted);
         suite.Add("server away confirmations synchronize and route to the active window", AwayConfirmationsAreFormattedAndRouted);
         suite.Add("authentication failure is formatted without raw 464", AuthenticationFailureIsFormatted);
+        suite.Add("OPER replies preserve server explanations and distinguish numeric 464", OperRepliesAreFormatted);
         suite.Add("numeric 502 becomes a readable user-mode error", UserModeFailureIsFormatted);
         suite.Add("account login and hidden host numerics are formatted and synchronized", AccountAndHiddenHostAreFormatted);
         suite.Add("LIST replies produce a formatted routed channel table", ListProducesChannelTable);
@@ -291,6 +293,50 @@ internal static class SessionTests
         Assert.Equal(SessionEventKind.Error, events[0].Kind);
         Assert.Equal("Authentication failed: Password incorrect Automatic reconnect was not started", events[0].Text);
         Assert.False(events[0].Text.Contains("[464]", StringComparison.Ordinal));
+    }
+
+    private static void OperRepliesAreFormatted()
+    {
+        var (_, processor) = CreateProcessor();
+
+        processor.BeginOperAttempt();
+        var passwordFailure = processor.Process(
+            IrcMessageParser.Parse(":server 464 me :Password incorrect"));
+
+        Assert.Equal(1, passwordFailure.Count);
+        Assert.Equal(SessionEventKind.Error, passwordFailure[0].Kind);
+        Assert.Equal(
+            "IRC operator authentication failed: Password incorrect",
+            passwordFailure[0].Text);
+        Assert.Equal("oper", passwordFailure[0].Fields!["event"]!);
+        Assert.Equal("464", passwordFailure[0].Fields!["numeric"]!);
+
+        var registrationFailure = processor.Process(
+            IrcMessageParser.Parse(":server 464 me :Password incorrect"));
+
+        Assert.Equal(
+            "Authentication failed: Password incorrect Automatic reconnect was not started",
+            registrationFailure[0].Text);
+
+        processor.BeginOperAttempt();
+        var hostFailure = processor.Process(
+            IrcMessageParser.Parse(
+                ":server 491 me :Failed to log into the \u0002test\u0002 oper account"));
+
+        Assert.Equal(
+            "IRC operator authentication failed: Failed to log into the test oper account",
+            hostFailure[0].Text);
+        Assert.Equal("491", hostFailure[0].Fields!["numeric"]!);
+
+        processor.BeginOperAttempt();
+        var success = processor.Process(
+            IrcMessageParser.Parse(":server 381 me :You are now an IRC operator"));
+
+        Assert.Equal(SessionEventKind.Status, success[0].Kind);
+        Assert.Equal(
+            "IRC operator authentication succeeded: You are now an IRC operator",
+            success[0].Text);
+        Assert.Equal("381", success[0].Fields!["numeric"]!);
     }
 
     private static void AccountAndHiddenHostAreFormatted()
@@ -1194,6 +1240,26 @@ internal static class SessionTests
         Assert.Equal(1, notice.Count);
         Assert.Equal("notice", notice[0].Fields!["outputFamily"]!);
         Assert.Equal("true", notice[0].Fields!["routeConfigured"]!);
+    }
+
+    private static void WallopsIsFormattedAndTagged()
+    {
+        var (state, processor) = CreateProcessor();
+        var wallops = processor.Process(
+            IrcMessageParser.Parse(
+                ":Oper!admin@staff.example WALLOPS :Scheduled maintenance"));
+
+        Assert.Equal(1, wallops.Count);
+        Assert.Equal(state.StatusBuffer.Id, wallops[0].BufferId);
+        Assert.Equal(SessionEventKind.Notice, wallops[0].Kind);
+        Assert.Equal("WALLOPS from Oper: Scheduled maintenance", wallops[0].Text);
+        Assert.Equal("wallops", wallops[0].Fields!["event"]!);
+        Assert.Equal("Oper", wallops[0].Fields!["nick"]!);
+        Assert.Equal("admin", wallops[0].Fields!["username"]!);
+        Assert.Equal("staff.example", wallops[0].Fields!["host"]!);
+        Assert.Equal("Scheduled maintenance", wallops[0].Fields!["message"]!);
+        Assert.Equal("wallops", wallops[0].Fields!["outputFamily"]!);
+        Assert.Equal("true", wallops[0].Fields!["routeConfigured"]!);
     }
 
     private static void ChannelNoticesRemainInChannel()

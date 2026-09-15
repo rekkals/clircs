@@ -16,6 +16,7 @@ public sealed class IrcSessionProcessor
     private PendingMessageGuard? _pendingMessageGuard;
     private AutomaticVersionProbeState _automaticVersionProbeState;
     private bool _automaticUserModeQueryPending;
+    private bool _operAttemptPending;
 
     public IrcSessionProcessor(NetworkSessionState state, string initialNickname)
     {
@@ -43,6 +44,7 @@ public sealed class IrcSessionProcessor
         _pendingMessageGuard = null;
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
         _automaticUserModeQueryPending = false;
+        _operAttemptPending = false;
     }
 
     public Guid BeginWhoRequest(IReadOnlyList<string> arguments, bool automatic = false)
@@ -73,6 +75,16 @@ public sealed class IrcSessionProcessor
     public void CancelAutomaticUserModeQuery()
     {
         _automaticUserModeQueryPending = false;
+    }
+
+    public void BeginOperAttempt()
+    {
+        _operAttemptPending = true;
+    }
+
+    public void CancelOperAttempt()
+    {
+        _operAttemptPending = false;
     }
 
     public Guid BeginWhoisRequest(string nickname, bool includeIdle, bool automatic = false)
@@ -243,6 +255,9 @@ public sealed class IrcSessionProcessor
             case "NOTICE":
                 ProcessNotice(message, sender, now, events);
                 break;
+            case "WALLOPS":
+                ProcessWallops(message, sender, now, events);
+                break;
             case "INVITE":
                 if (message.Parameters.Count >= 2)
                 {
@@ -271,12 +286,48 @@ public sealed class IrcSessionProcessor
                     now,
                     Fields(("event", "away"), ("away", "true"), ("routeActive", "true"))));
                 break;
+            case "381":
+                _operAttemptPending = false;
+                var operSuccess = IrcTextFormatting.Parse(Last(message)).PlainText;
+                events.Add(Status(
+                    SessionEventKind.Status,
+                    $"IRC operator authentication succeeded: {operSuccess}",
+                    now,
+                    Fields(
+                        ("event", "oper"),
+                        ("numeric", "381"),
+                        ("routeActive", "true"))));
+                break;
+            case "464" when _operAttemptPending:
+                _operAttemptPending = false;
+                var operPasswordFailure = IrcTextFormatting.Parse(Last(message)).PlainText;
+                events.Add(Status(
+                    SessionEventKind.Error,
+                    $"IRC operator authentication failed: {operPasswordFailure}",
+                    now,
+                    Fields(
+                        ("event", "oper"),
+                        ("numeric", "464"),
+                        ("routeActive", "true"))));
+                break;
             case "464":
                 events.Add(Status(
                     SessionEventKind.Error,
                     $"Authentication failed: {Last(message).TrimEnd('.')} Automatic reconnect was not started",
                     now,
                     Fields(("event", "authentication"), ("numeric", "464"))));
+                break;
+            case "491":
+                _operAttemptPending = false;
+                var operFailure = IrcTextFormatting.Parse(Last(message)).PlainText;
+                events.Add(Status(
+                    SessionEventKind.Error,
+                    $"IRC operator authentication failed: {operFailure}",
+                    now,
+                    Fields(
+                        ("event", "oper"),
+                        ("numeric", "491"),
+                        ("routeActive", "true"))));
                 break;
             case "502":
                 events.Add(Status(
@@ -617,6 +668,10 @@ public sealed class IrcSessionProcessor
                 break;
             case "461":
                 var missingParametersCommand = message.Parameters.Count >= 2 ? message.Parameters[1] : "Command";
+                if (missingParametersCommand.Equals("OPER", StringComparison.OrdinalIgnoreCase))
+                {
+                    _operAttemptPending = false;
+                }
                 events.Add(Status(SessionEventKind.Error,
                     $"{missingParametersCommand} requires more parameters", now,
                     Fields(("numeric", "461"), ("routeActive", "true"))));
@@ -925,6 +980,35 @@ public sealed class IrcSessionProcessor
         return _state.Buffers.Count(buffer => buffer.Kind == BufferKind.Query) >= maximumAutomaticQueries
             ? _state.StatusBuffer
             : _state.GetOrCreateBuffer(BufferKind.Query, sender);
+    }
+
+    private void ProcessWallops(
+        IrcMessage message,
+        string sender,
+        DateTimeOffset now,
+        ICollection<SessionEvent> events)
+    {
+        if (message.Parameters.Count == 0)
+        {
+            return;
+        }
+
+        var identity = ParsePrefix(message.Prefix);
+        var formattedText = IrcTextFormatting.Parse(message.Parameters[^1]);
+        events.Add(Event(
+            _state.StatusBuffer,
+            SessionEventKind.Notice,
+            $"WALLOPS from {sender}: {formattedText.PlainText}",
+            now,
+            Fields(
+                ("event", "wallops"),
+                ("nick", sender),
+                ("username", identity.Username),
+                ("host", identity.Host),
+                ("message", formattedText.PlainText),
+                ("outputFamily", "wallops"),
+                ("routeConfigured", "true")),
+            formattedContent: formattedText));
     }
 
     private void ProcessNotice(IrcMessage message, string sender, DateTimeOffset now, ICollection<SessionEvent> events)
