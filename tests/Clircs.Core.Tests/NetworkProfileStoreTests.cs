@@ -13,6 +13,7 @@ internal static class NetworkProfileStoreTests
         suite.Add("network profiles round-trip stable identity and scoped settings", ProfilesRoundTrip);
         suite.Add("adding a server endpoint preserves logical-network settings", AddingEndpointPreservesNetworkSettings);
         suite.Add("removing a bouncer endpoint preserves logical-network settings", RemovingEndpointPreservesNetworkSettings);
+        suite.Add("network profiles create connection options for a selected server", SelectedEndpointCreatesConnectionOptions);
         suite.Add("legacy reconnect defaults migrate to 99 attempts", LegacyReconnectDefaultMigrates);
         suite.Add("changing profile identity preserves network settings", ChangingIdentityPreservesNetworkSettings);
         suite.Add("unconfigured network profiles round-trip and accept a later endpoint", UnconfiguredProfilesRoundTrip);
@@ -137,6 +138,28 @@ internal static class NetworkProfileStoreTests
         Assert.Equal("#shared", updated.AutojoinChannels[0]);
         Assert.Equal(2, updated.Endpoints.Count);
         Assert.Equal("irc2.example.test", updated.Endpoints[1].Host);
+    }
+
+    private static void SelectedEndpointCreatesConnectionOptions()
+    {
+        var profile = new NetworkProfile(
+            NetworkProfileId.New(),
+            "EFnet",
+            [
+                new IrcEndpoint("irc1.example.test", 6697, true),
+                new IrcEndpoint("irc2.example.test", 6667, false)
+            ],
+            new IrcIdentity(["StoredNick"], "stored", "Stored User"));
+        var identity = new IrcIdentity(["CurrentNick"], "current", "Current User");
+
+        var options = profile.CreateConnectionOptions(identity, endpointIndex: 1);
+
+        Assert.Equal("irc2.example.test", options.Endpoint.Host);
+        Assert.Equal(6667, options.Endpoint.Port);
+        Assert.False(options.Endpoint.UseTls);
+        Assert.Equal("CurrentNick", options.Identity.Nicknames[0]);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            profile.CreateConnectionOptions(identity, endpointIndex: 2));
     }
 
     private static void RemovingEndpointPreservesNetworkSettings()

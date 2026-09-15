@@ -14,7 +14,7 @@ public static class ProductInfo
 
     public const string StartupQuote = Description;
 
-    public const string StartupHelp = "Type /help for commands. Type /server <host|profile> [port] [--tls] [--new] [--password] to connect.";
+    public const string StartupHelp = "Use /server <host> [port] or /server <profile> [number] to connect. Type /help for commands.";
 
     private static string ReadVersion()
     {

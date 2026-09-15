@@ -16,9 +16,13 @@ internal sealed partial class ClientApplication
 {
     private async ValueTask<CommandResult> ServerAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
+        const string usage =
+            "Usage: /server <host> [port] [--tls] [--new] [--password] | " +
+            "/server <profile> [number] [--new] [--password]";
+
         if (input.Arguments.Count == 0)
         {
-            return CommandResult.Failure("Usage: /server <host|profile> [port] [--tls] [--new] [--password]");
+            return CommandResult.Failure(usage);
         }
 
         var useTls = input.Arguments.Contains("--tls", StringComparer.OrdinalIgnoreCase);
@@ -36,10 +40,10 @@ internal sealed partial class ClientApplication
         var positional = input.Arguments.Where(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToArray();
         if (positional.Length is < 1 or > 2)
         {
-            return CommandResult.Failure("Usage: /server <host|profile> [port] [--tls] [--new] [--password]");
+            return CommandResult.Failure(usage);
         }
 
-        var profile = positional.Length == 1 ? _profileStore.Find(positional[0]) : null;
+        var profile = _profileStore.Find(positional[0]);
         IrcConnectionOptions options;
         string? displayName = null;
         NetworkProfileId? profileId = null;
@@ -47,17 +51,41 @@ internal sealed partial class ClientApplication
         {
             if (useTls)
             {
-                return CommandResult.Failure("A saved profile already defines TLS. Use /server <profile> [--new].");
+                return CommandResult.Failure(
+                    "A saved profile already defines TLS. Use /server <profile> [number] [--new].");
             }
             if (!profile.IsConfigured)
             {
                 return CommandResult.Failure(
-                    $"Network profile {profile.DisplayName} has no server endpoint. Configure one with /network add {profile.DisplayName} <host> [port] [--tls].");
+                    $"Network profile {profile.DisplayName} has no server endpoint. " +
+                    $"Configure one with /network server add {profile.DisplayName} <host> [port] [--tls].");
+            }
+
+            var endpointIndex = 0;
+            if (positional.Length == 2)
+            {
+                if (!int.TryParse(
+                        positional[1],
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out var serverNumber) ||
+                    serverNumber < 1 ||
+                    serverNumber > profile.Endpoints.Count)
+                {
+                    return CommandResult.Failure(
+                        $"Server number must be from 1 through {profile.Endpoints.Count} " +
+                        $"for {profile.DisplayName}.");
+                }
+
+                endpointIndex = serverNumber - 1;
             }
 
             try
             {
-                options = ConnectionOptionsForProfile(profile, CurrentIdentity());
+                options = ConnectionOptionsForProfile(
+                    profile,
+                    CurrentIdentity(),
+                    endpointIndex);
             }
             catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or ArgumentException)
             {
@@ -222,7 +250,7 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure(exception.Message));
                 }
             case "server":
-                return ValueTask.FromResult(RemoveNetworkServer(input, sessions));
+                return ValueTask.FromResult(ConfigureNetworkServer(input, sessions));
             case "remove":
                 if (input.Arguments.Count != 2)
                 {
@@ -256,6 +284,89 @@ internal sealed partial class ClientApplication
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
                     "Usage: /network list|profiles|add|server|remove|use|status|sasl"));
+        }
+    }
+
+    private CommandResult ConfigureNetworkServer(
+        CommandInput input,
+        IReadOnlyList<IrcNetworkSession> sessions)
+    {
+        const string usage =
+            "Usage: /network server add <profile> <host> [port] [--tls] | " +
+            "/network server remove <profile> <number>";
+
+        if (input.Arguments.Count < 2)
+        {
+            return CommandResult.Failure(usage);
+        }
+
+        return input.Arguments[1].ToLowerInvariant() switch
+        {
+            "add" => AddNetworkServer(input),
+            "remove" => RemoveNetworkServer(input, sessions),
+            _ => CommandResult.Failure(usage)
+        };
+    }
+
+    private CommandResult AddNetworkServer(CommandInput input)
+    {
+        const string usage =
+            "Usage: /network server add <profile> <host> [port] [--tls]";
+
+        var arguments = input.Arguments.Skip(2).ToArray();
+        var useTls = arguments.Contains("--tls", StringComparer.OrdinalIgnoreCase);
+        var unknownOption = arguments.FirstOrDefault(argument =>
+            argument.StartsWith("--", StringComparison.Ordinal) &&
+            !argument.Equals("--tls", StringComparison.OrdinalIgnoreCase));
+        var positional = arguments
+            .Where(argument => !argument.StartsWith("--", StringComparison.Ordinal))
+            .ToArray();
+
+        if (unknownOption is not null || positional.Length is < 2 or > 3)
+        {
+            return CommandResult.Failure(usage);
+        }
+
+        var profile = _profileStore.Find(positional[0]);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                $"No saved network profile matches '{positional[0]}'.");
+        }
+
+        var port = useTls ? 6697 : 6667;
+        if (positional.Length == 3 &&
+            (!int.TryParse(positional[2], out port) || port is < 1 or > 65535))
+        {
+            return CommandResult.Failure(
+                "The server port must be a number from 1 through 65535.");
+        }
+
+        try
+        {
+            var endpoint = new IrcEndpoint(positional[1], port, useTls);
+            if (profile.Endpoints.Any(existing =>
+                existing.Port == endpoint.Port &&
+                existing.UseTls == endpoint.UseTls &&
+                existing.Host.Equals(endpoint.Host, StringComparison.OrdinalIgnoreCase)))
+            {
+                return CommandResult.Failure(
+                    $"{endpoint} is already configured for {profile.DisplayName}.");
+            }
+
+            var updated = profile.WithEndpoint(endpoint);
+            _profileStore.Replace(updated);
+
+            return CommandResult.Success(
+                $"Added server {updated.Endpoints.Count} ({endpoint}) to {updated.DisplayName}.");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or
+            InvalidOperationException or
+            IOException or
+            UnauthorizedAccessException)
+        {
+            return CommandResult.Failure(exception.Message);
         }
     }
 
@@ -517,8 +628,31 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private IrcConnectionOptions ConnectionOptionsForProfile(NetworkProfile profile, IrcIdentity identity) =>
-        ApplyProfileSasl(profile, profile.CreateConnectionOptions(identity));
+    private static int ProfileEndpointIndex(
+        NetworkProfile profile,
+        IrcEndpoint endpoint)
+    {
+        for (var index = 0; index < profile.Endpoints.Count; index++)
+        {
+            var candidate = profile.Endpoints[index];
+            if (candidate.Port == endpoint.Port &&
+                candidate.UseTls == endpoint.UseTls &&
+                candidate.Host.Equals(endpoint.Host, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return 0;
+    }
+
+    private IrcConnectionOptions ConnectionOptionsForProfile(
+        NetworkProfile profile,
+        IrcIdentity identity,
+        int endpointIndex = 0) =>
+        ApplyProfileSasl(
+            profile,
+            profile.CreateConnectionOptions(identity, endpointIndex));
 
     private IrcConnectionOptions ApplyProfileSasl(NetworkProfile profile, IrcConnectionOptions options)
     {
@@ -574,12 +708,20 @@ internal sealed partial class ClientApplication
         var recent = RecentConnectionSnapshot();
         var profileId = active is not null ? ProfileIdFor(active) : recent?.ProfileId;
         var profile = profileId is { } id ? _profileStore.Find(id) : null;
+        var rememberedOptions = active?.Options ?? recent?.Options;
         IrcConnectionOptions? options;
         try
         {
+            var endpointIndex = profile is null || rememberedOptions is null
+                ? 0
+                : ProfileEndpointIndex(profile, rememberedOptions.Endpoint);
+
             options = profile is null
-                ? active?.Options ?? recent?.Options
-                : ConnectionOptionsForProfile(profile, CurrentIdentity());
+                ? rememberedOptions
+                : ConnectionOptionsForProfile(
+                    profile,
+                    CurrentIdentity(),
+                    endpointIndex);
         }
         catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or ArgumentException)
         {

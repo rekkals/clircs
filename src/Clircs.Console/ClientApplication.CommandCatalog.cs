@@ -181,14 +181,18 @@ internal sealed partial class ClientApplication
     {
         "server" =>
         [
-            new("--tls", "Encrypt the connection with TLS."),
+            new("Direct", "/server <host> [port] [--tls] [--new] [--password]"),
+            new("Profile", "/server <profile> [number] [--new] [--password]"),
+            new("--tls", "Encrypt a direct server connection with TLS."),
             new("--new", "Open a new network session instead of replacing active."),
             new("--password", "Prompt securely for a server password or complete bouncer login string."),
-            new("Example", "/server irc.example.net 6697 --tls")
+            new("Example", "/server EFNet 2 --new")
         ],
         "network" =>
         [
             new("Profiles", "/network profiles"),
+            new("Create profile", "/network add <name> <host> [port] [--tls]"),
+            new("Add server", "/network server add <profile> <host> [port] [--tls]"),
             new("Remove server", "/network server remove <profile> <number>"),
             new("Remove profile", "/network remove <profile>"),
             new("SASL status", "/network sasl <profile>"),

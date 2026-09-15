@@ -91,7 +91,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["accept"] = "/accept [[-]nick,...]",
             ["cprot"] = "/cprot <on|off|status|detector> [arguments]",
             ["pprot"] = "/pprot <on|off|status|detector> [arguments]",
-            ["server"] = "/server <host|profile> [port] [--tls] [--new] [--password]",
+            ["server"] = "/server <host> [port] [--tls] [--new] [--password] | /server <profile> [number] [--new] [--password]",
             ["protect"] = "/protect <operation> [arguments] [scope]",
             ["clones"] = "/clones [channel]",
             ["who"] = "/who [channel|nickname|mask]",

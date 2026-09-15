@@ -130,7 +130,7 @@ public sealed class NetworkProfile
         sasl = sasl?.Validate();
         if (sasl is not null && endpointArray.Any(endpoint => !endpoint.UseTls))
         {
-            throw new ArgumentException($"Every endpoint in a SASL {sasl.Mechanism} profile must use TLS.", nameof(endpoints));
+            throw new ArgumentException($"Every endpoint in a SASL {sasl.Mechanism} profile must use TLS.");
         }
 
         Id = id;
@@ -176,7 +176,7 @@ public sealed class NetworkProfile
         if (Endpoints.Count == 0)
         {
             throw new InvalidOperationException(
-                $"Network profile {DisplayName} has no server endpoint. Configure one with /network add {DisplayName} <host> [port] [--tls].");
+                $"Network profile {DisplayName} has no server endpoint. Configure one with /network server add {DisplayName} <host> [port] [--tls].");
         }
         if (endpointIndex < 0 || endpointIndex >= Endpoints.Count)
         {
