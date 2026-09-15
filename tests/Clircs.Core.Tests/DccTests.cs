@@ -30,6 +30,7 @@ internal static class DccTests
         suite.Add("DCC RESUME and ACCEPT parse active and passive wire forms", ResumeParsesWireForms);
         suite.Add("DCC resume control messages become structured events", SessionProducesStructuredResume);
         suite.Add("DCC request registry owns IDs states expiry and network invalidation", RegistryTracksLifecycle);
+        suite.Add("DCC request registry limits pending incoming offers by sender and session", RegistryLimitsPendingIncomingOffers);
         suite.Add("DCC request registry never trims live requests", RegistryPreservesLiveRequests);
         suite.Add("DCC request finalization is atomic with terminal state changes", RegistryFinalizationIsAtomicAsync);
         suite.Add("DCC coordinator isolates runtime state by request", CoordinatorIsolatesRuntimeState);
@@ -276,6 +277,125 @@ internal static class DccTests
         Assert.True(DccRequestRegistry.IsTerminal(cancelled!.State));
         Assert.False(registry.TryTransition(
             cancelledWhileConnecting.Id, DccRequestState.Failed, "late failure", out _));
+    }
+
+    private static void RegistryLimitsPendingIncomingOffers()
+    {
+        var registry = new DccRequestRegistry();
+        var firstSession = NetworkSessionId.New();
+        var secondSession = NetworkSessionId.New();
+        var thirdSession = NetworkSessionId.New();
+        var now = DateTimeOffset.UtcNow;
+        var comparer = new IrcNameComparer(IrcCaseMapping.Rfc1459);
+        var offer = new DccOffer(
+            DccRequestType.Chat,
+            null,
+            "127.0.0.1",
+            5000,
+            null,
+            null,
+            "DCC CHAT chat 2130706433 5000");
+
+        var senderRequests = new List<DccRequest>();
+        for (var index = 0;
+             index < DccRequestRegistry.MaximumPendingIncomingPerSender;
+             index++)
+        {
+            var sender = index % 2 == 0 ? "[Alice]" : "{alice}";
+            Assert.True(registry.TryAddIncoming(
+                firstSession,
+                "EFNet",
+                sender,
+                offer,
+                now,
+                comparer,
+                out var request));
+            senderRequests.Add(request!);
+        }
+
+        var countBeforeSenderRejection = registry.Snapshot().Count;
+        Assert.False(registry.TryAddIncoming(
+            firstSession,
+            "EFNet",
+            "[ALICE]",
+            offer,
+            now,
+            comparer,
+            out var senderRejected));
+        Assert.True(senderRejected is null);
+        Assert.Equal(countBeforeSenderRejection, registry.Snapshot().Count);
+
+        Assert.True(registry.TryTransition(
+            senderRequests[0].Id,
+            DccRequestState.Rejected,
+            "rejected",
+            out _));
+        Assert.True(registry.TryAddIncoming(
+            firstSession,
+            "EFNet",
+            "[Alice]",
+            offer,
+            now,
+            comparer,
+            out _));
+
+        for (var index = 0;
+             index < DccRequestRegistry.MaximumPendingIncomingPerSession -
+                 DccRequestRegistry.MaximumPendingIncomingPerSender;
+             index++)
+        {
+            Assert.True(registry.TryAddIncoming(
+                firstSession,
+                "EFNet",
+                $"user{index}",
+                offer,
+                now,
+                comparer,
+                out _));
+        }
+
+        var countBeforeSessionRejection = registry.Snapshot().Count;
+        Assert.False(registry.TryAddIncoming(
+            firstSession,
+            "EFNet",
+            "another-user",
+            offer,
+            now,
+            comparer,
+            out var sessionRejected));
+        Assert.True(sessionRejected is null);
+        Assert.Equal(countBeforeSessionRejection, registry.Snapshot().Count);
+
+        Assert.True(registry.TryAddIncoming(
+            secondSession,
+            "EFNet",
+            "[Alice]",
+            offer,
+            now,
+            comparer,
+            out _));
+
+        for (var index = 0;
+             index < DccRequestRegistry.MaximumPendingIncomingPerSession;
+             index++)
+        {
+            registry.Add(
+                thirdSession,
+                "Libera.Chat",
+                $"outgoing{index}",
+                offer,
+                now,
+                direction: DccRequestDirection.Outgoing);
+        }
+
+        Assert.True(registry.TryAddIncoming(
+            thirdSession,
+            "Libera.Chat",
+            "incoming",
+            offer,
+            now,
+            comparer,
+            out _));
     }
 
     private static void RegistryPreservesLiveRequests()

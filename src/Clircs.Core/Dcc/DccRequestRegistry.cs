@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Clircs.Identity;
 
 namespace Clircs.Dcc;
@@ -5,6 +6,8 @@ namespace Clircs.Dcc;
 public sealed class DccRequestRegistry
 {
     public static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(2);
+    public const int MaximumPendingIncomingPerSender = 8;
+    public const int MaximumPendingIncomingPerSession = 64;
     private readonly object _gate = new();
     private readonly Dictionary<int, DccRequest> _requests = [];
     private int _nextId = 1;
@@ -31,6 +34,60 @@ public sealed class DccRequestRegistry
             _requests.Add(request.Id, request);
             TrimUnsafe();
             return request;
+        }
+    }
+
+    public bool TryAddIncoming(
+        NetworkSessionId sessionId,
+        string network,
+        string sender,
+        DccOffer offer,
+        DateTimeOffset now,
+        IEqualityComparer<string> senderComparer,
+        [NotNullWhen(true)] out DccRequest? request,
+        TimeSpan? lifetime = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(network);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sender);
+        ArgumentNullException.ThrowIfNull(offer);
+        ArgumentNullException.ThrowIfNull(senderComparer);
+
+        var duration = lifetime ?? DefaultLifetime;
+        if (duration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(lifetime));
+        }
+
+        lock (_gate)
+        {
+            var pendingForSession = _requests.Values
+                .Where(candidate =>
+                    candidate.NetworkSessionId == sessionId &&
+                    candidate.Direction == DccRequestDirection.Incoming &&
+                    candidate.State == DccRequestState.Pending)
+                .ToArray();
+
+            if (pendingForSession.Length >= MaximumPendingIncomingPerSession ||
+                pendingForSession.Count(candidate =>
+                    senderComparer.Equals(candidate.Sender, sender)) >= MaximumPendingIncomingPerSender)
+            {
+                request = null;
+                return false;
+            }
+
+            request = new DccRequest(
+                _nextId++,
+                sessionId,
+                network,
+                sender,
+                offer,
+                now,
+                now.Add(duration),
+                DccRequestState.Pending);
+
+            _requests.Add(request.Id, request);
+            TrimUnsafe();
+            return true;
         }
     }
 

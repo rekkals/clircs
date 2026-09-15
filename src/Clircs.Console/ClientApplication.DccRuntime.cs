@@ -51,9 +51,10 @@ internal sealed partial class ClientApplication
             };
         }
 
+        var sender = protocolFields.GetValueOrDefault("nick") ?? "unknown";
+
         if (offer!.IsPassiveResponse)
         {
-            var sender = protocolFields.GetValueOrDefault("nick") ?? "unknown";
             var match = _dcc.Requests.Snapshot().FirstOrDefault(candidate =>
                 PassiveResponseMatches(candidate, session.State.Id, sender, offer, session.State.CaseMapping));
             if (match is null || !_dcc.Requests.TryTransitionWithOffer(
@@ -111,12 +112,31 @@ internal sealed partial class ClientApplication
         }
 
         var network = ProfileFor(session)?.DisplayName ?? session.Features.NetworkName ?? session.State.DisplayName;
-        var request = _dcc.Requests.Add(
-            session.State.Id,
-            network,
-            protocolFields.GetValueOrDefault("nick") ?? "unknown",
-            offer!,
-            sessionEvent.Timestamp);
+        if (!_dcc.Requests.TryAddIncoming(
+                session.State.Id,
+                network,
+                sender,
+                offer!,
+                sessionEvent.Timestamp,
+                new IrcNameComparer(session.State.CaseMapping),
+                out var request))
+        {
+            var limitMessage =
+                $"Ignored DCC request from {sender}: the pending incoming DCC request limit has been reached";
+
+            return sessionEvent with
+            {
+                BufferId = session.State.StatusBuffer.Id,
+                Kind = SessionEventKind.Error,
+                Text = limitMessage,
+                Presentation = null,
+                Fields = WithFields(
+                    protocolFields,
+                    ("event", "dcc.limited"),
+                    ("message", limitMessage),
+                    ("dcc.state", "limited"))
+            };
+        }
         ScheduleDccExpiration(request);
         _dcc.PruneTerminalRuntimes();
         var destination = request.Offer.Type == DccRequestType.Chat
