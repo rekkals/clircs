@@ -267,10 +267,10 @@ internal static class ApplicationOrchestrationTests
         registry.RecordReturnRoute("#[room]", destination);
         registry.MarkCycle("#[room]");
 
-        Assert.True(registry.TryTakeStart("#{room}", out var timestamp));
-        Assert.Equal(42L, timestamp);
         Assert.True(registry.Complete("#{room}", denied: false, out var routed));
         Assert.Equal(destination, routed);
+        Assert.True(registry.TryTakeStart("#{room}", out var timestamp));
+        Assert.Equal(42L, timestamp);
         Assert.True(registry.IsCyclePending("#{room}"));
     }
 
@@ -278,7 +278,9 @@ internal static class ApplicationOrchestrationTests
     {
         var registry = new JoinAttemptRegistry(new IrcNameComparer(IrcCaseMapping.Ascii));
         registry.MarkCycle("#one");
+        registry.RecordStart("#one", 10, overwrite: true);
         registry.Complete("#one", denied: true, out _);
+        Assert.False(registry.TryTakeStart("#one", out _));
         Assert.False(registry.IsCyclePending("#one"));
 
         registry.MarkCycle("#two");

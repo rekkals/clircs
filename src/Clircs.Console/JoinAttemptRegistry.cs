@@ -40,8 +40,12 @@ internal sealed class JoinAttemptRegistry(IEqualityComparer<string> comparer)
     {
         lock (_gate)
         {
-            _startedAt.Remove(channel);
-            if (denied) _cycles.Remove(channel);
+            if (denied)
+            {
+                _startedAt.Remove(channel);
+                _cycles.Remove(channel);
+            }
+
             return _returnRoutes.Remove(channel, out destination);
         }
     }
