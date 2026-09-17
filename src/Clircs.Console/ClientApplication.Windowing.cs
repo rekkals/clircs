@@ -271,9 +271,15 @@ internal sealed partial class ClientApplication
     private void RefreshWindowChrome()
     {
         var (session, buffer) = ActiveWindowSnapshot();
-        if (_presenter.SetChrome(BuildWindowChrome(session, buffer)) && session is not null && buffer is not null)
+        if (!_presenter.SetChrome(BuildWindowChrome(session, buffer))) return;
+
+        if (session is not null && buffer is not null)
         {
             RedrawActiveBuffer(session, buffer, pendingEvent: null);
+        }
+        else
+        {
+            _presenter.RenderChrome();
         }
     }
 

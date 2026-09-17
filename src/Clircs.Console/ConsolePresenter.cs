@@ -168,6 +168,17 @@ internal sealed class ConsolePresenter
         }
     }
 
+    public void RenderChrome()
+    {
+        lock (_consoleLock)
+        {
+            if (!_chromeVisible || !HasInteractiveConsole || _eventBatchDepth > 0) return;
+
+            RenderInputUnsafe();
+            SetCursorVisibleUnsafe(_readingInput);
+        }
+    }
+
     private void ApplyChromeUnsafe(WindowChromeModel model)
     {
         _normalPrompt = model.Prompt;
