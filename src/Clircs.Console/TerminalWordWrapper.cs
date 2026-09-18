@@ -35,6 +35,11 @@ internal static class TerminalWordWrapper
                 }
 
                 var split = remaining.LastIndexOf(' ', available - 1, available);
+                if (split > 0 && TerminalHyperlinkDetector.Find(remaining)
+                    .Any(link => link.Start < available && link.Start + link.Length > available))
+                {
+                    split = available;
+                }
                 if (split <= 0) split = available;
                 lines.Add(new WrappedTerminalLine(lineLeading, remaining[..split].TrimEnd()));
                 remaining = remaining[split..].TrimStart();

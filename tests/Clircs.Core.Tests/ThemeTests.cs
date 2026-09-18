@@ -990,6 +990,7 @@ internal static class ThemeTests
 
         var wrapped = TerminalWordWrapper.Wrap("[12:34] ", text, 30);
         Assert.True(wrapped.Count > 2);
+        Assert.True(wrapped[0].Text.StartsWith("See https://", StringComparison.Ordinal));
         Assert.True(links[0].Length > wrapped[1].Text.Length);
     }
 
