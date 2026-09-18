@@ -64,7 +64,7 @@ internal sealed partial class ClientApplication
         {
             fields.Add(new PresentationField("Authenticated account", session.State.AccountName));
         }
-        return CommandResult.Success(new PresentationBlock("Network status", fields));
+        return CommandResult.Success(new PresentationBlock("Network Status", fields));
     }
 
     private CommandResult ProfileStatus(NetworkProfile profile) => CommandResult.Success(new PresentationBlock(

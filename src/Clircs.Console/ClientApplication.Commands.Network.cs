@@ -149,7 +149,11 @@ internal sealed partial class ClientApplication
                     _windowStates.IsActiveSession(session.State.Id) ? "*" : string.Empty,
                     ProfileFor(session)?.DisplayName ?? session.Features.NetworkName ?? session.State.DisplayName,
                     ConnectionStatusLabel(session),
-                    session.Options.Endpoint.ToString(),
+                    session.State.ServerName is { } serverName
+                        ? session.State.BouncerName is { } bouncerName
+                            ? FormatStatusServerField(serverName, bouncerName, session.State.ClientTransportTls)
+                            : $"{serverName}{(session.State.ClientTransportTls ? " (TLS)" : string.Empty)}"
+                        : session.Options.Endpoint.ToString(),
                     session.CurrentNickname
                 }).ToArray();
                 return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
