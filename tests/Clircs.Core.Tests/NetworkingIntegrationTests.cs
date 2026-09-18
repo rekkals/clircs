@@ -1096,7 +1096,7 @@ internal static class NetworkingIntegrationTests
         return X509CertificateLoader.LoadPkcs12(
             created.Export(X509ContentType.Pfx),
             password: null,
-            X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
+            X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
     }
 
     private static bool IsSchannelKeyStoreUnavailable(Exception exception)

@@ -197,6 +197,6 @@ internal sealed class TlsDccTransportConnection : IDccTransportConnection
         return X509CertificateLoader.LoadPkcs12(
             created.Export(X509ContentType.Pfx),
             password: null,
-            X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
+            X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
     }
 }
