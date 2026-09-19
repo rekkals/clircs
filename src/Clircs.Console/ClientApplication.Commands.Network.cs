@@ -255,6 +255,8 @@ internal sealed partial class ClientApplication
                 }
             case "server":
                 return ValueTask.FromResult(ConfigureNetworkServer(input, sessions));
+            case "username":
+                return ValueTask.FromResult(ConfigureNetworkUsername(input));
             case "remove":
                 if (input.Arguments.Count != 2)
                 {
@@ -287,7 +289,7 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkSasl(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network list|profiles|add|server|remove|use|status|sasl"));
+                    "Usage: /network list|profiles|add|server|username|remove|use|status|sasl"));
         }
     }
 
@@ -481,6 +483,51 @@ internal sealed partial class ClientApplication
         }
 
         return rows;
+    }
+
+    private CommandResult ConfigureNetworkUsername(CommandInput input)
+    {
+        const string usage = "Usage: /network username <profile> [username]";
+
+        if (input.Arguments.Count is < 2 or > 3)
+        {
+            return CommandResult.Failure(usage);
+        }
+
+        var profile = _profileStore.Find(input.Arguments[1]);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                $"No saved network profile matches '{input.Arguments[1]}'.");
+        }
+
+        var requested = input.Arguments.Count == 3
+            ? input.Arguments[2]
+            : null;
+        if (requested?.Equals(_preferences.Username, StringComparison.Ordinal) == true)
+        {
+            requested = null;
+        }
+
+        try
+        {
+            var updated = profile.WithUsernameOverride(requested);
+            _profileStore.Replace(updated);
+
+            return updated.UsernameOverride is null
+                ? CommandResult.Success(
+                    $"{updated.DisplayName} now uses the global username {_preferences.Username}; reconnect to apply")
+                : CommandResult.Success(
+                    $"Username for {updated.DisplayName} set to {updated.UsernameOverride}; reconnect to apply");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or
+            InvalidOperationException or
+            IOException or
+            UnauthorizedAccessException)
+        {
+            return CommandResult.Failure(exception.Message);
+        }
     }
 
     private CommandResult ConfigureNetworkSasl(CommandInput input)

@@ -196,6 +196,8 @@ internal sealed partial class ClientApplication
             new("Create profile", "/network add <name> <host> [port] [--tls]"),
             new("Add server", "/network server add <profile> <host> [port] [--tls]"),
             new("Remove server", "/network server remove <profile> <number>"),
+            new("Set username", "/network username <profile> <username>"),
+            new("Use global username", "/network username <profile>"),
             new("Remove profile", "/network remove <profile>"),
             new("SASL status", "/network sasl <profile>"),
             new("Enable PLAIN", "/network sasl <profile> [plain] <account> [required|optional]"),

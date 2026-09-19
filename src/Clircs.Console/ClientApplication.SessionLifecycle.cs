@@ -474,7 +474,16 @@ internal sealed partial class ClientApplication
     {
         var route = _liveSessions.ConnectionRoute(session.State.Id, session.Options);
         var profile = ProfileFor(session);
-        return profile is null ? route : ApplyProfileSasl(profile, route);
+        if (profile is null)
+        {
+            return route;
+        }
+
+        var refreshedRoute = route with
+        {
+            Identity = profile.ApplyIdentityOverrides(CurrentIdentity())
+        };
+        return ApplyProfileSasl(profile, refreshedRoute);
     }
 
     private bool CancelReconnect(NetworkSessionId sessionId)

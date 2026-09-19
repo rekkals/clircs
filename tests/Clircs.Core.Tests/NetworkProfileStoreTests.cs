@@ -14,6 +14,7 @@ internal static class NetworkProfileStoreTests
         suite.Add("adding a server endpoint preserves logical-network settings", AddingEndpointPreservesNetworkSettings);
         suite.Add("removing a bouncer endpoint preserves logical-network settings", RemovingEndpointPreservesNetworkSettings);
         suite.Add("network profiles create connection options for a selected server", SelectedEndpointCreatesConnectionOptions);
+        suite.Add("network profile usernames override the global registration username", UsernameOverrideAppliesToConnectionOptions);
         suite.Add("legacy reconnect defaults migrate to 99 attempts", LegacyReconnectDefaultMigrates);
         suite.Add("changing profile identity preserves network settings", ChangingIdentityPreservesNetworkSettings);
         suite.Add("unconfigured network profiles round-trip and accept a later endpoint", UnconfiguredProfilesRoundTrip);
@@ -162,6 +163,34 @@ internal static class NetworkProfileStoreTests
             profile.CreateConnectionOptions(identity, endpointIndex: 2));
     }
 
+    private static void UsernameOverrideAppliesToConnectionOptions()
+    {
+        var profile = new NetworkProfile(
+            NetworkProfileId.New(),
+            "Lurker.FXNet",
+            [new IrcEndpoint("bouncer.example.test", 6697, true)],
+            new IrcIdentity(["StoredNick"], "stored", "Stored User"),
+            usernameOverride: "slakker/irc.fxnet.org");
+        var globalIdentity = new IrcIdentity(
+            ["CurrentNick"],
+            "globaluser",
+            "Current User");
+
+        var overridden = profile.CreateConnectionOptions(globalIdentity);
+
+        Assert.Equal("CurrentNick", overridden.Identity.Nicknames[0]);
+        Assert.Equal("slakker/irc.fxnet.org", overridden.Identity.Username);
+        Assert.Equal("Current User", overridden.Identity.RealName);
+
+        var restored = profile
+            .WithUsernameOverride(null)
+            .CreateConnectionOptions(globalIdentity);
+
+        Assert.Equal("globaluser", restored.Identity.Username);
+        Assert.Throws<ArgumentException>(() =>
+            profile.WithUsernameOverride("invalid username"));
+    }
+
     private static void RemovingEndpointPreservesNetworkSettings()
     {
         var server = new IrcEndpoint("irc.example.test", 6697, true);
@@ -223,7 +252,8 @@ internal static class NetworkProfileStoreTests
                 new ReconnectPolicy(5, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(90)),
                 "CanonicalNet",
                 ["Alice", "Bob"],
-                "+iw");
+                "+iw",
+                usernameOverride: "slakker/irc.fxnet.org");
             var store = new NetworkProfileStore(path);
             store.Add(profile);
 
@@ -239,8 +269,14 @@ internal static class NetworkProfileStoreTests
             Assert.Equal("CanonicalNet", saved.NetworkName!);
             Assert.Equal("Bob", saved.NotifyNicknames[1]);
             Assert.Equal("+iw", saved.UserModes);
-            Assert.True(File.ReadAllText(path).Contains("user_modes = ", StringComparison.Ordinal));
-            Assert.True(File.ReadAllText(path).Contains("[[network]]", StringComparison.Ordinal));
+            Assert.Equal("slakker/irc.fxnet.org", saved.UsernameOverride!);
+
+            var text = File.ReadAllText(path);
+            Assert.True(text.Contains("user_modes = ", StringComparison.Ordinal));
+            Assert.True(text.Contains(
+                "username_override = \"slakker/irc.fxnet.org\"",
+                StringComparison.Ordinal));
+            Assert.True(text.Contains("[[network]]", StringComparison.Ordinal));
         }
         finally
         {

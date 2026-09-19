@@ -225,6 +225,9 @@ public sealed class NetworkProfileStore
             ParseArray<string>(Required(values, "nicknames")),
             ParseString(Required(values, "username")),
             ParseString(Required(values, "real_name")));
+        var usernameOverride = values.TryGetValue("username_override", out var usernameOverrideValue)
+            ? ParseString(usernameOverrideValue)
+            : null;
         var autojoin = values.TryGetValue("autojoin", out var autojoinValue)
             ? ParseArray<string>(autojoinValue)
             : [];
@@ -265,7 +268,18 @@ public sealed class NetworkProfileStore
             reconnectAttempts,
             TimeSpan.FromSeconds(ParseInt(values, "reconnect_initial_seconds", 2)),
             TimeSpan.FromSeconds(ParseInt(values, "reconnect_max_seconds", 120)));
-        return new NetworkProfile(id, name, endpoints, identity, autojoin, reconnect, networkName, notify, userModes, sasl);
+        return new NetworkProfile(
+            id,
+            name,
+            endpoints,
+            identity,
+            autojoin,
+            reconnect,
+            networkName,
+            notify,
+            userModes,
+            sasl,
+            usernameOverride);
     }
 
     private static string Serialize(IEnumerable<NetworkProfile> profiles)
@@ -285,6 +299,10 @@ public sealed class NetworkProfileStore
             AppendArray(builder, "tls", profile.Endpoints.Select(endpoint => endpoint.UseTls));
             AppendArray(builder, "nicknames", profile.Identity.Nicknames);
             Append(builder, "username", profile.Identity.Username);
+            if (profile.UsernameOverride is not null)
+            {
+                Append(builder, "username_override", profile.UsernameOverride);
+            }
             Append(builder, "real_name", profile.Identity.RealName);
             AppendArray(builder, "autojoin", profile.AutojoinChannels);
             AppendArray(builder, "notify", profile.NotifyNicknames);

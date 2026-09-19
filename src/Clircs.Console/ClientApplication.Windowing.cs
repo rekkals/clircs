@@ -529,9 +529,11 @@ internal sealed partial class ClientApplication
 
     private NetworkProfile UpdateProfileFromSession(NetworkProfile profile, IrcNetworkSession session)
     {
+        // Temporary direct connections can teach a logical network profile a server endpoint.
+        // Bouncer endpoints are retained only when explicitly configured on their own profile.
         var updated = session.State.BouncerName is null
             ? profile.WithEndpoint(session.Options.Endpoint)
-            : profile.WithoutEndpoint(session.Options.Endpoint);
+            : profile;
         var advertisedNetwork = session.Features.NetworkName;
         if (profile.NetworkName is null && !string.IsNullOrWhiteSpace(advertisedNetwork))
         {

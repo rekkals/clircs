@@ -32,6 +32,14 @@ internal sealed partial class ClientApplication
             }),
             new("Nickname", session.CurrentNickname)
         };
+        if (!session.Options.Identity.Username.Equals(
+            _preferences.Username,
+            StringComparison.Ordinal))
+        {
+            fields.Add(new PresentationField(
+                "Username",
+                session.Options.Identity.Username));
+        }
         if (session.State.BouncerName is null)
         {
             fields.Insert(4, new PresentationField("Server endpoint", session.Options.Endpoint.ToString()));
@@ -67,12 +75,22 @@ internal sealed partial class ClientApplication
         return CommandResult.Success(new PresentationBlock("Network Status", fields));
     }
 
-    private CommandResult ProfileStatus(NetworkProfile profile) => CommandResult.Success(new PresentationBlock(
-        $"Network profile: {profile.DisplayName}",
+    private CommandResult ProfileStatus(NetworkProfile profile)
+    {
+        var fields = new List<PresentationField>
+        {
+            new("Servers", profile.IsConfigured ? string.Join(", ", profile.Endpoints) : "[unconfigured]"),
+            new("Nicknames", string.Join(", ", profile.Identity.Nicknames))
+        };
+
+        if (profile.UsernameOverride is { } usernameOverride &&
+            !usernameOverride.Equals(_preferences.Username, StringComparison.Ordinal))
+        {
+            fields.Add(new PresentationField("Username", usernameOverride));
+        }
+
+        fields.AddRange(
         [
-            new PresentationField("Servers", profile.IsConfigured ? string.Join(", ", profile.Endpoints) : "[unconfigured]"),
-            new PresentationField("Nicknames", string.Join(", ", profile.Identity.Nicknames)),
-            new PresentationField("Username", profile.Identity.Username),
             new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)),
             new PresentationField("User modes", profile.UserModes.Length == 0 ? "none" : profile.UserModes),
             new PresentationField("Notify", profile.NotifyNicknames.Count == 0 ? "none" : string.Join(", ", profile.NotifyNicknames)),
@@ -84,7 +102,12 @@ internal sealed partial class ClientApplication
                     : $"EXTERNAL ({(profile.Sasl.Required ? "required" : "optional")}; certificate password " +
                       $"{(_networkCredentials.HasSaslSecret(profile.Id) ? "saved" : "missing")})"),
             new PresentationField("Reconnect limit", profile.Reconnect.MaximumAttempts.ToString(CultureInfo.InvariantCulture))
-        ]));
+        ]);
+
+        return CommandResult.Success(new PresentationBlock(
+            $"Network profile: {profile.DisplayName}",
+            fields));
+    }
 
     internal static string PrefixCountLabel(char mode, char symbol) => mode switch
     {
