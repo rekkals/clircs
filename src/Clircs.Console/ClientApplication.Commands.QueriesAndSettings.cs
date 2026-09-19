@@ -499,7 +499,7 @@ internal sealed partial class ClientApplication
             }
         }
 
-        if (input.Arguments.Count == 2 && input.Arguments[0].Equals("use", StringComparison.OrdinalIgnoreCase))
+        if (input.Arguments.Count == 2 && input.Arguments[0].Equals("load", StringComparison.OrdinalIgnoreCase))
         {
             var requested = input.Arguments[1].Equals("color", StringComparison.OrdinalIgnoreCase) ? "clircs" : input.Arguments[1];
             if (_themeManager.TryGet(requested, out var theme))
@@ -519,7 +519,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Failure($"No theme named '{requested}'. Use /theme list."));
         }
 
-        return ValueTask.FromResult(CommandResult.Failure("Usage: /theme list|reload|use <name>"));
+        return ValueTask.FromResult(CommandResult.Failure("Usage: /theme load <name> | /theme reload | /theme list"));
     }
 
     internal static PresentationBlock ThemeOverview(string current, IEnumerable<string> themes)
@@ -534,7 +534,7 @@ internal sealed partial class ClientApplication
                 new PresentationField("Current", current),
                 new PresentationField("Available", available.Length == 0 ? "none" : string.Join(", ", available))
             ],
-            Summary: "Use: /theme list|reload|use <name>");
+            Summary: "Use: /theme load <name> | /theme reload | /theme list");
     }
 
     private ValueTask<CommandResult> TlsAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)

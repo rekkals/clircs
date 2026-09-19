@@ -113,7 +113,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["limitserv"] = "/limitserv <command> [arguments]",
             ["dcc"] = "/dcc [chat|schat|send|ssend|list|show|accept|resume|reject|cancel]",
             ["set"] = "/set [setting value]",
-            ["theme"] = "/theme [list|reload|use <name>]",
+            ["theme"] = "/theme [load <name>|reload|list]",
             ["tls"] = "/tls [pins|forget <host> <port>]",
             ["script"] = "/script <list|load|unload|reload|errors|permissions> [arguments]"
         };

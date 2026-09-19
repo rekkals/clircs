@@ -15,7 +15,7 @@ internal static class ThemeTests
         suite.Add("default theme uses a subdued status bar", DefaultStatusBarIsSubdued);
         suite.Add("activity numbers remain visible against the status bar", ActivityNumbersRemainVisible);
         suite.Add("startup logo and default text colors do not drift", StartupAndTextColorsAreStable);
-        suite.Add("plain theme uses a black-on-white topic bar", PlainThemeUsesBlackOnWhiteTopicBar);
+        suite.Add("white theme uses a black-on-white topic bar", WhiteThemeUsesBlackOnWhiteTopicBar);
         suite.Add("contextual settings and protection help is available", ContextualHelpIsAvailable);
         suite.Add("fullscreen input disables mouse-wheel arrow translation", FullScreenDisablesAlternateScroll);
         suite.Add("startup presentations are measurable history entries", StartupPresentationIsHistoryReady);
@@ -281,12 +281,12 @@ internal static class ThemeTests
         Assert.Equal(46, ConsolePresenter.AnsiBackground(ConsoleColor.DarkCyan));
         Assert.Equal(95, ConsolePresenter.AnsiForeground(ConsoleColor.Magenta));
     }
-    private static void PlainThemeUsesBlackOnWhiteTopicBar()
+    private static void WhiteThemeUsesBlackOnWhiteTopicBar()
     {
-        var plain = TerminalTheme.BuiltIns["plain"];
+        var white = TerminalTheme.BuiltIns["white"];
 
-        Assert.Equal(ConsoleColor.Black, plain.TopicForeground);
-        Assert.Equal(ConsoleColor.White, plain.TopicBackground);
+        Assert.Equal(ConsoleColor.Black, white.TopicForeground);
+        Assert.Equal(ConsoleColor.White, white.TopicBackground);
     }
 
     private static void ContextualHelpIsAvailable()
@@ -352,7 +352,7 @@ internal static class ThemeTests
         using var temporary = new TemporaryDirectory();
         File.WriteAllText(Path.Combine(temporary.Path, "custom.toml"), """
             name = "custom"
-            base = "phosphor"
+            base = "green"
 
             [palette]
             accent = "Cyan"
@@ -410,7 +410,7 @@ internal static class ThemeTests
             """);
         File.WriteAllText(Path.Combine(temporary.Path, "b.toml"), """
             name = "duplicate"
-            base = "plain"
+            base = "white"
             """);
         File.WriteAllText(Path.Combine(temporary.Path, "repeated.toml"), """
             name = "repeated"
@@ -429,7 +429,7 @@ internal static class ThemeTests
         using var temporary = new TemporaryDirectory();
         var store = new AppearanceSettingsStore(Path.Combine(temporary.Path, "appearance.json"));
         store.Save(new AppearanceSettings(
-            "phosphor", "full", "userhost", "off",
+            "green", "full", "userhost", "off",
             new Dictionary<string, string> { ["whois"] = "dedicated" },
             AutoRejoinOnKick: true,
             DefaultKickMessage: "lewser",
@@ -449,7 +449,7 @@ internal static class ThemeTests
             AwayMessage: "out getting lunch"));
 
         var loaded = store.Load();
-        Assert.Equal("phosphor", loaded.Theme);
+        Assert.Equal("green", loaded.Theme);
         Assert.Equal("userhost", loaded.PartHostmasks);
         Assert.Equal("dedicated", loaded.OutputRoutes["whois"]);
         Assert.True(loaded.AutoRejoinOnKick);
@@ -1050,15 +1050,15 @@ internal static class ThemeTests
     {
         var overview = ClientApplication.ThemeOverview(
             "clircs",
-            ["plain", "clircs", "phosphor"]);
+            ["white", "clircs", "green", "amber"]);
 
         Assert.Equal("Theme", overview.Title);
         var fields = overview.Fields!;
         Assert.Equal("clircs", fields.Single(field => field.Label == "Current").Value);
         Assert.Equal(
-            "phosphor, plain",
+            "amber, green, white",
             fields.Single(field => field.Label == "Available").Value);
-        Assert.Equal("Use: /theme list|reload|use <name>", overview.Summary!);
+        Assert.Equal("Use: /theme load <name> | /theme reload | /theme list", overview.Summary!);
         Assert.False(fields.Any(field => field.Label.Contains("color", StringComparison.OrdinalIgnoreCase)));
     }
 

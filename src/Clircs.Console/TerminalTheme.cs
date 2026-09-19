@@ -79,7 +79,7 @@ internal sealed record TerminalTheme(
                 ConsoleColor.Green, ConsoleColor.Cyan, ConsoleColor.Yellow, ConsoleColor.Red,
                 ConsoleColor.Black, ConsoleColor.DarkCyan, "-->", "<--", "┌─ ", "│ ", "└─", " | ", false, true),
             new TerminalTheme(
-                "phosphor", ConsoleColor.Gray, ConsoleColor.DarkGray, ConsoleColor.Green, ConsoleColor.DarkGreen,
+                "green", ConsoleColor.Gray, ConsoleColor.DarkGray, ConsoleColor.Green, ConsoleColor.DarkGreen,
                 ConsoleColor.Green, ConsoleColor.White, ConsoleColor.Green, ConsoleColor.DarkGreen, ConsoleColor.Green, ConsoleColor.DarkGreen,
                 ConsoleColor.White, ConsoleColor.DarkGreen, ConsoleColor.Yellow, ConsoleColor.Red,
                 ConsoleColor.Black, ConsoleColor.DarkGreen, ">>>", "<<<", "+-- ", "| ", "+--", " :: ", false, true)
@@ -88,7 +88,16 @@ internal sealed record TerminalTheme(
                 TopicBackground = ConsoleColor.DarkGreen
             },
             new TerminalTheme(
-                "plain", ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray,
+                "amber", ConsoleColor.Gray, ConsoleColor.DarkGray, ConsoleColor.Yellow, ConsoleColor.DarkYellow,
+                ConsoleColor.Yellow, ConsoleColor.White, ConsoleColor.Yellow, ConsoleColor.DarkYellow, ConsoleColor.Yellow, ConsoleColor.DarkYellow,
+                ConsoleColor.White, ConsoleColor.DarkYellow, ConsoleColor.Yellow, ConsoleColor.Red,
+                ConsoleColor.Black, ConsoleColor.DarkYellow, ">>>", "<<<", "+-- ", "| ", "+--", " :: ", false, true)
+            {
+                TopicForeground = ConsoleColor.Black,
+                TopicBackground = ConsoleColor.DarkYellow
+            },
+            new TerminalTheme(
+                "white", ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray,
                 ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray,
                 ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray, ConsoleColor.Gray,
                 ConsoleColor.Gray, ConsoleColor.Black, "-->", "<--", "", "", "", " | ", false, true)
