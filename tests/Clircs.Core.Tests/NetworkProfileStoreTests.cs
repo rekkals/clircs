@@ -13,6 +13,7 @@ internal static class NetworkProfileStoreTests
         suite.Add("network profiles round-trip stable identity and scoped settings", ProfilesRoundTrip);
         suite.Add("adding a server endpoint preserves logical-network settings", AddingEndpointPreservesNetworkSettings);
         suite.Add("removing a bouncer endpoint preserves logical-network settings", RemovingEndpointPreservesNetworkSettings);
+        suite.Add("detected bouncer endpoints do not infer saved network profiles", DetectedBouncerEndpointsDoNotInferProfiles);
         suite.Add("network profiles create connection options for a selected server", SelectedEndpointCreatesConnectionOptions);
         suite.Add("network profile usernames override the global registration username", UsernameOverrideAppliesToConnectionOptions);
         suite.Add("legacy reconnect defaults migrate to 99 attempts", LegacyReconnectDefaultMigrates);
@@ -209,6 +210,32 @@ internal static class NetworkProfileStoreTests
         Assert.Equal("irc.example.test", updated.Endpoints[0].Host);
         Assert.Equal("#shared", updated.AutojoinChannels[0]);
         Assert.Equal("EFnet", updated.NetworkName!);
+    }
+
+    private static void DetectedBouncerEndpointsDoNotInferProfiles()
+    {
+        var endpoint = new IrcEndpoint("bouncer.example.test", 6697, true);
+        var fxnetProfile = new NetworkProfile(
+            NetworkProfileId.New(),
+            "Lurker.FXNet",
+            [endpoint],
+            new IrcIdentity(["TestNick"], "test", "Test User"),
+            networkName: "FXNet",
+            usernameOverride: "test/FXNet");
+
+        var bouncerMatch = ClientApplication.FindInferredProfile(
+            [fxnetProfile],
+            endpoint,
+            "EFnet",
+            bouncerDetected: true);
+        var directMatch = ClientApplication.FindInferredProfile(
+            [fxnetProfile],
+            endpoint,
+            "EFnet",
+            bouncerDetected: false);
+
+        Assert.True(bouncerMatch is null);
+        Assert.Equal(fxnetProfile.Id, directMatch!.Id);
     }
 
     private static void LegacyReconnectDefaultMigrates()

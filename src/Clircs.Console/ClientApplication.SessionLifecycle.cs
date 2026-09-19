@@ -501,12 +501,9 @@ internal sealed partial class ClientApplication
             var profile = ProfileFor(session);
             if (profile is null)
             {
-                var matches = _profileStore.Entries.Where(candidate => candidate.Endpoints.Any(endpoint =>
-                    endpoint.Port == session.Options.Endpoint.Port && endpoint.UseTls == session.Options.Endpoint.UseTls &&
-                    endpoint.Host.Equals(session.Options.Endpoint.Host, StringComparison.OrdinalIgnoreCase))).ToArray();
-                if (matches.Length == 1)
+                profile = FindInferredProfileFor(session);
+                if (profile is not null)
                 {
-                    profile = matches[0];
                     AssociateProfile(session, profile);
                 }
             }
@@ -1055,28 +1052,7 @@ internal sealed partial class ClientApplication
     {
         try
         {
-            var profile = ProfileFor(session);
-            if (profile is null)
-            {
-                var entries = _profileStore.Entries;
-                var endpointMatches = entries.Where(candidate => candidate.Endpoints.Any(endpoint =>
-                    endpoint.Port == session.Options.Endpoint.Port &&
-                    endpoint.UseTls == session.Options.Endpoint.UseTls &&
-                    endpoint.Host.Equals(session.Options.Endpoint.Host, StringComparison.OrdinalIgnoreCase))).ToArray();
-                if (endpointMatches.Length == 1)
-                {
-                    profile = endpointMatches[0];
-                }
-                else if (!string.IsNullOrWhiteSpace(session.Features.NetworkName))
-                {
-                    var networkMatches = entries.Where(candidate =>
-                        candidate.NetworkName?.Equals(session.Features.NetworkName, StringComparison.OrdinalIgnoreCase) == true).ToArray();
-                    if (networkMatches.Length == 1)
-                    {
-                        profile = networkMatches[0];
-                    }
-                }
-            }
+            var profile = ProfileFor(session) ?? FindInferredProfileFor(session);
 
             if (profile is null)
             {

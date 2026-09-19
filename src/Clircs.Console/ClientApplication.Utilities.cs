@@ -54,7 +54,7 @@ internal sealed partial class ClientApplication
         }
         if (profile is null)
         {
-            fields.Add(new PresentationField("Profile", "temporary connection"));
+            fields.Add(new PresentationField("Profile", "none"));
         }
         else
         {

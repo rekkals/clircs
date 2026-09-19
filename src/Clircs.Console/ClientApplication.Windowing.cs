@@ -459,6 +459,51 @@ internal sealed partial class ClientApplication
     private IrcIdentity CurrentIdentity() =>
         new([_preferences.Nickname, _preferences.AlternateNickname], _preferences.Username, _preferences.RealName);
 
+    private NetworkProfile? FindInferredProfileFor(IrcNetworkSession session) =>
+        FindInferredProfile(
+            _profileStore.Entries,
+            session.Options.Endpoint,
+            session.Features.NetworkName,
+            session.State.BouncerName is not null);
+
+    internal static NetworkProfile? FindInferredProfile(
+        IReadOnlyList<NetworkProfile> profiles,
+        IrcEndpoint endpoint,
+        string? advertisedNetwork,
+        bool bouncerDetected)
+    {
+        // One bouncer endpoint may attach to several upstream networks, so its
+        // endpoint and advertised network cannot identify a saved profile safely.
+        if (bouncerDetected)
+        {
+            return null;
+        }
+
+        var endpointMatches = profiles.Where(profile => profile.Endpoints.Any(candidate =>
+            candidate.Port == endpoint.Port &&
+            candidate.UseTls == endpoint.UseTls &&
+            candidate.Host.Equals(
+                endpoint.Host,
+                StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (endpointMatches.Length == 1)
+        {
+            return endpointMatches[0];
+        }
+
+        if (string.IsNullOrWhiteSpace(advertisedNetwork))
+        {
+            return null;
+        }
+
+        var networkMatches = profiles.Where(profile =>
+            profile.NetworkName?.Equals(
+                advertisedNetwork,
+                StringComparison.OrdinalIgnoreCase) == true).ToArray();
+        return networkMatches.Length == 1
+            ? networkMatches[0]
+            : null;
+    }
+
     private NetworkProfile EnsureProfileFor(IrcNetworkSession session, out bool created)
     {
         var associated = ProfileFor(session);
@@ -468,32 +513,16 @@ internal sealed partial class ClientApplication
             return associated;
         }
 
-        var endpointMatches = _profileStore.Entries.Where(profile => profile.Endpoints.Any(endpoint =>
-            endpoint.Port == session.Options.Endpoint.Port &&
-            endpoint.UseTls == session.Options.Endpoint.UseTls &&
-            endpoint.Host.Equals(session.Options.Endpoint.Host, StringComparison.OrdinalIgnoreCase))).ToArray();
-        if (endpointMatches.Length == 1)
+        var inferred = FindInferredProfileFor(session);
+        if (inferred is not null)
         {
-            var matched = UpdateProfileFromSession(endpointMatches[0], session);
+            var matched = UpdateProfileFromSession(inferred, session);
             AssociateProfile(session, matched);
             created = false;
             return matched;
         }
 
         var advertisedNetwork = session.Features.NetworkName;
-        if (!string.IsNullOrWhiteSpace(advertisedNetwork))
-        {
-            var networkMatches = _profileStore.Entries.Where(profile =>
-                profile.NetworkName?.Equals(advertisedNetwork, StringComparison.OrdinalIgnoreCase) == true).ToArray();
-            if (networkMatches.Length == 1)
-            {
-                var matched = UpdateProfileFromSession(networkMatches[0], session);
-                AssociateProfile(session, matched);
-                created = false;
-                return matched;
-            }
-        }
-
         var profileNames = _profileStore.Entries.Select(profile => profile.DisplayName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var profileName = string.IsNullOrWhiteSpace(advertisedNetwork)
