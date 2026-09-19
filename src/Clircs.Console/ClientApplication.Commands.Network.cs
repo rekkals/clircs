@@ -1139,7 +1139,19 @@ internal sealed partial class ClientApplication
             }).ToArray();
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "Active Windows",
-                Table: new PresentationTable(["No.", "", "Connected To", "Target", "Type", "Activity"], rows))));
+                Table: new PresentationTable(
+                    ["No.", "", "Connected To", "Target", "Type", "Activity"],
+                    rows,
+                    KeepAllColumns: true,
+                    MaximumWidths:
+                    [
+                        5,
+                        1,
+                        32,
+                        32,
+                        12,
+                        PresentationTable.UnboundedWidth
+                    ]))));
         }
 
         (IrcNetworkSession Session, BufferState Buffer)? selected = null;
