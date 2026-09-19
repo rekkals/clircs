@@ -147,7 +147,7 @@ internal sealed partial class ClientApplication
                 {
                     (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
                     _windowStates.IsActiveSession(session.State.Id) ? "*" : string.Empty,
-                    ProfileFor(session)?.DisplayName ?? session.Features.NetworkName ?? session.State.DisplayName,
+                    session.Features.NetworkName ?? session.State.DisplayName,
                     ConnectionStatusLabel(session),
                     session.State.ServerName is { } serverName
                         ? session.State.BouncerName is { } bouncerName
@@ -175,7 +175,7 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                     "Network Profiles",
                     Table: new PresentationTable(
-                        ["Network", "No.", "Server", "Nick", "SASL"],
+                        ["Name", "No.", "Server", "Nick", "SASL"],
                         profileRows))));
             case "use":
                 if (input.Arguments.Count != 2)
@@ -1139,7 +1139,7 @@ internal sealed partial class ClientApplication
             }).ToArray();
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "Active Windows",
-                Table: new PresentationTable(["No.", "", "Network", "Target", "Type", "Activity"], rows))));
+                Table: new PresentationTable(["No.", "", "Connected To", "Target", "Type", "Activity"], rows))));
         }
 
         (IrcNetworkSession Session, BufferState Buffer)? selected = null;

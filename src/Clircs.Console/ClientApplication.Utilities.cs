@@ -21,7 +21,7 @@ internal sealed partial class ClientApplication
             : session.State.UpstreamTls;
         var fields = new List<PresentationField>
         {
-            new("Network", profile?.DisplayName ?? session.Features.NetworkName ?? session.State.DisplayName),
+            new("Network", session.Features.NetworkName ?? session.State.DisplayName),
             new("Connection", ConnectionStatusLabel(session)),
             new("IRC server", session.State.ServerName ?? session.Options.Endpoint.Host),
             new("IRC network TLS", upstreamTls switch
