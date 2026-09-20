@@ -204,10 +204,9 @@ internal sealed partial class ClientApplication
             };
             fields.Add(new PresentationField("network.reconnect", _preferences.NetworkReconnect ? "on" : "off"));
             fields.Add(new PresentationField("kill.reconnect", _preferences.KillReconnect ? "on" : "off"));
-            var activeProfile = ActiveSession() is { } activeSession ? ProfileFor(activeSession) : null;
-            fields.Add(new PresentationField("usermodes", activeProfile is null
-                ? "+i (new-network default)"
-                : activeProfile.UserModes.Length == 0 ? "none" : activeProfile.UserModes));
+            fields.Add(new PresentationField(
+                "usermodes",
+                _preferences.UserModes.Length == 0 ? "not set" : _preferences.UserModes));
             fields.AddRange(OutputRoutingCoordinator.SettingOrder
                 .Where(_outputRouting.Supports)
                 .Select(key => new PresentationField(
@@ -218,34 +217,19 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock("Client Settings", fields)));
         }
 
-        if (input.Arguments.Count < 2)
+        var requestedSetting = input.Arguments[0];
+        var setting = CanonicalSettingName(requestedSetting);
+        var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
+
+        if (input.Arguments.Count < 2 && !clearingUserModes)
         {
             return ValueTask.FromResult(CommandResult.Failure(
                 "Usage: /set <setting> <value>. Use /help set for the available settings."));
         }
 
-        var requestedSetting = input.Arguments[0];
-        var setting = CanonicalSettingName(requestedSetting);
-        var value = input.RawArguments[(input.RawArguments.IndexOf(' ') + 1)..];
-        if (setting == "usermodes")
-        {
-            var session = RequireSession(out var failure);
-            if (session is null) return ValueTask.FromResult(failure);
-            try
-            {
-                var modes = NetworkProfile.NormalizeUserModes(value);
-                var profile = EnsureProfileFor(session, out var created).WithUserModes(modes);
-                _profileStore.Replace(profile);
-                AssociateProfile(session, profile);
-                return ValueTask.FromResult(CommandResult.Success(
-                    $"usermodes for {profile.DisplayName} changed to {(modes.Length == 0 ? "none" : modes)}." +
-                    (created ? " A network profile was created automatically." : string.Empty)));
-            }
-            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
-            {
-                return ValueTask.FromResult(CommandResult.Failure(exception.Message));
-            }
-        }
+        var value = clearingUserModes
+            ? string.Empty
+            : input.RawArguments[(input.RawArguments.IndexOf(' ') + 1)..];
         var previousSettings = CaptureAppearanceSettings();
         switch (setting)
         {
@@ -260,6 +244,16 @@ internal sealed partial class ClientApplication
                 break;
             case "realname":
                 _preferences.RealName = value;
+                break;
+            case "usermodes":
+                try
+                {
+                    _preferences.UserModes = NetworkProfile.NormalizeUserModes(value);
+                }
+                catch (ArgumentException exception)
+                {
+                    return ValueTask.FromResult(CommandResult.Failure(exception.Message));
+                }
                 break;
             case "awaymsg":
                 _preferences.AwayMessage = value;
@@ -411,7 +405,10 @@ internal sealed partial class ClientApplication
         try
         {
             SaveAppearanceSettings();
-            return ValueTask.FromResult(CommandResult.Success($"{setting} changed to {value}."));
+            return ValueTask.FromResult(CommandResult.Success(
+                clearingUserModes
+                    ? "Automatic user modes cleared."
+                    : $"{setting} changed to {value}."));
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {

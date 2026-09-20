@@ -156,9 +156,11 @@ public sealed class NetworkProfileStore
                 var value = line[(separator + 1)..].Trim();
                 if (values is null)
                 {
-                    if (!key.Equals("version", StringComparison.OrdinalIgnoreCase) || value != "1")
+                    if (!key.Equals("version", StringComparison.OrdinalIgnoreCase) ||
+                        value != "1")
                     {
-                        throw new InvalidDataException("The profile configuration must begin with version = 1.");
+                        throw new InvalidDataException(
+                            "The profile configuration must begin with version = 1.");
                     }
 
                     continue;
@@ -234,9 +236,10 @@ public sealed class NetworkProfileStore
         var notify = values.TryGetValue("notify", out var notifyValue)
             ? ParseArray<string>(notifyValue)
             : [];
-        var userModes = values.TryGetValue("user_modes", out var userModesValue)
+        var userModesOverride = values.TryGetValue("user_modes", out var userModesValue)
             ? ParseString(userModesValue)
-            : "+i";
+            : null;
+
         SaslProfileSettings? sasl = null;
         if (values.ContainsKey("sasl_mechanism") || values.ContainsKey("sasl_username") || values.ContainsKey("sasl_client_certificate"))
         {
@@ -277,7 +280,7 @@ public sealed class NetworkProfileStore
             reconnect,
             networkName,
             notify,
-            userModes,
+            userModesOverride,
             sasl,
             usernameOverride);
     }
@@ -306,7 +309,10 @@ public sealed class NetworkProfileStore
             Append(builder, "real_name", profile.Identity.RealName);
             AppendArray(builder, "autojoin", profile.AutojoinChannels);
             AppendArray(builder, "notify", profile.NotifyNicknames);
-            Append(builder, "user_modes", profile.UserModes.Length == 0 ? "none" : profile.UserModes);
+            if (profile.UserModesOverride is not null)
+            {
+                Append(builder, "user_modes", profile.UserModesOverride);
+            }
             if (profile.Sasl is not null)
             {
                 Append(builder, "sasl_mechanism", profile.Sasl.Mechanism);

@@ -83,7 +83,7 @@ public sealed class NetworkProfile
         ReconnectPolicy? reconnect = null,
         string? networkName = null,
         IEnumerable<string>? notifyNicknames = null,
-        string userModes = "+i",
+        string? userModesOverride = null,
         SaslProfileSettings? sasl = null,
         string? usernameOverride = null)
     {
@@ -128,7 +128,7 @@ public sealed class NetworkProfile
         {
             throw new ArgumentException("Notify entries must be individual IRC nicknames.", nameof(notifyNicknames));
         }
-        userModes = NormalizeUserModes(userModes);
+        userModesOverride = NormalizeUserModesOverride(userModesOverride);
         sasl = sasl?.Validate();
         if (sasl is not null && endpointArray.Any(endpoint => !endpoint.UseTls))
         {
@@ -143,7 +143,7 @@ public sealed class NetworkProfile
         AutojoinChannels = new ReadOnlyCollection<string>(channels);
         NotifyNicknames = new ReadOnlyCollection<string>(notify);
         Reconnect = (reconnect ?? ReconnectPolicy.Default).Validate();
-        UserModes = userModes;
+        UserModesOverride = userModesOverride;
         Sasl = sasl;
         UsernameOverride = usernameOverride;
     }
@@ -164,7 +164,7 @@ public sealed class NetworkProfile
 
     public ReconnectPolicy Reconnect { get; }
 
-    public string UserModes { get; }
+    public string? UserModesOverride { get; }
 
     public SaslProfileSettings? Sasl { get; }
 
@@ -206,25 +206,25 @@ public sealed class NetworkProfile
     }
 
     public NetworkProfile WithAutojoin(IEnumerable<string> channels) =>
-        new(Id, DisplayName, Endpoints, Identity, channels, Reconnect, NetworkName, NotifyNicknames, UserModes, Sasl, UsernameOverride);
+        new(Id, DisplayName, Endpoints, Identity, channels, Reconnect, NetworkName, NotifyNicknames, UserModesOverride, Sasl, UsernameOverride);
 
     public NetworkProfile WithNotify(IEnumerable<string> nicknames) =>
-        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, nicknames, UserModes, Sasl, UsernameOverride);
+        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, nicknames, UserModesOverride, Sasl, UsernameOverride);
 
     public NetworkProfile WithNetworkName(string networkName) =>
-        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, networkName, NotifyNicknames, UserModes, Sasl, UsernameOverride);
+        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, networkName, NotifyNicknames, UserModesOverride, Sasl, UsernameOverride);
 
-    public NetworkProfile WithUserModes(string userModes) =>
-        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, userModes, Sasl, UsernameOverride);
+    public NetworkProfile WithUserModesOverride(string? userModesOverride) =>
+        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, userModesOverride, Sasl, UsernameOverride);
 
     public NetworkProfile WithIdentity(IrcIdentity identity) =>
-        new(Id, DisplayName, Endpoints, identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, UserModes, Sasl, UsernameOverride);
+        new(Id, DisplayName, Endpoints, identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, UserModesOverride, Sasl, UsernameOverride);
 
     public NetworkProfile WithUsernameOverride(string? usernameOverride) =>
-        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, UserModes, Sasl, usernameOverride);
+        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, UserModesOverride, Sasl, usernameOverride);
 
     public NetworkProfile WithSasl(SaslProfileSettings? sasl) =>
-        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, UserModes, sasl, UsernameOverride);
+        new(Id, DisplayName, Endpoints, Identity, AutojoinChannels, Reconnect, NetworkName, NotifyNicknames, UserModesOverride, sasl, UsernameOverride);
 
     public NetworkProfile WithEndpoint(IrcEndpoint endpoint)
     {
@@ -246,7 +246,7 @@ public sealed class NetworkProfile
             Reconnect,
             NetworkName,
             NotifyNicknames,
-            UserModes,
+            UserModesOverride,
             Sasl,
             UsernameOverride);
     }
@@ -272,7 +272,7 @@ public sealed class NetworkProfile
             Reconnect,
             NetworkName,
             NotifyNicknames,
-            UserModes,
+            UserModesOverride,
             Sasl,
             UsernameOverride);
     }
@@ -280,12 +280,16 @@ public sealed class NetworkProfile
     public static string NormalizeUserModes(string? value)
     {
         value = value?.Trim() ?? string.Empty;
-        if (value.Equals("none", StringComparison.OrdinalIgnoreCase) || value.Equals("off", StringComparison.OrdinalIgnoreCase))
-            return string.Empty;
         if (value.Length == 0) return string.Empty;
         if (value.Length < 2 || value[0] is not '+' and not '-' || value.Skip(1).Any(character => !char.IsLetter(character)))
-            throw new ArgumentException("User modes must look like +i or +iw, or be none.", nameof(value));
+            throw new ArgumentException("User modes must look like +i or +iw.", nameof(value));
         return value;
+    }
+
+    private static string? NormalizeUserModesOverride(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return NormalizeUserModes(value);
     }
 
     private static string? NormalizeUsernameOverride(string? value)

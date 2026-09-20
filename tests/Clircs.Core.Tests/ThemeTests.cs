@@ -446,7 +446,8 @@ internal static class ThemeTests
             DccAddress: "203.0.113.42",
             DccPorts: "50000-50009",
             DccDownloads: Path.Combine(temporary.Path, "downloads"),
-            AwayMessage: "out getting lunch"));
+            AwayMessage: "out getting lunch",
+            UserModes: string.Empty));
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
@@ -468,6 +469,7 @@ internal static class ThemeTests
         Assert.Equal("50000-50009", loaded.DccPorts);
         Assert.Equal(Path.Combine(temporary.Path, "downloads"), loaded.DccDownloads!);
         Assert.Equal("out getting lunch", loaded.AwayMessage);
+        Assert.Equal(string.Empty, loaded.UserModes);
     }
 
     private static void LinksDefaultsToStatus()
@@ -528,6 +530,7 @@ internal static class ThemeTests
         Assert.True(store.Load().CloneDetection);
         Assert.True(store.Load().NetworkReconnect);
         Assert.True(store.Load().KillReconnect);
+        Assert.Equal("+i", store.Load().UserModes);
     }
 
     private static void InviteAndKickDefaults()

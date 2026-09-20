@@ -198,6 +198,8 @@ internal sealed partial class ClientApplication
             new("Remove server", "/network server remove <profile> <number>"),
             new("Set username", "/network username <profile> <username>"),
             new("Use global username", "/network username <profile>"),
+            new("Set user modes", "/network usermodes <profile> <modes>"),
+            new("Use global user modes", "/network usermodes <profile>"),
             new("Remove profile", "/network remove <profile>"),
             new("SASL status", "/network sasl <profile>"),
             new("Enable PLAIN", "/network sasl <profile> [plain] <account> [required|optional]"),
@@ -348,7 +350,7 @@ internal sealed partial class ClientApplication
             "highlight" => ("<on|off>", "on", "Highlights mentions of your nickname and mirrors them into the active window.", "/set highlight on"),
             "joininfo" => ("<on|off>", "off", "Shows matching userlist infolines when someone joins.", "/set joininfo on"),
             "kickrejoin" => ("<on|off>", "off", "Automatically rejoins a channel after you are kicked.", "/set kickrejoin on"),
-            "usermodes" => ("<modes|none>", "+i", "User modes applied after registration on the active logical network.", "/set usermodes +iw"),
+            "usermodes" => ("[modes]", "+i", "User modes applied automatically after registration; omit modes to clear the global setting.", "/set usermodes +iw"),
             "network.reconnect" => ("<on|off>", "on", "Reconnects after an unrequested network or server disconnect.", "/set network.reconnect on"),
             "kill.reconnect" => ("<on|off>", "on", "Reconnects after the server kills your current IRC connection.", "/set kill.reconnect on"),
             "dcc.address" => ("<auto|IP|hostname>", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", "/set dcc.address 2603:8081:3000:48b3::20"),
@@ -391,7 +393,7 @@ internal sealed partial class ClientApplication
         "highlight" => _preferences.HighlightNickname ? "on" : "off",
         "joininfo" => _preferences.AnnounceUserInfoOnJoin ? "on" : "off",
         "kickrejoin" => _preferences.AutoRejoinOnKick ? "on" : "off",
-        "usermodes" => CurrentUserModes(),
+        "usermodes" => _preferences.UserModes.Length == 0 ? "not set" : _preferences.UserModes,
         "network.reconnect" => _preferences.NetworkReconnect ? "on" : "off",
         "kill.reconnect" => _preferences.KillReconnect ? "on" : "off",
         "dcc.address" => _preferences.DccAddress,
@@ -410,15 +412,6 @@ internal sealed partial class ClientApplication
                     setting is "notice.output" or "wallops.output"),
         _ => null
     };
-
-    private string CurrentUserModes()
-    {
-        var session = ActiveSession();
-        if (session is null) return "+i";
-        var profile = ProfileFor(session);
-        if (profile is null) return "+i";
-        return profile.UserModes.Length == 0 ? "none" : profile.UserModes;
-    }
 
     internal static PresentationBlock? ProtectionHelp(string requested)
     {

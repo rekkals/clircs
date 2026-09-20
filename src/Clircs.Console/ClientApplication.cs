@@ -192,6 +192,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(appearance.Username)) _preferences.Username = appearance.Username;
         if (!string.IsNullOrWhiteSpace(appearance.RealName)) _preferences.RealName = appearance.RealName;
         _preferences.AwayMessage = appearance.AwayMessage;
+        _preferences.UserModes = appearance.UserModes;
         if (_themeManager.TryGet(appearance.Theme, out var selectedTheme))
         {
             _presenter.SetTheme(selectedTheme!);

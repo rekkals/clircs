@@ -17,6 +17,7 @@ internal sealed class ClientPreferences
     public string AlternateNickname { get; set; }
     public string Username { get; set; }
     public string RealName { get; set; } = "clircs user";
+    public string UserModes { get; set; } = "+i";
     public string AwayMessage { get; set; } = "away";
     public HostmaskVisibility JoinHostmasks { get; set; } = HostmaskVisibility.UserHost;
     public HostmaskVisibility PartHostmasks { get; set; } = HostmaskVisibility.UserHost;

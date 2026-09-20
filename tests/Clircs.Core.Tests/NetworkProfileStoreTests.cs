@@ -16,6 +16,7 @@ internal static class NetworkProfileStoreTests
         suite.Add("detected bouncer endpoints do not infer saved network profiles", DetectedBouncerEndpointsDoNotInferProfiles);
         suite.Add("network profiles create connection options for a selected server", SelectedEndpointCreatesConnectionOptions);
         suite.Add("network profile usernames override the global registration username", UsernameOverrideAppliesToConnectionOptions);
+        suite.Add("network profile user modes override global inheritance", UserModesOverrideIsOptional);
         suite.Add("legacy reconnect defaults migrate to 99 attempts", LegacyReconnectDefaultMigrates);
         suite.Add("changing profile identity preserves network settings", ChangingIdentityPreservesNetworkSettings);
         suite.Add("unconfigured network profiles round-trip and accept a later endpoint", UnconfiguredProfilesRoundTrip);
@@ -83,7 +84,7 @@ internal static class NetworkProfileStoreTests
             ["#clircs"],
             networkName: "EFnet",
             notifyNicknames: ["Friend"],
-            userModes: "+iw");
+            userModesOverride: "+iw");
         var updated = profile.WithIdentity(new IrcIdentity(["NewNick", "NewNick_"], "newuser", "New Name"));
 
         Assert.Equal(profile.Id, updated.Id);
@@ -92,7 +93,7 @@ internal static class NetworkProfileStoreTests
         Assert.Equal("newuser", updated.Identity.Username);
         Assert.Equal("#clircs", updated.AutojoinChannels[0]);
         Assert.Equal("Friend", updated.NotifyNicknames[0]);
-        Assert.Equal("+iw", updated.UserModes);
+        Assert.Equal("+iw", updated.UserModesOverride!);
     }
 
     private static void UnconfiguredProfilesRoundTrip()
@@ -112,6 +113,7 @@ internal static class NetworkProfileStoreTests
             var reloaded = new NetworkProfileStore(path);
             var dormant = reloaded.Find("futurenet")!;
             Assert.False(dormant.IsConfigured);
+            Assert.True(dormant.UserModesOverride is null);
             Assert.Throws<InvalidOperationException>(() => dormant.CreateConnectionOptions());
 
             var configured = dormant.WithEndpoint(new IrcEndpoint("irc.example.test", 6697, true));
@@ -190,6 +192,26 @@ internal static class NetworkProfileStoreTests
         Assert.Equal("globaluser", restored.Identity.Username);
         Assert.Throws<ArgumentException>(() =>
             profile.WithUsernameOverride("invalid username"));
+    }
+
+    private static void UserModesOverrideIsOptional()
+    {
+        var profile = new NetworkProfile(
+            NetworkProfileId.New(),
+            "EFNet",
+            [new IrcEndpoint("irc.example.test", 6697, true)],
+            new IrcIdentity(["TestNick"], "test", "Test User"));
+
+        Assert.True(profile.UserModesOverride is null);
+
+        var overridden = profile.WithUserModesOverride("+iw");
+        Assert.Equal("+iw", overridden.UserModesOverride!);
+
+        var restored = overridden.WithUserModesOverride(null);
+        Assert.True(restored.UserModesOverride is null);
+
+        Assert.Throws<ArgumentException>(() =>
+            profile.WithUserModesOverride("invalid"));
     }
 
     private static void RemovingEndpointPreservesNetworkSettings()
@@ -295,7 +317,7 @@ internal static class NetworkProfileStoreTests
             Assert.Equal(5, saved.Reconnect.MaximumAttempts);
             Assert.Equal("CanonicalNet", saved.NetworkName!);
             Assert.Equal("Bob", saved.NotifyNicknames[1]);
-            Assert.Equal("+iw", saved.UserModes);
+            Assert.Equal("+iw", saved.UserModesOverride!);
             Assert.Equal("slakker/irc.fxnet.org", saved.UsernameOverride!);
 
             var text = File.ReadAllText(path);

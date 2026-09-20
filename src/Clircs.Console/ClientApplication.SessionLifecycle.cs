@@ -498,7 +498,7 @@ internal sealed partial class ClientApplication
     {
         try
         {
-            var modes = ProfileFor(session)?.UserModes ?? "+i";
+            var modes = ProfileFor(session)?.UserModesOverride ?? _preferences.UserModes;
             if (modes.Length > 0)
             {
                 await session.SendAsync("MODE", [session.CurrentNickname, modes], IrcOutboundPriority.Automation, SessionWorkToken(session));

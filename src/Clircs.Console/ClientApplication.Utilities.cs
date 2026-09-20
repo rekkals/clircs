@@ -60,7 +60,10 @@ internal sealed partial class ClientApplication
         {
             fields.Add(new PresentationField("Profile", profile.DisplayName));
             fields.Add(new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)));
-            fields.Add(new PresentationField("User modes", profile.UserModes.Length == 0 ? "none" : profile.UserModes));
+            var userModes = profile.UserModesOverride ?? _preferences.UserModes;
+            fields.Add(new PresentationField(
+                "User modes",
+                userModes.Length == 0 ? "not set" : userModes));
             fields.Add(new PresentationField("SASL", profile.Sasl is null
                 ? "off"
                 : profile.Sasl.Mechanism == SaslMechanisms.Plain
@@ -89,10 +92,12 @@ internal sealed partial class ClientApplication
             fields.Add(new PresentationField("Username", usernameOverride));
         }
 
+        var userModes = profile.UserModesOverride ?? _preferences.UserModes;
+
         fields.AddRange(
         [
             new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)),
-            new PresentationField("User modes", profile.UserModes.Length == 0 ? "none" : profile.UserModes),
+            new PresentationField("User modes", userModes.Length == 0 ? "not set" : userModes),
             new PresentationField("Notify", profile.NotifyNicknames.Count == 0 ? "none" : string.Join(", ", profile.NotifyNicknames)),
             new PresentationField("SASL", profile.Sasl is null
                 ? "off"
@@ -397,7 +402,8 @@ internal sealed partial class ClientApplication
         _preferences.DccAddress,
         _preferences.DccPorts.ToString(),
         _preferences.DccDownloads,
-        _preferences.AwayMessage);
+        _preferences.AwayMessage,
+        _preferences.UserModes);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -408,6 +414,7 @@ internal sealed partial class ClientApplication
         _preferences.Username = settings.Username ?? _preferences.Username;
         _preferences.RealName = settings.RealName ?? _preferences.RealName;
         _preferences.AwayMessage = settings.AwayMessage;
+        _preferences.UserModes = settings.UserModes;
         if (_themeManager.TryGet(settings.Theme, out var theme)) _presenter.SetTheme(theme!);
         if (TryParseHostmaskVisibility(settings.JoinHostmasks, out var join)) _preferences.JoinHostmasks = join;
         if (TryParseHostmaskVisibility(settings.PartHostmasks, out var part)) _preferences.PartHostmasks = part;

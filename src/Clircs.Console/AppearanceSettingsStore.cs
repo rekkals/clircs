@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Clircs.Infrastructure;
+using Clircs.Networking;
 
 namespace Clircs.ConsoleClient;
 
@@ -27,7 +28,8 @@ internal sealed record AppearanceSettings(
     string DccAddress = "auto",
     string DccPorts = "random",
     string? DccDownloads = null,
-    string AwayMessage = "away");
+    string AwayMessage = "away",
+    string UserModes = "+i");
 
 internal sealed class AppearanceSettingsStore
 {
@@ -81,9 +83,12 @@ internal sealed class AppearanceSettingsStore
                 string.IsNullOrWhiteSpace(stored.DccAddress) ? "auto" : stored.DccAddress,
                 string.IsNullOrWhiteSpace(stored.DccPorts) ? "random" : stored.DccPorts,
                 EmptyToNull(stored.DccDownloads),
-                string.IsNullOrWhiteSpace(stored.AwayMessage) ? "away" : stored.AwayMessage);
+                string.IsNullOrWhiteSpace(stored.AwayMessage) ? "away" : stored.AwayMessage,
+                stored.UserModes is null
+                    ? "+i"
+                    : NetworkProfile.NormalizeUserModes(stored.UserModes));
         }
-        catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
             LoadError = $"Appearance settings '{_path}' are invalid and were left untouched: {exception.Message}";
             return Defaults();
@@ -114,6 +119,7 @@ internal sealed class AppearanceSettingsStore
             AlternateNickname = settings.AlternateNickname,
             Username = settings.Username,
             RealName = settings.RealName,
+            UserModes = settings.UserModes,
             CloneDetection = settings.CloneDetection,
             NetworkReconnect = settings.NetworkReconnect,
             KillReconnect = settings.KillReconnect,
@@ -163,6 +169,7 @@ internal sealed class AppearanceSettingsStore
         public string? AlternateNickname { get; set; }
         public string? Username { get; set; }
         public string? RealName { get; set; }
+        public string? UserModes { get; set; } = "+i";
         public bool CloneDetection { get; set; } = true;
         public bool NetworkReconnect { get; set; } = true;
         public bool KillReconnect { get; set; } = true;
