@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using Clircs.Commands;
 using Clircs.Dcc;
 using Clircs.Networking;
+using Clircs.Protocol;
 using Clircs.Sessions;
 using Clircs.State;
 using Clircs.Transport;
@@ -27,7 +28,15 @@ internal sealed partial class ClientApplication
             return failure;
         }
 
-        await session.SendMessageAsync(target, text, cancellationToken, createQueryBuffer: false);
+        if (!await TrySendMessageAsync(
+                session,
+                target,
+                text,
+                cancellationToken,
+                createQueryBuffer: false))
+        {
+            return OversizedSendFailure("Message");
+        }
         session.State.TryGetBuffer(target, out var destination);
         EchoInActiveBuffer(
             session,
@@ -153,9 +162,36 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Switch to a channel or query before sending text.");
         }
 
-        await session.SendMessageAsync(target, text, cancellationToken);
-        return CommandResult.Success();
+        return await TrySendMessageAsync(session, target, text, cancellationToken)
+            ? CommandResult.Success()
+            : OversizedSendFailure("Message");
     }
+
+    private static async ValueTask<bool> TrySendMessageAsync(
+        IrcNetworkSession session,
+        string target,
+        string text,
+        CancellationToken cancellationToken,
+        bool createQueryBuffer = true)
+    {
+        try
+        {
+            await session.SendMessageAsync(
+                target,
+                text,
+                cancellationToken,
+                createQueryBuffer);
+            return true;
+        }
+        catch (IrcProtocolException)
+        {
+            return false;
+        }
+    }
+
+    private static CommandResult OversizedSendFailure(string subject) =>
+        CommandResult.Failure(
+            $"{subject} was not sent as it exceeds the {IrcLineFramer.MaximumPayloadBytes}-byte limit");
 
     private async ValueTask<CommandResult> MeAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
@@ -178,8 +214,15 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Usage in a channel/query: /me <action>");
         }
 
-        await session.SendActionAsync(target, input.RawArguments, cancellationToken);
-        return CommandResult.Success();
+        try
+        {
+            await session.SendActionAsync(target, input.RawArguments, cancellationToken);
+            return CommandResult.Success();
+        }
+        catch (IrcProtocolException)
+        {
+            return OversizedSendFailure("Action");
+        }
     }
 
     private async ValueTask<CommandResult> DescribeAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
@@ -287,7 +330,15 @@ internal sealed partial class ClientApplication
         TrackOutputRequest(session, "ctcp");
         try
         {
-            await session.SendAsync("PRIVMSG", [input.Arguments[0], $"\u0001{payload}\u0001"], cancellationToken: cancellationToken);
+            await session.SendAsync(
+                "PRIVMSG",
+                [input.Arguments[0], $"\u0001{payload}\u0001"],
+                cancellationToken: cancellationToken);
+        }
+        catch (IrcProtocolException)
+        {
+            CancelOutputRequest(session, "ctcp");
+            return OversizedSendFailure("CTCP request");
         }
         catch
         {
