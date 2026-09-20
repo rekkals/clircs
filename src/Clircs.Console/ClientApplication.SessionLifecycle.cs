@@ -498,16 +498,7 @@ internal sealed partial class ClientApplication
     {
         try
         {
-            var profile = ProfileFor(session);
-            if (profile is null)
-            {
-                profile = FindInferredProfileFor(session);
-                if (profile is not null)
-                {
-                    AssociateProfile(session, profile);
-                }
-            }
-            var modes = profile?.UserModes ?? "+i";
+            var modes = ProfileFor(session)?.UserModes ?? "+i";
             if (modes.Length > 0)
             {
                 await session.SendAsync("MODE", [session.CurrentNickname, modes], IrcOutboundPriority.Automation, SessionWorkToken(session));
@@ -1052,7 +1043,7 @@ internal sealed partial class ClientApplication
     {
         try
         {
-            var profile = ProfileFor(session) ?? FindInferredProfileFor(session);
+            var profile = ProfileFor(session);
 
             if (profile is null)
             {
