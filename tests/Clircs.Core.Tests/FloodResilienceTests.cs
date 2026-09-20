@@ -18,7 +18,7 @@ internal static class FloodResilienceTests
         suite.Add("recent flood traffic remains available in scrollback", RecentFloodTrafficRemainsInScrollback);
         suite.Add("scrollback ages old traffic while retaining a useful minimum", OldScrollbackIsAged);
         suite.Add("scrollback reports and enforces its emergency resource boundary", EmergencyScrollbackLimitIsExplicit);
-        suite.Add("window scrollback removes old flood traffic without shifting its retained history", WindowScrollbackAgesFromFront);
+        suite.Add("window scrollback enforces its ordinary retention limit", WindowScrollbackEnforcesOrdinaryRetention);
         suite.Add("all window scrollback shares an application emergency boundary", TotalWindowScrollbackIsBounded);
         suite.Add("bottom viewport selection measures only visible history", BottomViewportSelectionIsLocal);
         suite.Add("automatic query creation has a hard resource limit", AutomaticQueriesAreBounded);
@@ -119,20 +119,31 @@ internal static class FloodResilienceTests
         Assert.False(ScrollbackRetention.EnforceEmergencyLimit(history, maximumEntries: 5));
     }
 
-    private static void WindowScrollbackAgesFromFront()
+    private static void WindowScrollbackEnforcesOrdinaryRetention()
     {
+        var states = new WindowStateRegistry();
         var session = NetworkSessionId.New();
         var buffer = BufferId.New();
         var now = DateTimeOffset.UtcNow;
-        var history = new WindowEventHistory();
-        for (var index = 0; index < 10_000; index++) history.Add(Message(session, buffer, $"bot{index}", now));
+        WindowStateRegistry.WindowEventStoreResult result = default;
 
-        Assert.True(ScrollbackRetention.EnforceEmergencyLimit(history, maximumEntries: 5_000));
-        Assert.Equal(5_000, history.Count);
-        Assert.True(history[0].Text.Contains("bot5000", StringComparison.Ordinal));
-        history.Add(Message(session, buffer, "latest", now));
-        Assert.True(ScrollbackRetention.EnforceEmergencyLimit(history, maximumEntries: 5_000));
-        Assert.True(history[^1].Text.Contains("latest", StringComparison.Ordinal));
+        for (var index = 0; index <= ScrollbackRetention.MaximumEntries; index++)
+        {
+            result = states.StoreEvent(
+                Message(session, buffer, $"bot{index}", now),
+                1,
+                _ => 1,
+                false,
+                false,
+                now);
+        }
+
+        var history = states.HistorySnapshot(buffer);
+        Assert.Equal(ScrollbackRetention.MaximumEntries, history.Length);
+        Assert.True(history[0].Text.Contains("bot1", StringComparison.Ordinal));
+        Assert.True(history[^1].Text.Contains("bot5000", StringComparison.Ordinal));
+        Assert.False(result.EmergencyLimitReached);
+        Assert.False(result.TotalEmergencyLimitReached);
     }
 
     private static void BottomViewportSelectionIsLocal()

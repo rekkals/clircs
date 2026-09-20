@@ -149,6 +149,11 @@ internal sealed class WindowStateRegistry
             }
 
             ScrollbackRetention.Trim(state.History, now);
+            ScrollbackRetention.EnforceRetentionLimit(state.History);
+            EnforceTotalHistoryLimitUnsafe(
+                ScrollbackRetention.MaximumTotalEntries,
+                ScrollbackRetention.MinimumEntries);
+
             var emergencyLimitReached = ScrollbackRetention.EnforceEmergencyLimit(state.History);
             var totalEmergencyLimitReached = EnforceTotalHistoryLimitUnsafe(
                 ScrollbackRetention.EmergencyMaximumTotalEntries,

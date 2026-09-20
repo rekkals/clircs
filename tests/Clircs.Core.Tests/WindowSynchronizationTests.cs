@@ -75,7 +75,11 @@ internal static class WindowSynchronizationTests
 
         await Task.WhenAll(writer, reader);
         var final = windows.HistorySnapshot(bufferId);
-        Assert.Equal(20_000, final.Length);
+        Assert.Equal(ScrollbackRetention.MaximumEntries, final.Length);
+        Assert.Equal(
+            (20_000 - ScrollbackRetention.MaximumEntries).ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            final[0].Text);
         Assert.Equal("19999", final[^1].Text);
     }
 

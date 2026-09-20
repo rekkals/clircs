@@ -2,12 +2,14 @@ using Clircs.Sessions;
 
 namespace Clircs.ConsoleClient;
 
-// Match Irssi's useful default behavior: keep at least 500 entries, and retain every
-// entry from the most recent day even when that produces a much larger scrollback.
-// The minimum is not a hard ceiling.
+// We'll keep quieter window history for up to a day, while bounding busier windows
+// separately, so regular scrollback doesn't cause clircs to start operating like it
+// has a hangover.
 internal static class ScrollbackRetention
 {
     internal const int MinimumEntries = 500;
+    internal const int MaximumEntries = 5_000;
+    internal const int MaximumTotalEntries = 100_000;
     internal const int EmergencyMaximumEntries = 250_000;
     internal const int EmergencyMaximumTotalEntries = 500_000;
     internal static readonly TimeSpan RetentionTime = TimeSpan.FromDays(1);
@@ -33,6 +35,18 @@ internal static class ScrollbackRetention
         ArgumentNullException.ThrowIfNull(history);
         var remove = ExpiredEntryCount(history, now);
         if (remove > 0) history.RemoveFirst(remove);
+        return remove;
+    }
+
+    public static int EnforceRetentionLimit(
+        WindowEventHistory history,
+        int maximumEntries = MaximumEntries)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumEntries, MinimumEntries);
+        var remove = history.Count - maximumEntries;
+        if (remove <= 0) return 0;
+        history.RemoveFirst(remove);
         return remove;
     }
 
