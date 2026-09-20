@@ -11,6 +11,7 @@ internal static class SaslTests
     {
         suite.Add("SASL PLAIN payloads use authzid authcid password and IRC fragmentation", PlainPayloadIsEncodedAndFragmented);
         suite.Add("SASL PLAIN completes CAP negotiation before IRC registration", PlainAuthenticationSucceedsAsync);
+        suite.Add("required SASL survives rejection of optional capabilities", RequiredSaslSurvivesRejectedOptionalCapabilitiesAsync);
         suite.Add("SASL EXTERNAL presents a TLS client certificate and an empty authorization identity", ExternalAuthenticationSucceedsAsync);
         suite.Add("SASL EXTERNAL encodes an explicit authorization identity", ExternalAuthorizationIdentityIsEncoded);
         suite.Add("required SASL stops registration when the capability is unavailable", RequiredSaslFailureStopsRegistrationAsync);
@@ -49,8 +50,8 @@ internal static class SaslTests
         Assert.Equal("USER test 0 * :Test User", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server CAP * LS * :multi-prefix away-notify");
         transport.Receive(":server CAP * LS :sasl=EXTERNAL,PLAIN");
-        Assert.Equal("CAP REQ :multi-prefix sasl", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix sasl");
+        Assert.Equal("CAP REQ sasl", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :sasl");
         Assert.Equal("AUTHENTICATE PLAIN", await transport.NextSentAsync(timeout.Token));
         transport.Receive("AUTHENTICATE +");
         var response = await transport.NextSentAsync(timeout.Token);
@@ -60,6 +61,8 @@ internal static class SaslTests
             Encoding.UTF8.GetString(Convert.FromBase64String(response["AUTHENTICATE ".Length..])));
         transport.Receive(":server 900 TestNick TestNick!test@localhost account :You are now logged in as account");
         transport.Receive(":server 903 TestNick :SASL authentication successful");
+        Assert.Equal("CAP REQ multi-prefix", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix");
         Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
@@ -68,6 +71,42 @@ internal static class SaslTests
         Assert.Equal("account", session.State.AccountName!);
         Assert.Equal(1, events.Count(item => item.Fields?.GetValueOrDefault("event") == "sasl.success"));
         Assert.False(events.Any(item => item.Text.Contains("[903]", StringComparison.Ordinal)));
+        await session.DisconnectAsync("done", timeout.Token);
+        Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
+    }
+
+    private static async ValueTask RequiredSaslSurvivesRejectedOptionalCapabilitiesAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var session = Session(transport, required: true);
+        var connecting = session.ConnectAsync(timeout.Token).AsTask();
+
+        Assert.Equal("CAP LS 302", await transport.NextSentAsync(timeout.Token));
+        Assert.Equal("NICK TestNick", await transport.NextSentAsync(timeout.Token));
+        Assert.Equal("USER test 0 * :Test User", await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP * LS :multi-prefix echo-message sasl=PLAIN");
+        Assert.Equal("CAP REQ sasl", await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick ACK :sasl");
+        Assert.Equal("AUTHENTICATE PLAIN", await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive("AUTHENTICATE +");
+        _ = await transport.NextSentAsync(timeout.Token);
+        transport.Receive(":server 903 TestNick :SASL authentication successful");
+
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message",
+            await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick NAK :multi-prefix echo-message");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server 001 TestNick :Welcome");
+        await connecting;
+
+        Assert.Equal(IrcConnectionState.Online, session.ConnectionState);
         await session.DisconnectAsync("done", timeout.Token);
         Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
     }

@@ -424,6 +424,8 @@ public sealed class IrcClientConnection : IAsyncDisposable
         if (saslRequested && (subcommand == "NAK" || !saslAcknowledged))
         {
             FailSasl(_options!.Sasl!, "the server rejected the SASL capability");
+            await RequestOptionalRegistrationCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         if (saslRequested && saslAcknowledged)
@@ -440,10 +442,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
     private async ValueTask RequestRegistrationCapabilitiesAsync(CancellationToken cancellationToken)
     {
-        var requested = AutomaticallyRequestedCapabilities
-            .Where(_advertisedCapabilities.ContainsKey)
-            .ToList();
-
         if (_options?.Sasl is { } sasl)
         {
             if (!_advertisedCapabilities.TryGetValue("sasl", out var mechanisms))
@@ -458,11 +456,25 @@ public sealed class IrcClientConnection : IAsyncDisposable
             }
             else
             {
-                requested.Add("sasl");
+                _capabilityStage = CapabilityNegotiationStage.AwaitingAcknowledgement;
+                await RequestCapabilitiesAsync(["sasl"], cancellationToken).ConfigureAwait(false);
+                return;
             }
         }
 
-        if (requested.Count == 0)
+        await RequestOptionalRegistrationCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask RequestOptionalRegistrationCapabilitiesAsync(
+        CancellationToken cancellationToken)
+    {
+        var requested = AutomaticallyRequestedCapabilities
+            .Where(capability =>
+                _advertisedCapabilities.ContainsKey(capability) &&
+                !_enabledCapabilities.Contains(capability))
+            .ToArray();
+
+        if (requested.Length == 0)
         {
             await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
             return;
@@ -496,7 +508,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
             if (message.Parameters.Count == 0 || message.Parameters[0] != "+")
             {
                 FailSasl(sasl, $"the server sent an unexpected {sasl.Mechanism} challenge");
-                await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
+                await RequestOptionalRegistrationCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -517,7 +529,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
             SaslAuthenticationChanged?.Invoke(new SaslAuthenticationEvent(
                 true, sasl.Required, sasl.Mechanism, sasl.AuthorizationIdentity,
                 message.Command == "907" ? "already authenticated" : "authentication successful"));
-            await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
+            await RequestOptionalRegistrationCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -526,7 +538,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
         {
             var detail = message.Parameters.Count > 0 ? message.Parameters[^1] : "authentication failed";
             FailSasl(sasl, detail);
-            await FinishCapabilityNegotiationAsync(cancellationToken).ConfigureAwait(false);
+            await RequestOptionalRegistrationCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
