@@ -7,7 +7,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private static readonly string[] AutomaticallyRequestedCapabilities =
     [
         "multi-prefix",
-        "echo-message"
+        "echo-message",
+        "message-tags",
+        "server-time"
     ];
     private readonly IIrcTransportFactory _transportFactory;
     private CancellationTokenSource? _connectionLifetime;
@@ -24,6 +26,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private SaslRegistrationStage _saslStage;
     private bool _reportedExcessParameterDiagnostic;
     private bool _reportedExtendedLengthDiagnostic;
+    private bool _reportedUnnegotiatedTagsDiagnostic;
     private int _finishStarted;
     private int _disposed;
     private TaskCompletionSource<bool>? _finishCompletion;
@@ -54,6 +57,12 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
     public DateTimeOffset LastReceivedAt { get; private set; } = DateTimeOffset.MinValue;
 
+    public bool IsCapabilityEnabled(string capability)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(capability);
+        return _enabledCapabilities.Contains(capability);
+    }
+
     public async ValueTask ConnectAsync(IrcConnectionOptions options, CancellationToken cancellationToken = default)
     {
         if (_state is not (IrcConnectionState.Disconnected or IrcConnectionState.Failed))
@@ -77,6 +86,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
         _reportedExcessParameterDiagnostic = false;
         _reportedExtendedLengthDiagnostic = false;
+        _reportedUnnegotiatedTagsDiagnostic = false;
         _transport = null;
         _outbound = null;
         _receiveTask = null;
@@ -250,6 +260,18 @@ public sealed class IrcClientConnection : IAsyncDisposable
                     catch (Exception exception) when (exception is IrcProtocolException or ArgumentException)
                     {
                         Diagnostic?.Invoke($"Ignored malformed IRC line: {exception.Message}");
+                        continue;
+                    }
+                    if (message.HasTags && !CanReceiveTaggedMessages())
+                    {
+                        if (!_reportedUnnegotiatedTagsDiagnostic)
+                        {
+                            _reportedUnnegotiatedTagsDiagnostic = true;
+                            Diagnostic?.Invoke(
+                                "Ignored an IRC message with tags because no tag-bearing capability was negotiated. " +
+                                "Further occurrences will be ignored silently.");
+                        }
+
                         continue;
                     }
                     if (message.ExceedsTraditionalParameterLimit &&
@@ -546,6 +568,10 @@ public sealed class IrcClientConnection : IAsyncDisposable
         message.Command == "421" &&
         message.Parameters.Count >= 2 &&
         message.Parameters[1].Equals("CAP", StringComparison.OrdinalIgnoreCase);
+
+    private bool CanReceiveTaggedMessages() =>
+        _enabledCapabilities.Contains("message-tags") ||
+        _enabledCapabilities.Contains("server-time");
 
     private void ApplyCapabilityAcknowledgement(string value)
     {

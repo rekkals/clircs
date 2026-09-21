@@ -194,7 +194,7 @@ internal sealed class WindowStateRegistry
         {
             var candidate = _windows.Values
                 .Where(state => state.History.Count > minimumEntriesPerWindow)
-                .MinBy(state => state.History[0].Timestamp);
+                .MinBy(state => state.History[0].ReceivedAt);
             if (candidate is null) break;
             var remove = (int)Math.Min(excess, candidate.History.Count - minimumEntriesPerWindow);
             candidate.History.RemoveFirst(remove);

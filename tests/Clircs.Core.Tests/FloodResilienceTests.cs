@@ -17,6 +17,7 @@ internal static class FloodResilienceTests
         suite.Add("automatic CTCP replies have sender and network limits", AutomaticCtcpRepliesAreLimited);
         suite.Add("recent flood traffic remains available in scrollback", RecentFloodTrafficRemainsInScrollback);
         suite.Add("scrollback ages old traffic while retaining a useful minimum", OldScrollbackIsAged);
+        suite.Add("server-time timestamps do not age fresh scrollback", ServerTimeDoesNotAgeFreshScrollback);
         suite.Add("scrollback reports and enforces its emergency resource boundary", EmergencyScrollbackLimitIsExplicit);
         suite.Add("window scrollback enforces its ordinary retention limit", WindowScrollbackEnforcesOrdinaryRetention);
         suite.Add("all window scrollback shares an application emergency boundary", TotalWindowScrollbackIsBounded);
@@ -102,6 +103,30 @@ internal static class FloodResilienceTests
         Assert.Equal(ScrollbackRetention.MinimumEntries, history.Count);
         Assert.True(history[0].Text.Contains("old900", StringComparison.Ordinal));
         Assert.True(history[^1].Text.Contains("recent399", StringComparison.Ordinal));
+    }
+
+    private static void ServerTimeDoesNotAgeFreshScrollback()
+    {
+        var session = NetworkSessionId.New();
+        var buffer = BufferId.New();
+        var now = DateTimeOffset.UtcNow;
+        var historical = now.AddDays(-30);
+
+        var history = Enumerable.Range(0, 600)
+            .Select(index => Message(
+                session,
+                buffer,
+                $"replay{index}",
+                historical) with
+            {
+                ReceivedAt = now
+            })
+            .ToList();
+
+        Assert.Equal(0, ScrollbackRetention.Trim(history, now));
+        Assert.Equal(600, history.Count);
+        Assert.Equal(historical, history[0].Timestamp);
+        Assert.Equal(now, history[0].ReceivedAt);
     }
 
     private static void EmergencyScrollbackLimitIsExplicit()

@@ -22,7 +22,7 @@ internal static class ScrollbackRetention
 
         var cutoff = now - RetentionTime;
         var remove = 0;
-        while (remove < maximumRemoval && history[remove].Timestamp < cutoff)
+        while (remove < maximumRemoval && history[remove].ReceivedAt < cutoff)
         {
             remove++;
         }
@@ -80,7 +80,7 @@ internal static class ScrollbackRetention
         if (maximumRemoval <= 0) return 0;
         var cutoff = now - RetentionTime;
         var remove = 0;
-        while (remove < maximumRemoval && history[remove].Timestamp < cutoff) remove++;
+        while (remove < maximumRemoval && history[remove].ReceivedAt < cutoff) remove++;
         return remove;
     }
 }

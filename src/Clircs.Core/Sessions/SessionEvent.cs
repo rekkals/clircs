@@ -31,4 +31,7 @@ public sealed record SessionEvent(
     DateTimeOffset Timestamp,
     IReadOnlyDictionary<string, string?>? Fields = null,
     PresentationBlock? Presentation = null,
-    IrcFormattedText? FormattedContent = null);
+    IrcFormattedText? FormattedContent = null)
+{
+    public DateTimeOffset ReceivedAt { get; init; } = Timestamp;
+}

@@ -345,7 +345,7 @@ internal sealed partial class ClientApplication
         var text = fields.GetValueOrDefault("message");
         void Add(ProtectionDetector detector, int weight = 1, string? counterActor = null) =>
             evidence.Add(new ProtectionEvidence(
-                session.State.Id, detector, counterActor ?? actor, channel, text, sessionEvent.Timestamp, weight));
+                session.State.Id, detector, counterActor ?? actor, channel, text, sessionEvent.ReceivedAt, weight));
 
         if (isPrivate && settings.PersonalEnabled)
         {

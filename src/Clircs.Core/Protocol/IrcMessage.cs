@@ -6,7 +6,11 @@ public sealed class IrcMessage
 {
     public const int TraditionalParameterLimit = 15;
 
-    public IrcMessage(string? prefix, string command, IEnumerable<string> parameters)
+    public IrcMessage(
+        string? prefix,
+        string command,
+        IEnumerable<string> parameters,
+        IReadOnlyDictionary<string, string?>? tags = null)
     {
         if (string.IsNullOrWhiteSpace(command) || command.Any(char.IsWhiteSpace))
         {
@@ -25,9 +29,14 @@ public sealed class IrcMessage
                 nameof(parameters));
         }
 
+        var tagDictionary = tags is null
+            ? new Dictionary<string, string?>(StringComparer.Ordinal)
+            : new Dictionary<string, string?>(tags, StringComparer.Ordinal);
+
         Prefix = prefix;
         Command = command.ToUpperInvariant();
         Parameters = new ReadOnlyCollection<string>(parameterArray);
+        Tags = new ReadOnlyDictionary<string, string?>(tagDictionary);
     }
 
     public string? Prefix { get; }
@@ -35,6 +44,10 @@ public sealed class IrcMessage
     public string Command { get; }
 
     public IReadOnlyList<string> Parameters { get; }
+
+    public IReadOnlyDictionary<string, string?> Tags { get; }
+
+    public bool HasTags => Tags.Count > 0;
 
     public bool ExceedsTraditionalParameterLimit =>
         Parameters.Count > TraditionalParameterLimit;

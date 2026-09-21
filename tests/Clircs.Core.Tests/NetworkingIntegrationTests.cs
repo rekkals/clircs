@@ -742,10 +742,12 @@ internal static class NetworkingIntegrationTests
                 ":lurker.bouncer CAP * LS :sasl=PLAIN server-time message-tags echo-message".AsMemory(),
                 timeout.Token);
 
-            Assert.Equal("CAP REQ echo-message", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal(
+                "CAP REQ :echo-message message-tags server-time",
+                (await reader.ReadLineAsync(timeout.Token))!);
 
             await writer.WriteLineAsync(
-                ":lurker.bouncer CAP * ACK :echo-message".AsMemory(),
+                ":lurker.bouncer CAP * ACK :echo-message message-tags server-time".AsMemory(),
                 timeout.Token);
 
             Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);
@@ -840,11 +842,11 @@ internal static class NetworkingIntegrationTests
             await writer.WriteLineAsync(capLine.AsMemory(), timeout.Token);
 
             Assert.Equal(
-                "CAP REQ :multi-prefix echo-message",
+                "CAP REQ :multi-prefix echo-message message-tags server-time",
                 (await reader.ReadLineAsync(timeout.Token))!);
 
             await writer.WriteLineAsync(
-                ":irc.clircs.org CAP * ACK :multi-prefix echo-message".AsMemory(),
+                ":irc.clircs.org CAP * ACK :multi-prefix echo-message message-tags server-time".AsMemory(),
                 timeout.Token);
 
             Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);

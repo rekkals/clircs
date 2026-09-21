@@ -14,6 +14,10 @@ internal static class CapabilityNegotiationTests
         suite.Add("CAP negotiation continues when multi-prefix is rejected", RejectedMultiPrefixIsNonfatalAsync);
         suite.Add("servers without CAP support complete ordinary registration", UnsupportedCapabilityNegotiationIsNonfatalAsync);
         suite.Add("CAP NEW can enable supported capabilities after registration", NewCapabilitiesAreRequestedAsync);
+        suite.Add("server-time timestamps require capability acknowledgement", NegotiatedServerTimeControlsTimestampsAsync);
+        suite.Add("message-tags does not enable server-time semantics", MessageTagsDoesNotEnableServerTimeAsync);
+        suite.Add("unnegotiated tagged messages are ignored", UnnegotiatedTaggedMessagesAreIgnoredAsync);
+        suite.Add("CAP DEL disables tag-bearing capability behavior", DeletedTagCapabilitiesAreDisabledAsync);
     }
 
     private static async ValueTask SupportedCapabilitiesAreRequestedWithoutSaslAsync()
@@ -24,9 +28,11 @@ internal static class CapabilityNegotiationTests
         var connecting = session.ConnectAsync(timeout.Token).AsTask();
 
         await AssertRegistrationStartAsync(transport, timeout.Token);
-        transport.Receive(":server CAP * LS :away-notify echo-message multi-prefix");
-        Assert.Equal("CAP REQ :multi-prefix echo-message", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
+        transport.Receive(":server CAP * LS :away-notify echo-message message-tags multi-prefix server-time");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message message-tags server-time");
         Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
@@ -43,10 +49,13 @@ internal static class CapabilityNegotiationTests
         var connecting = session.ConnectAsync(timeout.Token).AsTask();
 
         await AssertRegistrationStartAsync(transport, timeout.Token);
-        transport.Receive(":server CAP * LS * :away-notify echo-message account-notify");
-        transport.Receive(":server CAP * LS :multi-prefix");
-        Assert.Equal("CAP REQ :multi-prefix echo-message", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
+        transport.Receive(":server CAP * LS * :away-notify echo-message account-notify message-tags");
+        transport.Receive(":server CAP * LS :multi-prefix server-time");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(
+            ":server CAP TestNick ACK :multi-prefix echo-message message-tags server-time");
         Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
@@ -106,10 +115,190 @@ internal static class CapabilityNegotiationTests
         transport.Receive(":server 001 TestNick :Welcome");
         await connecting;
 
-        transport.Receive(":server CAP TestNick NEW :away-notify echo-message multi-prefix");
-        Assert.Equal("CAP REQ :multi-prefix echo-message", await transport.NextSentAsync(timeout.Token));
-        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
+        transport.Receive(":server CAP TestNick NEW :away-notify echo-message message-tags multi-prefix server-time");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(
+            ":server CAP TestNick ACK :multi-prefix echo-message message-tags server-time");
         await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask NegotiatedServerTimeControlsTimestampsAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var session = Session(transport);
+        var connecting = session.ConnectAsync(timeout.Token).AsTask();
+
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+        transport.Receive(":server CAP * LS :server-time");
+        Assert.Equal(
+            "CAP REQ server-time",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :server-time");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server 001 TestNick :Welcome");
+        await connecting;
+
+        var received = NextMessageAsync(
+            session,
+            "historical",
+            timeout.Token);
+        transport.Receive(
+            "@time=2020-01-02T03:04:05.678Z " +
+            ":Other!user@example PRIVMSG TestNick :historical");
+
+        var sessionEvent = await received;
+        var expected = new DateTimeOffset(
+            2020, 1, 2, 3, 4, 5, 678, TimeSpan.Zero);
+
+        Assert.Equal(expected.ToLocalTime(), sessionEvent.Timestamp);
+        Assert.True(sessionEvent.ReceivedAt > sessionEvent.Timestamp);
+
+        await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask MessageTagsDoesNotEnableServerTimeAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var session = Session(transport);
+        var events = new List<SessionEvent>();
+        session.EventRaised += events.Add;
+        var connecting = session.ConnectAsync(timeout.Token).AsTask();
+
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+        transport.Receive(":server CAP * LS :message-tags");
+        Assert.Equal(
+            "CAP REQ message-tags",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :message-tags");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server 001 TestNick :Welcome");
+        await connecting;
+
+        transport.Receive(
+            "@example=value :Other!user@example TAGMSG TestNick");
+
+        var received = NextMessageAsync(
+            session,
+            "current",
+            timeout.Token);
+        transport.Receive(
+            "@time=2020-01-02T03:04:05.678Z " +
+            ":Other!user@example PRIVMSG TestNick :current");
+
+        var sessionEvent = await received;
+
+        Assert.Equal(sessionEvent.ReceivedAt, sessionEvent.Timestamp);
+        Assert.False(events.Any(item =>
+            item.Text.Contains("TAGMSG", StringComparison.OrdinalIgnoreCase)));
+
+        await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask UnnegotiatedTaggedMessagesAreIgnoredAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var session = Session(transport);
+        var events = new List<SessionEvent>();
+        session.EventRaised += events.Add;
+        var connecting = session.ConnectAsync(timeout.Token).AsTask();
+
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+        transport.Receive(":server CAP * LS :message-tags server-time");
+        Assert.Equal(
+            "CAP REQ :message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(
+            ":server CAP TestNick NAK :message-tags server-time");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server 001 TestNick :Welcome");
+        await connecting;
+
+        transport.Receive(
+            "@time=2020-01-02T03:04:05.678Z " +
+            ":Other!user@example PRIVMSG TestNick :ignored");
+
+        var delivered = NextMessageAsync(
+            session,
+            "delivered",
+            timeout.Token);
+        transport.Receive(
+            ":Other!user@example PRIVMSG TestNick :delivered");
+        await delivered;
+
+        Assert.False(events.Any(item =>
+            item.Fields?.GetValueOrDefault("message") == "ignored"));
+        Assert.True(events.Any(item =>
+            item.Kind == SessionEventKind.Diagnostic &&
+            item.Text.Contains(
+                "no tag-bearing capability was negotiated",
+                StringComparison.Ordinal)));
+
+        await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask DeletedTagCapabilitiesAreDisabledAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var session = Session(transport);
+        var events = new List<SessionEvent>();
+        session.EventRaised += events.Add;
+        var connecting = session.ConnectAsync(timeout.Token).AsTask();
+
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+        transport.Receive(":server CAP * LS :message-tags server-time");
+        Assert.Equal(
+            "CAP REQ :message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(
+            ":server CAP TestNick ACK :message-tags server-time");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server 001 TestNick :Welcome");
+        await connecting;
+
+        transport.Receive(
+            ":server CAP TestNick DEL :message-tags server-time");
+        transport.Receive(
+            "@time=2020-01-02T03:04:05.678Z " +
+            ":Other!user@example PRIVMSG TestNick :ignored-after-del");
+
+        var delivered = NextMessageAsync(
+            session,
+            "delivered-after-del",
+            timeout.Token);
+        transport.Receive(
+            ":Other!user@example PRIVMSG TestNick :delivered-after-del");
+        await delivered;
+
+        Assert.False(events.Any(item =>
+            item.Fields?.GetValueOrDefault("message") ==
+            "ignored-after-del"));
+
+        await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static Task<SessionEvent> NextMessageAsync(
+        IrcNetworkSession session,
+        string text,
+        CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource<SessionEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        session.EventRaised += sessionEvent =>
+        {
+            if (sessionEvent.Fields?.GetValueOrDefault("message") == text)
+            {
+                completion.TrySetResult(sessionEvent);
+            }
+        };
+
+        return completion.Task.WaitAsync(cancellationToken);
     }
 
     private static async Task AssertRegistrationStartAsync(

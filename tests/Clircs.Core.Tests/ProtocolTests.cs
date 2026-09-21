@@ -12,6 +12,11 @@ internal static class ProtocolTests
         suite.Add("parser preserves an empty trailing parameter", ParserPreservesEmptyTrailing);
         suite.Add("parser rejects line injection", ParserRejectsLineInjection);
         suite.Add("parser accepts and marks excess parameters", ParserAcceptsAndMarksExcessParameters);
+        suite.Add("parser handles IRCv3 message tags", ParserHandlesMessageTags);
+        suite.Add("parser unescapes IRCv3 message tag values", ParserUnescapesMessageTags);
+        suite.Add("parser rejects empty IRCv3 message tag keys", ParserRejectsEmptyMessageTagKey);
+        suite.Add("server-time parser accepts IRCv3 timestamps", ServerTimeParserAcceptsIrcv3Timestamps);
+        suite.Add("server-time parser rejects nonstandard timestamps", ServerTimeParserRejectsNonstandardTimestamps);
         suite.Add("framer handles split TCP input", FramerHandlesSplitInput);
         suite.Add("framer accepts the maximum payload", FramerAcceptsMaximumPayload);
         suite.Add("framer accepts the maximum inbound payload", FramerAcceptsMaximumInboundPayload);
@@ -40,6 +45,72 @@ internal static class ProtocolTests
         var message = IrcMessageParser.Parse("NOTICE nick :");
         Assert.Equal(2, message.Parameters.Count);
         Assert.Equal(string.Empty, message.Parameters[1]);
+    }
+
+    private static void ParserHandlesMessageTags()
+    {
+        var message = IrcMessageParser.Parse(
+            "@time=2026-09-20T18:45:12.123Z;flag;empty=;Tag=upper;tag=lower " +
+            ":nick!user@example PRIVMSG #clircs :hello there");
+
+        Assert.True(message.HasTags);
+        Assert.Equal(5, message.Tags.Count);
+        Assert.Equal("2026-09-20T18:45:12.123Z", message.Tags["time"]!);
+        Assert.True(message.Tags["flag"] is null);
+        Assert.True(message.Tags["empty"] is null);
+        Assert.Equal("upper", message.Tags["Tag"]!);
+        Assert.Equal("lower", message.Tags["tag"]!);
+        Assert.Equal("nick!user@example", message.Prefix!);
+        Assert.Equal("PRIVMSG", message.Command);
+        Assert.Equal("hello there", message.Parameters[1]);
+    }
+
+    private static void ParserUnescapesMessageTags()
+    {
+        var message = IrcMessageParser.Parse(
+            """@example=raw+:=,escaped\:\s\\;duplicate=first;duplicate=second;unknown=one\q;trailing=two\ NOTICE nick :hello""");
+
+        Assert.Equal("raw+:=,escaped; \\", message.Tags["example"]!);
+        Assert.Equal("second", message.Tags["duplicate"]!);
+        Assert.Equal("oneq", message.Tags["unknown"]!);
+        Assert.Equal("two", message.Tags["trailing"]!);
+    }
+
+    private static void ParserRejectsEmptyMessageTagKey() =>
+        Assert.Throws<IrcProtocolException>(() =>
+            IrcMessageParser.Parse("@=value PRIVMSG #clircs :hello"));
+
+    private static void ServerTimeParserAcceptsIrcv3Timestamps()
+    {
+        Assert.True(IrcServerTime.TryParse(
+            "2026-09-20T18:45:12.123Z",
+            out var timestamp));
+        Assert.Equal(
+            new DateTimeOffset(
+                2026, 9, 20, 18, 45, 12, 123, TimeSpan.Zero),
+            timestamp);
+
+        Assert.True(IrcServerTime.TryParse(
+            "2012-06-30T23:59:60.419Z",
+            out var leapSecond));
+        Assert.Equal(
+            new DateTimeOffset(
+                2012, 7, 1, 0, 0, 0, 419, TimeSpan.Zero),
+            leapSecond);
+    }
+
+    private static void ServerTimeParserRejectsNonstandardTimestamps()
+    {
+        Assert.False(IrcServerTime.TryParse(null, out _));
+        Assert.False(IrcServerTime.TryParse(
+            "2026-09-20T18:45:12Z",
+            out _));
+        Assert.False(IrcServerTime.TryParse(
+            "2026-09-20T18:45:12.123+00:00",
+            out _));
+        Assert.False(IrcServerTime.TryParse(
+            "2026-02-30T18:45:12.123Z",
+            out _));
     }
 
     private static void ParserRejectsLineInjection() =>

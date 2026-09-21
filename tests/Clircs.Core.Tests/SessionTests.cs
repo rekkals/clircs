@@ -575,7 +575,7 @@ internal static class SessionTests
             var (_, processor) = CreateProcessor();
             processor.BeginWhoisRequest("Alice", includeIdle: false);
             var events = new IrcTranscriptHarness().Replay(transcript)
-                .SelectMany(processor.Process)
+                .SelectMany(message => processor.Process(message))
                 .ToArray();
             var completed = events.Single(item => item.Fields?.GetValueOrDefault("outputEnd") == "true");
             Assert.Equal("WHOIS:", completed.Presentation!.Title);

@@ -348,6 +348,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     private async ValueTask OnMessageReceivedAsync(IrcMessage message)
     {
+        var receivedAt = DateTimeOffset.Now;
         if (message.Command == "KILL" && message.Parameters.Count >= 1 &&
             new IrcNameComparer(State.CaseMapping).Equals(message.Parameters[0], CurrentNickname))
         {
@@ -396,9 +397,17 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             _processor.ObserveConnectionMetadata(message);
         }
 
+        var occurredAt = receivedAt;
+        if (_connection.IsCapabilityEnabled("server-time") &&
+            message.Tags.TryGetValue("time", out var serverTimeValue) &&
+            IrcServerTime.TryParse(serverTimeValue, out var serverTime))
+        {
+            occurredAt = serverTime.ToLocalTime();
+        }
+
         var processedEvents = registrationProtocolMessage
             ? []
-            : _processor.Process(message);
+            : _processor.Process(message, occurredAt);
         if (_synchronizationCompleted)
         {
             StartBouncerMetadataProbe();
@@ -416,7 +425,11 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                     processedEvent.Fields.GetValueOrDefault("away") == "true";
                 continue;
             }
-            var sessionEvent = processedEvent;
+            var sessionEvent = processedEvent with
+            {
+                ReceivedAt = receivedAt
+            };
+
             if (!_synchronizationCompleted && message.Command is "PRIVMSG" or "NOTICE")
             {
                 var fields = sessionEvent.Fields?.ToDictionary(entry => entry.Key, entry => entry.Value)

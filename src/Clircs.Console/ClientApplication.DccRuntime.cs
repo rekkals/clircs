@@ -117,7 +117,7 @@ internal sealed partial class ClientApplication
                 network,
                 sender,
                 offer!,
-                sessionEvent.Timestamp,
+                sessionEvent.ReceivedAt,
                 new IrcNameComparer(session.State.CaseMapping),
                 out var request))
         {

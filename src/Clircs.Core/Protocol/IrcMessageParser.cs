@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Clircs.Protocol;
 
 public static class IrcMessageParser
@@ -17,23 +19,36 @@ public static class IrcMessageParser
         }
 
         var position = 0;
-        string? prefix = null;
+        var tags = new Dictionary<string, string?>(StringComparer.Ordinal);
 
-        // TODO: Need to revisit message-tag handling with bouncers. ZNC is an example of it working
-        // right, with independent CAP negotiations from client -> bouncer and bouncer -> server with
-        // translation in between. Irssi proxy, however, doesn't negotiate CAP with the connecting
-        // client, and just sends upstream-negotiated message tags downstream, which is a problem in
-        // the case of the connecting client not supporting, say, IRCv3 features.
-
-        if (line[0] == ':')
+        if (line[position] == '@')
         {
-            var prefixEnd = line.IndexOf(' ');
-            if (prefixEnd <= 1)
+            var tagsEnd = line.IndexOf(' ');
+            if (tagsEnd <= 1)
+            {
+                throw new IrcProtocolException(
+                    "IRC message tags must be followed by a command.");
+            }
+
+            ParseTags(line[1..tagsEnd], tags);
+            position = SkipSpaces(line, tagsEnd);
+        }
+
+        if (position >= line.Length)
+        {
+            throw new IrcProtocolException("An IRC line is missing its command.");
+        }
+
+        string? prefix = null;
+        if (line[position] == ':')
+        {
+            var prefixEnd = line.IndexOf(' ', position);
+            if (prefixEnd <= position + 1)
             {
                 throw new IrcProtocolException("An IRC prefix must be followed by a command.");
             }
 
-            prefix = line[1..prefixEnd];
+            prefix = line[(position + 1)..prefixEnd];
             position = SkipSpaces(line, prefixEnd);
         }
 
@@ -47,7 +62,7 @@ public static class IrcMessageParser
         if (commandEnd < 0)
         {
             command = line[position..];
-            return new IrcMessage(prefix, command, []);
+            return new IrcMessage(prefix, command, [], tags);
         }
 
         command = line[position..commandEnd];
@@ -73,7 +88,7 @@ public static class IrcMessageParser
             position = SkipSpaces(line, parameterEnd);
         }
 
-        return new IrcMessage(prefix, command, parameters);
+        return new IrcMessage(prefix, command, parameters, tags);
     }
 
     public static bool TryParse(string line, out IrcMessage? message)
@@ -93,6 +108,66 @@ public static class IrcMessageParser
             message = null;
             return false;
         }
+    }
+
+    private static void ParseTags(
+        string value,
+        IDictionary<string, string?> tags)
+    {
+        foreach (var token in value.Split(';'))
+        {
+            var separator = token.IndexOf('=');
+            var key = separator < 0 ? token : token[..separator];
+            if (key.Length == 0)
+            {
+                throw new IrcProtocolException(
+                    "An IRC message tag must have a key.");
+            }
+
+            var unescaped = separator < 0
+                ? null
+                : UnescapeTagValue(token[(separator + 1)..]);
+
+            // Missing and empty values are the same under the IRCv3 specs.
+            // Later duplicates replace earlier ones.
+            tags[key] = string.IsNullOrEmpty(unescaped) ? null : unescaped;
+        }
+    }
+
+    private static string UnescapeTagValue(string value)
+    {
+        if (!value.Contains('\\'))
+        {
+            return value;
+        }
+
+        var result = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] != '\\')
+            {
+                result.Append(value[index]);
+                continue;
+            }
+
+            index++;
+            if (index >= value.Length)
+            {
+                break;
+            }
+
+            result.Append(value[index] switch
+            {
+                ':' => ';',
+                's' => ' ',
+                '\\' => '\\',
+                'r' => '\r',
+                'n' => '\n',
+                _ => value[index]
+            });
+        }
+
+        return result.ToString();
     }
 
     private static int SkipSpaces(string line, int position)

@@ -97,11 +97,13 @@ public sealed class IrcSessionProcessor
         _identityQueries.CancelWhois(requestId);
     }
 
-    public IReadOnlyList<SessionEvent> Process(IrcMessage message)
+    public IReadOnlyList<SessionEvent> Process(
+        IrcMessage message,
+        DateTimeOffset? occurredAt = null)
     {
         ArgumentNullException.ThrowIfNull(message);
         var events = new List<SessionEvent>();
-        var now = DateTimeOffset.Now;
+        var now = occurredAt ?? DateTimeOffset.Now;
         var sender = NickFromPrefix(message.Prefix);
         var senderIdentity = ParsePrefix(message.Prefix);
         var suppressAutomaticVersionOutput =
@@ -136,6 +138,7 @@ public sealed class IrcSessionProcessor
         {
             case "PING":
             case "PONG":
+            case "TAGMSG":
                 break;
             case "001":
                 if (message.Parameters.Count > 0)
