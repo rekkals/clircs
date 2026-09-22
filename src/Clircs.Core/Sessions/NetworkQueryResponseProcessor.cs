@@ -40,11 +40,16 @@ internal sealed class NetworkQueryResponseProcessor(SessionEventBuilder events)
             case "323":
                 result = CompleteList(now);
                 break;
-            case "249" when IsStatsOperatorReply(message):
+            case "242":
+                result = FormatStatsUptime(message, now);
+                break;
+            case "249" when IsStatsReply(message, "p"):
                 CollectStatsOperator(message);
                 break;
-            case "219" when IsStatsOperatorReply(message):
+            case "219" when IsStatsReply(message, "p"):
                 result = CompleteStatsOperators(now);
+                break;
+            case "219" when IsStatsReply(message, "u"):
                 break;
             default:
                 sessionEvents = [];
@@ -125,9 +130,19 @@ internal sealed class NetworkQueryResponseProcessor(SessionEventBuilder events)
                 Summary: rows.Length == 0 ? "No channels matched." : $"{rows.Length} channel(s)"));
     }
 
-    private static bool IsStatsOperatorReply(IrcMessage message) =>
+    private static bool IsStatsReply(IrcMessage message, string selector) =>
         message.Parameters.Count >= 2 &&
-        string.Equals(message.Parameters[1], "p", StringComparison.Ordinal);
+        string.Equals(message.Parameters[1], selector, StringComparison.Ordinal);
+
+    private SessionEvent FormatStatsUptime(IrcMessage message, DateTimeOffset now) =>
+        events.Status(
+            SessionEventKind.Server,
+            message.Parameters.Count == 0 ? string.Empty : message.Parameters[^1],
+            now,
+            SessionEventBuilder.Fields(
+                ("outputFamily", "stats"),
+                ("statsSelector", "u"),
+                ("numeric", "242")));
 
     private void CollectStatsOperator(IrcMessage message)
     {

@@ -46,6 +46,7 @@ internal static class SessionTests
         suite.Add("numeric 329 renders channel creation time in the channel", ChannelCreationRoutesToChannel);
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
         suite.Add("STATS p replies produce a formatted operator table", StatsOperatorsProduceInformationBox);
+        suite.Add("STATS u preserves server uptime text and suppresses its terminator", StatsUptimePreservesServerText);
         suite.Add("MOTD replies render without numeric prefixes", MotdNumericsAreHidden);
         suite.Add("WHOIS WHO and CTCP replies carry semantic routing fields", ResultRepliesAreTagged);
         suite.Add("WHOIS away field contains only the away message", WhoisAwayFieldContainsMessage);
@@ -1023,6 +1024,39 @@ internal static class SessionTests
         Assert.Equal("2 OPER(s)", events[0].Presentation!.Summary!);
         Assert.False(events[0].Text.Contains("219", StringComparison.Ordinal));
         Assert.False(events[0].Text.Contains("249", StringComparison.Ordinal));
+    }
+
+    private static void StatsUptimePreservesServerText()
+    {
+        var (_, processor) = CreateProcessor();
+
+        var ratbox = processor.Process(IrcMessageParser.Parse(
+            ":server 242 me :Server Up 238 days, 15:06:27"));
+
+        Assert.Equal(1, ratbox.Count);
+        Assert.Equal("Server Up 238 days, 15:06:27", ratbox[0].Text);
+        Assert.Equal("stats", ratbox[0].Fields!["outputFamily"]!);
+        Assert.Equal("u", ratbox[0].Fields!["statsSelector"]!);
+        Assert.Equal("242", ratbox[0].Fields!["numeric"]!);
+        Assert.False(ratbox[0].Text.Contains("242", StringComparison.Ordinal));
+
+        var highestConnection = processor.Process(IrcMessageParser.Parse(
+            ":server 250 me :Highest connection count: 946 (945 clients) (61781 connections received)"));
+
+        Assert.Equal(1, highestConnection.Count);
+        Assert.Equal(
+            "Highest connection count: 946 (945 clients) (61781 connections received)",
+            highestConnection[0].Text);
+
+        var completed = processor.Process(IrcMessageParser.Parse(
+            ":server 219 me u :End of /STATS report"));
+
+        Assert.Equal(0, completed.Count);
+
+        var inspircd = processor.Process(IrcMessageParser.Parse(
+            ":server 242 me :Server up 10 days, 01:12:54"));
+
+        Assert.Equal("Server up 10 days, 01:12:54", inspircd[0].Text);
     }
 
     private static void ResultRepliesAreTagged()
