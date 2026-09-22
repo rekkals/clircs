@@ -1577,22 +1577,11 @@ internal sealed class ConsolePresenter
         Console.SetCursorPosition(0, top);
     }
 
-    private void ClearInputRowUnsafe()
-    {
-        var width = Math.Max(2, Console.BufferWidth);
-        var inputTop = Math.Min(Console.BufferHeight - 1, Math.Clamp(_renderTop, 0, Console.BufferHeight - 1) + 1);
-        Console.ResetColor();
-        Console.SetCursorPosition(0, inputTop);
-        EraseCurrentRowUnsafe(width);
-        Console.SetCursorPosition(0, inputTop);
-    }
-
     private void UpdateInputRowUnsafe(Action? update = null)
     {
         SetCursorVisibleUnsafe(false);
         try
         {
-            ClearInputRowUnsafe();
             update?.Invoke();
             RenderInputRowUnsafe();
         }
@@ -1632,7 +1621,6 @@ internal sealed class ConsolePresenter
         var statusTop = Math.Clamp(_renderTop, 0, Console.BufferHeight - 1);
         var inputTop = Math.Min(Console.BufferHeight - 1, statusTop + 1);
         Console.SetCursorPosition(0, inputTop);
-        EraseCurrentRowUnsafe(width);
         var renderedInput = _maskInput
             ? new string('*', _input.Length)
             : InputFormattingControls.ToDisplayText(_input.ToString());
@@ -1640,7 +1628,8 @@ internal sealed class ConsolePresenter
             _prompt, renderedInput, _inputCursor, width, _inputViewStart);
         _inputViewStart = layout.ViewStart;
         WriteColoredUnsafe(layout.Prompt, _theme.Dim);
-        Console.Write(layout.Text);
+        var remainingWidth = Math.Max(0, width - 1 - layout.Prompt.Length);
+        Console.Write(layout.Text.PadRight(remainingWidth));
         Console.SetCursorPosition(layout.CursorColumn, inputTop);
     }
 
