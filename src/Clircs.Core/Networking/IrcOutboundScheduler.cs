@@ -126,7 +126,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
 
                 try
                 {
-                    if (item.Priority != IrcOutboundPriority.Critical)
+                    if (item.Priority is not (IrcOutboundPriority.Critical or IrcOutboundPriority.Interactive))
                     {
                         await WaitForSendBudgetAsync(item.Bytes.Length, _stopping.Token).ConfigureAwait(false);
                     }

@@ -892,6 +892,10 @@ internal sealed class ConsolePresenter
             SetCursorVisibleUnsafe(true);
         }
 
+        // Pasted text arrives as individual keys, so apply them in order without repainting each one.
+        const int maxKeysBeforeRedraw = 64;
+        var pendingInputKeys = 0;
+
         while (true)
         {
             var scrollDirection = 0;
@@ -905,15 +909,21 @@ internal sealed class ConsolePresenter
 
                 if (!receivedKey)
                 {
+                    if (pendingInputKeys > 0 && !_specialInputActive)
+                    {
+                        UpdateInputRowUnsafe();
+                        pendingInputKeys = 0;
+                    }
                     checkResize = !_specialInputActive;
                 }
-                else if (key.Key == ConsoleKey.PageUp)
+                else if (key.Key is ConsoleKey.PageUp or ConsoleKey.PageDown)
                 {
-                    scrollDirection = 1;
-                }
-                else if (key.Key == ConsoleKey.PageDown)
-                {
-                    scrollDirection = -1;
+                    if (pendingInputKeys > 0)
+                    {
+                        UpdateInputRowUnsafe();
+                        pendingInputKeys = 0;
+                    }
+                    scrollDirection = key.Key == ConsoleKey.PageUp ? 1 : -1;
                 }
                 else if (key.Key == ConsoleKey.Enter)
                 {
@@ -944,7 +954,12 @@ internal sealed class ConsolePresenter
                 }
                 else
                 {
-                    UpdateInputRowUnsafe(() => ApplyKeyUnsafe(key));
+                    ApplyKeyUnsafe(key);
+                    if (++pendingInputKeys >= maxKeysBeforeRedraw || !Console.KeyAvailable)
+                    {
+                        UpdateInputRowUnsafe();
+                        pendingInputKeys = 0;
+                    }
                 }
             }
 
@@ -1572,13 +1587,13 @@ internal sealed class ConsolePresenter
         Console.SetCursorPosition(0, inputTop);
     }
 
-    private void UpdateInputRowUnsafe(Action update)
+    private void UpdateInputRowUnsafe(Action? update = null)
     {
         SetCursorVisibleUnsafe(false);
         try
         {
             ClearInputRowUnsafe();
-            update();
+            update?.Invoke();
             RenderInputRowUnsafe();
         }
         finally

@@ -12,7 +12,8 @@ internal static class FloodResilienceTests
 {
     public static void Register(TestSuite suite)
     {
-        suite.Add("ordinary IRC output is paced after a small burst", OutboundTrafficIsPacedAsync);
+        suite.Add("automated IRC output is paced after a small burst", OutboundTrafficIsPacedAsync);
+        suite.Add("interactive IRC output is not paced", InteractiveOutputIsNotPacedAsync);
         suite.Add("IRC output queue rejects excess pending work", OutboundQueueIsBoundedAsync);
         suite.Add("automatic CTCP replies have sender and network limits", AutomaticCtcpRepliesAreLimited);
         suite.Add("recent flood traffic remains available in scrollback", RecentFloodTrafficRemainsInScrollback);
@@ -32,11 +33,25 @@ internal static class FloodResilienceTests
             transport,
             burstTokens: 2,
             tokenInterval: TimeSpan.FromMilliseconds(80));
-        await scheduler.EnqueueAsync("one\r\n"u8.ToArray(), IrcOutboundPriority.Interactive, CancellationToken.None);
-        await scheduler.EnqueueAsync("two\r\n"u8.ToArray(), IrcOutboundPriority.Interactive, CancellationToken.None);
+        await scheduler.EnqueueAsync("one\r\n"u8.ToArray(), IrcOutboundPriority.Automation, CancellationToken.None);
+        await scheduler.EnqueueAsync("two\r\n"u8.ToArray(), IrcOutboundPriority.Automation, CancellationToken.None);
         var stopwatch = Stopwatch.StartNew();
-        await scheduler.EnqueueAsync("three\r\n"u8.ToArray(), IrcOutboundPriority.Interactive, CancellationToken.None);
+        await scheduler.EnqueueAsync("three\r\n"u8.ToArray(), IrcOutboundPriority.Automation, CancellationToken.None);
         Assert.True(stopwatch.Elapsed >= TimeSpan.FromMilliseconds(55), "The post-burst IRC line was not paced.");
+    }
+
+    private static async ValueTask InteractiveOutputIsNotPacedAsync()
+    {
+        var transport = new RecordingTransport();
+        await using var scheduler = new IrcOutboundScheduler(
+            transport,
+            burstTokens: 1,
+            tokenInterval: TimeSpan.FromSeconds(10));
+
+        await scheduler.EnqueueAsync("automated\r\n"u8.ToArray(), IrcOutboundPriority.Automation, CancellationToken.None);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await scheduler.EnqueueAsync("interactive\r\n"u8.ToArray(), IrcOutboundPriority.Interactive, timeout.Token);
     }
 
     private static async ValueTask OutboundQueueIsBoundedAsync()
