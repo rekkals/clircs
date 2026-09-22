@@ -130,6 +130,7 @@ internal sealed partial class ClientApplication
         Register("whowas", ["ww"], "Performs WHOWAS on <nickname>.", WhowasAsync);
         Register("motd", [], "Request the server MOTD.", MotdAsync);
         Register("links", [], "Request server links.", LinksAsync);
+        Register("stats", [], "Request server statistics.", StatsAsync);
         Register("list", [], "Show publicly listed channels on the server.", ListAsync);
         Register("dns", [], "Resolve a hostname or IP address.", DnsAsync);
         Register("nickserv", [], "Send a command to NickServ.", ServiceAsync);

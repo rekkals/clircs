@@ -66,6 +66,25 @@ internal sealed partial class ClientApplication
     private ValueTask<CommandResult> LinksAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
         SendRoutedSimpleAsync("LINKS", "links", input.Arguments, "Usage: /links [server-mask]", cancellationToken, allowEmpty: true);
 
+    private ValueTask<CommandResult> StatsAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (input.Arguments.Count is < 1 or > 2 ||
+            input.Arguments[0].Length != 1)
+        {
+            return ValueTask.FromResult(
+                CommandResult.Failure("Usage: /stats <selector> [server]"));
+        }
+
+        return SendSimpleAsync(
+            "STATS",
+            input.Arguments,
+            "Usage: /stats <selector> [server]",
+            cancellationToken);
+    }
+
     private ValueTask<CommandResult> ListAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
         SendRoutedSimpleAsync("LIST", "list", input.Arguments, "Usage: /list [filters]", cancellationToken, allowEmpty: true);
 

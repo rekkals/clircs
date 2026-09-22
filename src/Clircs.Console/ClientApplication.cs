@@ -101,6 +101,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["whowas"] = "/whowas <nickname>",
             ["motd"] = "/motd",
             ["links"] = "/links [server-mask]",
+            ["stats"] = "/stats <selector> [server]",
             ["list"] = "/list [filters]",
             ["dns"] = "/dns <hostname|IP>",
             ["nickserv"] = "/nickserv <command> [arguments]",
