@@ -1382,9 +1382,16 @@ internal sealed partial class ClientApplication
             return false;
         }
 
+        var profile = ProfileFor(session);
+        if (profile is null)
+        {
+            failure = CommandResult.Failure(
+                "User directory commands require a saved network profile. Set one up with /network add <name> <host> [port] [--tls], then connect with /server <name>.");
+            return false;
+        }
+
         try
         {
-            var profile = EnsureProfileFor(session, out _);
             directory = _userAndChannelPolicy
                 .GetDirectory(profile.Id, () => _userDirectoryStore.Load(profile.Id))
                 .DeepCopy();
