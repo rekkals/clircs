@@ -124,6 +124,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     private readonly string _dataDirectory;
     private readonly BackupManager _backupManager;
     private readonly LoggingSettingsStore _loggingStore;
+    private readonly SessionLoggingSettings _sessionLogging = new();
     private readonly EventLogWriter _logWriter;
     private readonly TlsCertificatePromptPolicy _tlsCertificatePolicy;
     private readonly NetworkProfileStore _profileStore;

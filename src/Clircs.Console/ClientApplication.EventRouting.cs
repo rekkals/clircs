@@ -302,15 +302,25 @@ internal sealed partial class ClientApplication
         IrcNetworkSession? session,
         BufferState? buffer)
     {
-        if (session is null || buffer is null || !CanLog(buffer)) return ResourceQueueWriteResult.Accepted;
+        if (session is null || buffer is null || !CanLog(buffer))
+            return ResourceQueueWriteResult.Accepted;
+
         var profile = ProfileFor(session);
-        if (profile is null) return ResourceQueueWriteResult.Accepted;
         var target = LoggingTarget(buffer);
-        if (!_loggingStore.IsEnabled(profile.Id, target)) return ResourceQueueWriteResult.Accepted;
+        var enabled = profile is null
+            ? _sessionLogging.IsEnabled(session.State.Id, target)
+            : _loggingStore.IsEnabled(profile.Id, target);
+        if (!enabled) return ResourceQueueWriteResult.Accepted;
+
         var lines = TranscriptFormatter.FormatLines(
             sessionEvent, _preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
         if (lines.Count == 0) return ResourceQueueWriteResult.Accepted;
-        return _logWriter.Enqueue(profile.DisplayName, buffer.Kind, target, sessionEvent.Timestamp, lines);
+
+        return profile is null
+            ? _logWriter.EnqueueSession(
+                session.Options.Endpoint, session.State.Id, buffer.Kind, target, sessionEvent.Timestamp, lines)
+            : _logWriter.Enqueue(
+                profile.DisplayName, buffer.Kind, target, sessionEvent.Timestamp, lines);
     }
 
     private void OpenInboundResourceCircuit(NetworkSessionId sessionId, string reason)

@@ -680,6 +680,7 @@ internal sealed partial class ClientApplication
 
         var enabled = operation == "on";
         NetworkProfile? profile;
+        IrcNetworkSession? session = null;
         string? target = null;
         if (input.Arguments.Count == 1)
         {
@@ -694,7 +695,8 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(CommandResult.Failure(
                     "Logging applies to status, channel, query, DCC CHAT, and debug windows."));
             }
-            profile = EnsureProfileFor(activeSession, out _);
+            session = activeSession;
+            profile = ProfileFor(activeSession);
             target = LoggingTarget(activeBuffer);
         }
         // With one operand, prefer a matching saved network; otherwise treat the
@@ -710,7 +712,8 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure(
                         $"No saved network profile named '{input.Arguments[1]}' exists."));
                 }
-                profile = EnsureProfileFor(activeSession, out _);
+                session = activeSession;
+                profile = ProfileFor(activeSession);
                 target = LoggingSettingsStore.NormalizeTarget(input.Arguments[1]);
             }
         }
@@ -723,6 +726,16 @@ internal sealed partial class ClientApplication
                     $"No saved network profile named '{input.Arguments[1]}' exists."));
             }
             target = LoggingSettingsStore.NormalizeTarget(input.Arguments[2]);
+        }
+
+        if (profile is null)
+        {
+            if (session is null || target is null)
+                return ValueTask.FromResult(CommandResult.Failure("There is no active loggable window."));
+
+            _sessionLogging.Set(session.State.Id, target, enabled);
+            return ValueTask.FromResult(CommandResult.Success(
+                $"Logging is now {(enabled ? "on" : "off")} for {target} in this session."));
         }
 
         try
@@ -754,10 +767,19 @@ internal sealed partial class ClientApplication
         }
         var profile = ProfileFor(session);
         var target = LoggingTarget(buffer);
-        var networkDefault = profile is not null && _loggingStore.NetworkDefault(profile.Id);
-        var targetOverride = profile is null ? null : _loggingStore.TargetOverride(profile.Id, target);
+        if (profile is null)
+        {
+            return CommandResult.Success(new PresentationBlock(
+                $"Logging: session/{target}",
+                [
+                    new("Scope", "current session only"),
+                    new("Window", _sessionLogging.IsEnabled(session.State.Id, target) ? "on" : "off")
+                ]));
+        }
+        var networkDefault = _loggingStore.NetworkDefault(profile.Id);
+        var targetOverride = _loggingStore.TargetOverride(profile.Id, target);
         return CommandResult.Success(LoggingStatusPresentation(
-            profile?.DisplayName ?? session.State.DisplayName,
+            profile.DisplayName,
             buffer,
             networkDefault,
             targetOverride));

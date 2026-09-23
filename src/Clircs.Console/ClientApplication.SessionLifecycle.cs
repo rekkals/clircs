@@ -159,6 +159,8 @@ internal sealed partial class ClientApplication
         _inboundResourceCircuitBreaker.Reset(session.State.Id);
         _sessionTransientState.ClearSession(session.State.Id);
         _channelSynchronization.ClearSession(session.State.Id);
+        _sessionLogging.ClearSession(session.State.Id);
+        _logWriter.ReleaseSession(session.State.Id);
         foreach (var bufferId in closedBufferIds) _presenter.ForgetInputHistory(bufferId);
 
         await session.DisposeAsync();

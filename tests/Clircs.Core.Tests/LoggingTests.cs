@@ -2,6 +2,7 @@ using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Sessions;
 using Clircs.State;
+using Clircs.Networking;
 
 namespace Clircs.Core.Tests;
 
@@ -14,6 +15,9 @@ internal static class LoggingTests
         suite.Add("event logger retains a burst larger than its former queue", RetainsLargeBurstAsync);
         suite.Add("log formatter records semantic events but skips startup UI", FormatsSemanticEvents);
         suite.Add("logging status shows network and effective window rules", StatusPresentationIsReadable);
+        suite.Add("session logging stays isolated and expires with its session", SessionRulesAreTemporary);
+        suite.Add("session logs are stored apart from profile logs", WritesSessionFilesAsync);
+        suite.Add("concurrent manual connections get separate log folders", ConcurrentSessionsGetSeparateFoldersAsync);
     }
 
     private static void RulesPersist()
@@ -167,6 +171,71 @@ internal static class LoggingTests
         var disabled = ClientApplication.LoggingStatusPresentation(
             "EFnet", query, networkEnabled: true, windowOverride: false);
         Assert.Equal("Query,off (query override)", $"{disabled.Fields![1].Label},{disabled.Fields[1].Value}");
+    }
+
+    private static void SessionRulesAreTemporary()
+    {
+        var settings = new SessionLoggingSettings();
+        var first = NetworkSessionId.New();
+        var second = NetworkSessionId.New();
+
+        settings.Set(first, "#clircs", true);
+        Assert.True(settings.IsEnabled(first, "#CLIRCS"));
+        Assert.False(settings.IsEnabled(second, "#clircs"));
+
+        settings.ClearSession(first);
+        Assert.False(settings.IsEnabled(first, "#clircs"));
+    }
+
+    private static async ValueTask WritesSessionFilesAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var timestamp = new DateTimeOffset(2026, 9, 23, 12, 34, 56, TimeSpan.Zero);
+        var endpoint = new IrcEndpoint("irc.example.test", 6667, false);
+        var sessionId = NetworkSessionId.New();
+        var writer = new EventLogWriter(temporary.Path);
+
+        writer.Enqueue("EFnet", BufferKind.Channel, "#clircs", timestamp, ["profile line"]);
+        writer.EnqueueSession(
+            endpoint, sessionId, BufferKind.Channel, "#clircs", timestamp, ["session line"]);
+        await writer.DisposeAsync();
+
+        var profilePath = Path.Combine(
+            temporary.Path, "EFnet", "#clircs", "2026-09-23.log");
+        var sessionPath = Path.Combine(
+            temporary.Path, "session", "irc.example.test_6667",
+            "#clircs", "2026-09-23.log");
+
+        Assert.Equal("[12:34:56] profile line", File.ReadAllText(profilePath).Trim());
+        Assert.Equal("[12:34:56] session line", File.ReadAllText(sessionPath).Trim());
+    }
+
+    private static async ValueTask ConcurrentSessionsGetSeparateFoldersAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var timestamp = new DateTimeOffset(2026, 9, 23, 12, 34, 56, TimeSpan.Zero);
+        var endpoint = new IrcEndpoint("irc.example.test", 6667, false);
+        var first = NetworkSessionId.New();
+        var second = NetworkSessionId.New();
+        var third = NetworkSessionId.New();
+        var writer = new EventLogWriter(temporary.Path);
+
+        writer.EnqueueSession(endpoint, first, BufferKind.Status, "status", timestamp, ["first"]);
+        writer.EnqueueSession(endpoint, second, BufferKind.Status, "status", timestamp, ["second"]);
+        writer.ReleaseSession(first);
+        writer.EnqueueSession(endpoint, third, BufferKind.Status, "status", timestamp, ["third"]);
+        await writer.DisposeAsync();
+
+        var basePath = Path.Combine(
+            temporary.Path, "session", "irc.example.test_6667", "status", "2026-09-23.log");
+        var secondPath = Path.Combine(
+            temporary.Path, "session", "irc.example.test_6667_2", "status", "2026-09-23.log");
+
+        var baseLines = File.ReadAllLines(basePath);
+        Assert.Equal(2, baseLines.Length);
+        Assert.Equal("[12:34:56] first", baseLines[0]);
+        Assert.Equal("[12:34:56] third", baseLines[1]);
+        Assert.Equal("[12:34:56] second", File.ReadAllText(secondPath).Trim());
     }
 
     private sealed class TemporaryDirectory : IDisposable
