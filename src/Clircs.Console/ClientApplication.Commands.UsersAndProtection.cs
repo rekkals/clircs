@@ -486,18 +486,17 @@ internal sealed partial class ClientApplication
         {
             if (operation is "on" or "off")
             {
-                if (!TryFriendlyChannelScope(tail, createUnknown: true, out var scope, out var label, out var created, out var failure))
+                if (!TryFriendlyChannelScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 _protectionStore.SetChannelEnabled(scope!, operation == "on");
-                var suffix = created ? " An unconfigured network profile was created for it." : string.Empty;
                 return ValueTask.FromResult(CommandResult.Success(
                     $"Channel protection turned {operation} for {label}. " +
-                    $"Action: {ChannelActionName(_protectionStore.SettingsFor(scope!).ChannelAction)}.{suffix}"));
+                    $"Action: {ChannelActionName(_protectionStore.SettingsFor(scope!).ChannelAction)}."));
             }
 
             if (operation is "status" or "show")
             {
-                if (!TryFriendlyChannelScope(tail, createUnknown: false, out var scope, out var label, out _, out var failure))
+                if (!TryFriendlyChannelScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 var effective = _protectionStore.SettingsFor(scope!);
                 return ValueTask.FromResult(CommandResult.Success(FriendlyProtectionPresentation(
@@ -509,8 +508,8 @@ internal sealed partial class ClientApplication
                 if (tail.Length == 0 || !TryParseChannelProtectionAction(tail[0], out var action))
                     return ValueTask.FromResult(CommandResult.Failure(
                         "Usage: /cprot action <monitor|kick|kickban> [network] [channel]"));
-                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), true, out var actionScope, out var actionLabel,
-                        out _, out var actionFailure))
+                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var actionScope, out var actionLabel,
+                    out var actionFailure))
                     return ValueTask.FromResult(actionFailure);
                 _protectionStore.SetChannelAction(actionScope!, action);
                 return ValueTask.FromResult(CommandResult.Success(
@@ -528,8 +527,8 @@ internal sealed partial class ClientApplication
                                    banDuration > TimeSpan.FromDays(30)))
                     return ValueTask.FromResult(CommandResult.Failure(
                         "Ban time must be permanent or from 1 second through 30 days, such as 30m."));
-                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), true, out var banScope, out var banLabel,
-                        out _, out var banFailure))
+                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var banScope, out var banLabel,
+                    out var banFailure))
                     return ValueTask.FromResult(banFailure);
                 var banSeconds = permanent ? 0 : (int)Math.Ceiling(banDuration.TotalSeconds);
                 _protectionStore.SetBanSeconds(banScope!, banSeconds);
@@ -549,17 +548,16 @@ internal sealed partial class ClientApplication
 
             if (tail[0].Equals("off", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), true, out var scope, out var label, out var created, out var failure))
+                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 _protectionStore.SetRule(scope!, detector.Value, enabled: false);
                 return ValueTask.FromResult(CommandResult.Success(
-                    $"{DetectorName(detector.Value)} detection turned off for {label}." +
-                    (created ? " An unconfigured network profile was created for it." : string.Empty)));
+                    $"{DetectorName(detector.Value)} detection turned off for {label}."));
             }
 
             if (tail[0].Equals("default", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), false, out var scope, out var label, out _, out var failure))
+                if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 var changed = _protectionStore.ClearRule(scope!, detector.Value);
                 return ValueTask.FromResult(CommandResult.Success(changed
@@ -573,13 +571,12 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(CommandResult.Failure(
                     $"Usage: /cprot {operation} <count> <seconds> [network] [channel]"));
             }
-            if (!TryFriendlyChannelScope(tail.Skip(2).ToArray(), true, out var ruleScope, out var ruleLabel, out var ruleCreated, out var ruleFailure))
+            if (!TryFriendlyChannelScope(tail.Skip(2).ToArray(), out var ruleScope, out var ruleLabel, out var ruleFailure))
                 return ValueTask.FromResult(ruleFailure);
             var seconds = (int)Math.Ceiling(duration.TotalSeconds);
             _protectionStore.SetRule(ruleScope!, detector.Value, enabled: true, threshold: count, windowSeconds: seconds);
             return ValueTask.FromResult(CommandResult.Success(
-                $"{DetectorName(detector.Value)} detection set to {count} in {seconds}s for {ruleLabel}." +
-                (ruleCreated ? " An unconfigured network profile was created for it." : string.Empty)));
+                $"{DetectorName(detector.Value)} detection set to {count} in {seconds}s for {ruleLabel}."));
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or
             IOException or UnauthorizedAccessException)
@@ -600,16 +597,15 @@ internal sealed partial class ClientApplication
         {
             if (operation is "on" or "off")
             {
-                if (!TryFriendlyNetworkScope(tail, true, out var scope, out var label, out var created, out var failure))
+                if (!TryFriendlyNetworkScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 _protectionStore.SetPersonalEnabled(scope!, operation == "on");
                 return ValueTask.FromResult(CommandResult.Success(
-                    $"Personal protection turned {operation} for {label}. Triggered clients are ignored locally." +
-                    (created ? " An unconfigured network profile was created for it." : string.Empty)));
+                    $"Personal protection turned {operation} for {label}. Triggered clients are ignored locally."));
             }
             if (operation is "status" or "show")
             {
-                if (!TryFriendlyNetworkScope(tail, false, out var scope, out var label, out _, out var failure))
+                if (!TryFriendlyNetworkScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 return ValueTask.FromResult(CommandResult.Success(FriendlyProtectionPresentation(
                     $"Personal protection: {label}", _protectionStore.SettingsFor(scope!), PersonalProtectionDetectors)));
@@ -621,8 +617,8 @@ internal sealed partial class ClientApplication
                     ignoreDuration > TimeSpan.FromDays(1))
                     return ValueTask.FromResult(CommandResult.Failure(
                         "Usage: /pprot ignoretime <duration> [network] (maximum 1 day)"));
-                if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), true, out var ignoreScope, out var ignoreLabel,
-                        out _, out var ignoreFailure))
+                if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), out var ignoreScope, out var ignoreLabel,
+                    out var ignoreFailure))
                     return ValueTask.FromResult(ignoreFailure);
                 var ignoreSeconds = (int)Math.Ceiling(ignoreDuration.TotalSeconds);
                 _protectionStore.SetPersonalIgnoreSeconds(ignoreScope!, ignoreSeconds);
@@ -640,16 +636,15 @@ internal sealed partial class ClientApplication
 
             if (tail[0].Equals("off", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), true, out var scope, out var label, out var created, out var failure))
+                if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 _protectionStore.SetRule(scope!, detector.Value, enabled: false);
                 return ValueTask.FromResult(CommandResult.Success(
-                    $"{DetectorName(detector.Value)} detection turned off for {label}." +
-                    (created ? " An unconfigured network profile was created for it." : string.Empty)));
+                    $"{DetectorName(detector.Value)} detection turned off for {label}."));
             }
             if (tail[0].Equals("default", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), false, out var scope, out var label, out _, out var failure))
+                if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 var changed = _protectionStore.ClearRule(scope!, detector.Value);
                 return ValueTask.FromResult(CommandResult.Success(changed
@@ -662,13 +657,12 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(CommandResult.Failure(
                     $"Usage: /pprot {operation} <count> <seconds> [network]"));
             }
-            if (!TryFriendlyNetworkScope(tail.Skip(2).ToArray(), true, out var ruleScope, out var ruleLabel, out var ruleCreated, out var ruleFailure))
+            if (!TryFriendlyNetworkScope(tail.Skip(2).ToArray(), out var ruleScope, out var ruleLabel, out var ruleFailure))
                 return ValueTask.FromResult(ruleFailure);
             var seconds = (int)Math.Ceiling(duration.TotalSeconds);
             _protectionStore.SetRule(ruleScope!, detector.Value, enabled: true, threshold: count, windowSeconds: seconds);
             return ValueTask.FromResult(CommandResult.Success(
-                $"{DetectorName(detector.Value)} detection set to {count} in {seconds}s for {ruleLabel}." +
-                (ruleCreated ? " An unconfigured network profile was created for it." : string.Empty)));
+                $"{DetectorName(detector.Value)} detection set to {count} in {seconds}s for {ruleLabel}."));
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or
             IOException or UnauthorizedAccessException)

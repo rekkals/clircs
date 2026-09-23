@@ -483,15 +483,12 @@ internal sealed partial class ClientApplication
 
     private bool TryFriendlyChannelScope(
         IReadOnlyList<string> arguments,
-        bool createUnknown,
         out ProtectionScope? scope,
         out string label,
-        out bool created,
         out CommandResult failure)
     {
         scope = null;
         label = string.Empty;
-        created = false;
         failure = CommandResult.Success();
         string channel;
         NetworkProfile? profile;
@@ -507,7 +504,13 @@ internal sealed partial class ClientApplication
                     "Use this in a channel window, or specify both network and channel: /cprot on EFnet #clircs");
                 return false;
             }
-            profile = EnsureProfileFor(session, out _);
+            profile = ProfileFor(session);
+            if (profile is null)
+            {
+                failure = CommandResult.Failure(
+                    "This connection has no saved network profile. Connect with /server <profile>, or specify an existing profile by name.");
+                return false;
+            }
         }
         else if (arguments.Count == 1 && IsChannelProtectionTarget(arguments[0]))
         {
@@ -517,12 +520,18 @@ internal sealed partial class ClientApplication
                 failure = CommandResult.Failure("Specify a network as well: /cprot on EFnet #clircs");
                 return false;
             }
-            profile = EnsureProfileFor(session, out _);
+            profile = ProfileFor(session);
+            if (profile is null)
+            {
+                failure = CommandResult.Failure(
+                    "This connection has no saved network profile. Connect with /server <profile>, or specify an existing profile by name.");
+                return false;
+            }
             channel = arguments[0];
         }
         else if (arguments.Count == 2)
         {
-            if (!TryProtectionProfile(arguments[0], createUnknown, out profile, out session, out created, out failure))
+            if (!TryProtectionProfile(arguments[0], out profile, out failure))
                 return false;
             channel = arguments[1];
         }
@@ -551,15 +560,12 @@ internal sealed partial class ClientApplication
 
     private bool TryFriendlyNetworkScope(
         IReadOnlyList<string> arguments,
-        bool createUnknown,
         out ProtectionScope? scope,
         out string label,
-        out bool created,
         out CommandResult failure)
     {
         scope = null;
         label = string.Empty;
-        created = false;
         failure = CommandResult.Success();
         NetworkProfile? profile;
         if (arguments.Count == 0)
@@ -570,11 +576,17 @@ internal sealed partial class ClientApplication
                 failure = CommandResult.Failure("Connect to a network or name one, such as /pprot on EFnet.");
                 return false;
             }
-            profile = EnsureProfileFor(session, out _);
+            profile = ProfileFor(session);
+            if (profile is null)
+            {
+                failure = CommandResult.Failure(
+                    "This connection has no saved network profile. Connect with /server <profile>, or specify an existing profile by name.");
+                return false;
+            }
         }
         else if (arguments.Count == 1)
         {
-            if (!TryProtectionProfile(arguments[0], createUnknown, out profile, out _, out created, out failure))
+            if (!TryProtectionProfile(arguments[0], out profile, out failure))
                 return false;
         }
         else
@@ -589,41 +601,14 @@ internal sealed partial class ClientApplication
 
     private bool TryProtectionProfile(
         string name,
-        bool createUnknown,
         out NetworkProfile? profile,
-        out IrcNetworkSession? session,
-        out bool created,
         out CommandResult failure)
     {
-        created = false;
-        failure = CommandResult.Success();
         profile = _profileStore.Find(name);
-        session = null;
-        if (profile is not null) return true;
-
-        session = SessionsSnapshot().FirstOrDefault(candidate =>
-            candidate.State.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-            candidate.Features.NetworkName?.Equals(name, StringComparison.OrdinalIgnoreCase) == true ||
-            ProfileFor(candidate)?.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase) == true);
-        if (session is not null)
-        {
-            profile = EnsureProfileFor(session, out _);
-            return true;
-        }
-        if (!createUnknown)
-        {
-            failure = CommandResult.Failure($"No network profile named '{name}' exists.");
-            return false;
-        }
-
-        profile = new NetworkProfile(
-            NetworkProfileId.New(),
-            name,
-            [],
-            new IrcIdentity([_preferences.Nickname, _preferences.AlternateNickname], _preferences.Username, _preferences.RealName));
-        _profileStore.Add(profile);
-        created = true;
-        return true;
+        failure = profile is null
+            ? CommandResult.Failure($"No network profile named '{name}' exists.")
+            : CommandResult.Success();
+        return profile is not null;
     }
 
     private static bool IsChannelProtectionTarget(string value) =>
@@ -762,7 +747,13 @@ internal sealed partial class ClientApplication
             return false;
         }
 
-        var profile = EnsureProfileFor(session, out _);
+        var profile = ProfileFor(session);
+        if (profile is null)
+        {
+            failure = CommandResult.Failure(
+                "Network and channel protection require a saved network profile. Connect with /server <profile>, or use --global.");
+            return false;
+        }
         var networkId = profile.Id.ToString();
         if (arguments.Count > 0 && arguments[0].Equals("--network", StringComparison.OrdinalIgnoreCase))
         {
