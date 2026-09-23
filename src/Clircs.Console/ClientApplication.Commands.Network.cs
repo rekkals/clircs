@@ -1389,10 +1389,12 @@ internal sealed partial class ClientApplication
     {
         var session = RequireSession(out var failure);
         if (session is null) return failure;
-        NetworkProfile profile;
-        try { profile = EnsureProfileFor(session, out _); }
-        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
-        { return CommandResult.Failure(exception.Message); }
+        var profile = ProfileFor(session);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                "Notify requires a saved network profile. Set one up with /network add <name> <host> [port] [--tls], then connect with /server <name>.");
+        }
 
         if (input.Arguments.Count == 0 || input.Arguments.Count == 1 && input.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
         {
@@ -1501,6 +1503,26 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
+        var session = RequireSession(out var failure);
+        if (session is null)
+        {
+            if (input.Arguments.Count == 0)
+            {
+                return await HelpAsync(
+                    context,
+                    new CommandInput("help", ["autojoin"], "autojoin"),
+                    cancellationToken);
+            }
+            return failure;
+        }
+
+        var profile = ProfileFor(session);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                "Autojoin requires a saved network profile. Set one up with /network add <name> <host> [port] [--tls], then connect with /server <name>.");
+        }
+
         if (input.Arguments.Count == 0)
         {
             if (ActiveChannel() is not { } activeChannel)
@@ -1513,36 +1535,18 @@ internal sealed partial class ClientApplication
             input = new CommandInput("autojoin", ["add", activeChannel], $"add {activeChannel}");
         }
 
-        var session = RequireSession(out var failure);
-        if (session is null)
-        {
-            return failure;
-        }
-
-        NetworkProfile profile;
-        bool createdProfile;
-        try
-        {
-            profile = EnsureProfileFor(session, out createdProfile);
-        }
-        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
-        {
-            return CommandResult.Failure(exception.Message);
-        }
-
         if (session.Features.IsChannel(input.Arguments[0]))
         {
             input = new CommandInput("autojoin", ["add", input.Arguments[0]], $"add {input.Arguments[0]}");
         }
 
-        var creationMessage = createdProfile ? $"Created saved network profile {profile.DisplayName}. " : string.Empty;
         var operation = input.Arguments[0].ToLowerInvariant();
         switch (operation)
         {
             case "list":
                 return profile.AutojoinChannels.Count == 0
-                    ? CommandResult.Success($"{creationMessage}{profile.DisplayName} has no autojoin channels.")
-                    : CommandResult.Success($"{creationMessage}Autojoin for {profile.DisplayName}: {string.Join(", ", profile.AutojoinChannels)}");
+                    ? CommandResult.Success($"{profile.DisplayName} has no autojoin channels.")
+                    : CommandResult.Success($"Autojoin for {profile.DisplayName}: {string.Join(", ", profile.AutojoinChannels)}");
             case "add":
                 var addChannel = input.Arguments.Count > 1 ? input.Arguments[1] : ActiveChannel();
                 if (input.Arguments.Count > 2 || addChannel is null || !session.Features.IsChannel(addChannel))
@@ -1554,7 +1558,7 @@ internal sealed partial class ClientApplication
                 if (!alreadySaved)
                 {
                     var saved = SaveAutojoin(profile, [.. profile.AutojoinChannels, addChannel],
-                        $"{creationMessage}Added {addChannel} to autojoin for {profile.DisplayName}.");
+                        $"Added {addChannel} to autojoin for {profile.DisplayName}.");
                     if (!saved.Succeeded)
                     {
                         return saved;
@@ -1568,12 +1572,12 @@ internal sealed partial class ClientApplication
                         ActiveBuffer()?.Id ?? session.State.StatusBuffer.Id);
                     return CommandResult.Success(alreadySaved
                         ? $"{addChannel} is already in autojoin for {profile.DisplayName}; joining it now."
-                        : $"{creationMessage}Added {addChannel} to autojoin for {profile.DisplayName}; joining it now.");
+                        : $"Added {addChannel} to autojoin for {profile.DisplayName}; joining it now.");
                 }
 
                 return CommandResult.Success(alreadySaved
                     ? $"{addChannel} is already in autojoin for {profile.DisplayName}."
-                    : $"{creationMessage}Added {addChannel} to autojoin for {profile.DisplayName}.");
+                    : $"Added {addChannel} to autojoin for {profile.DisplayName}.");
             case "remove":
                 var removeChannel = input.Arguments.Count > 1 ? input.Arguments[1] : ActiveChannel();
                 if (input.Arguments.Count > 2 || removeChannel is null)
@@ -1597,14 +1601,14 @@ internal sealed partial class ClientApplication
                 }
 
                 await RunAutojoinAsync(session, profile, cancellationToken);
-                return CommandResult.Success(createdProfile ? creationMessage.TrimEnd() : null);
+                return CommandResult.Success();
             case "clear":
                 if (input.Arguments.Count != 2 || !input.Arguments[1].Equals("--force", StringComparison.OrdinalIgnoreCase))
                 {
                     return CommandResult.Failure("Usage: /autojoin clear --force");
                 }
 
-                return SaveAutojoin(profile, [], $"{creationMessage}Cleared autojoin for {profile.DisplayName}.");
+                return SaveAutojoin(profile, [], $"Cleared autojoin for {profile.DisplayName}.");
             default:
                 return CommandResult.Failure("Usage: /autojoin list|add|remove|run|clear");
         }
