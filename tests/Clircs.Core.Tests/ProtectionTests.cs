@@ -2,6 +2,7 @@ using System.Reflection;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Protection;
+using Clircs.Protocol;
 using Clircs.Users;
 using System.Text.Json;
 
@@ -18,6 +19,7 @@ internal static class ProtectionTests
         suite.Add("protection monitor state can be cleared for one network", MonitorStateClearsPerNetwork);
         suite.Add("temporary protection actions reserve atomically", TemporaryActionsReserveAtomically);
         suite.Add("user and channel policy runtime has one session lifecycle", PolicyRuntimeHasOneLifecycle);
+        suite.Add("manual ignore entries are isolated and cleared with their session", SessionIgnoreIsIsolatedAndCleared);
         suite.Add("repeat detection isolates distinct text", RepeatDetectionIsTextSpecific);
         suite.Add("join detection isolates complete client prefixes", JoinDetectionIsolatesActors);
         suite.Add("batched mode changes contribute one event per affected user", BatchedModesUseAffectedUserCount);
@@ -64,6 +66,27 @@ internal static class ProtectionTests
         Assert.True(runtime.TryBeginProtectionAction(sessionId, "#channel\0nick", now, now.AddMinutes(1)));
         Assert.False(ReferenceEquals(oldGate, runtime.ChannelGate(sessionId, "#channel")));
         Assert.True(ReferenceEquals(first, runtime.GetDirectory(profileId, Load)));
+    }
+
+    private static void SessionIgnoreIsIsolatedAndCleared()
+    {
+        var runtime = new UserAndChannelPolicyCoordinator();
+        var firstSession = NetworkSessionId.New();
+        var secondSession = NetworkSessionId.New();
+        var first = runtime.GetSessionIgnoreDirectory(firstSession);
+        var second = runtime.GetSessionIgnoreDirectory(secondSession);
+
+        first.AddIgnore("Trouble", IrcCaseMapping.Ascii);
+
+        Assert.True(first.IsIgnored("trouble", null, null, IrcCaseMapping.Ascii));
+        Assert.False(second.IsIgnored("trouble", null, null, IrcCaseMapping.Ascii));
+        Assert.True(ReferenceEquals(first, runtime.FindSessionIgnoreDirectory(firstSession)));
+
+        runtime.ClearSession(firstSession);
+
+        Assert.True(runtime.FindSessionIgnoreDirectory(firstSession) is null);
+        Assert.True(ReferenceEquals(second, runtime.FindSessionIgnoreDirectory(secondSession)));
+        Assert.False(ReferenceEquals(first, runtime.GetSessionIgnoreDirectory(firstSession)));
     }
 
     private static void VersionOneSettingsMigrate()

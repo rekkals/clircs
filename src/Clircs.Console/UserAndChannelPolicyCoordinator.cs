@@ -16,6 +16,7 @@ internal sealed class UserAndChannelPolicyCoordinator
     private readonly ProtectionExpiryTracker _protectionActionCooldowns = new();
     private readonly ProtectionExpiryTracker _userActionReservations = new();
     private readonly Dictionary<NetworkProfileId, NetworkUserDirectory> _directories = [];
+    private readonly Dictionary<NetworkSessionId, NetworkUserDirectory> _sessionIgnoreDirectories = [];
     private readonly Dictionary<(NetworkSessionId SessionId, string Channel), SemaphoreSlim> _channelGates = [];
 
     public ProtectionDetection? Evaluate(ProtectionEvidence evidence, ProtectionRule rule) =>
@@ -65,6 +66,25 @@ internal sealed class UserAndChannelPolicyCoordinator
         lock (_gate) _directories[directory.NetworkProfileId] = directory;
     }
 
+    public NetworkUserDirectory GetSessionIgnoreDirectory(NetworkSessionId sessionId)
+    {
+        lock (_gate)
+        {
+            if (_sessionIgnoreDirectories.TryGetValue(sessionId, out var directory))
+                return directory;
+
+            directory = new NetworkUserDirectory(NetworkProfileId.New());
+            _sessionIgnoreDirectories.Add(sessionId, directory);
+            return directory;
+        }
+    }
+
+    public NetworkUserDirectory? FindSessionIgnoreDirectory(NetworkSessionId sessionId)
+    {
+        lock (_gate)
+            return _sessionIgnoreDirectories.GetValueOrDefault(sessionId);
+    }
+
     public SemaphoreSlim ChannelGate(NetworkSessionId sessionId, string foldedChannel)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(foldedChannel);
@@ -88,6 +108,7 @@ internal sealed class UserAndChannelPolicyCoordinator
         {
             foreach (var key in _channelGates.Keys.Where(key => key.SessionId == sessionId).ToArray())
                 _channelGates.Remove(key);
+            _sessionIgnoreDirectories.Remove(sessionId);
         }
     }
 }

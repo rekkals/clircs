@@ -196,17 +196,17 @@ internal sealed partial class ClientApplication
         string? host,
         IrcCaseMapping mapping)
     {
-        if (FindSession(sessionId) is not { } session ||
-            ProfileFor(session) is not { } profile)
-        {
+        if (FindSession(sessionId) is not { } session)
             return false;
-        }
 
-        var directory = _userAndChannelPolicy.GetDirectory(
-            profile.Id,
-            () => _userDirectoryStore.Load(profile.Id));
+        var profile = ProfileFor(session);
+        var directory = profile is null
+            ? _userAndChannelPolicy.FindSessionIgnoreDirectory(sessionId)
+            : _userAndChannelPolicy.GetDirectory(
+                profile.Id,
+                () => _userDirectoryStore.Load(profile.Id));
 
-        return directory.IsIgnored(nickname, username, host, mapping);
+        return directory?.IsIgnored(nickname, username, host, mapping) == true;
     }
 
     private static string ProtectionIdentityKey(

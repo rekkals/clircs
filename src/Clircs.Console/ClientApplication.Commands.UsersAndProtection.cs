@@ -371,7 +371,7 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserDirectory(out var session, out var directory, out var failure))
+        if (!TryGetIgnoreDirectory(out var session, out var directory, out var persistent, out var failure))
         {
             return ValueTask.FromResult(failure);
         }
@@ -380,13 +380,15 @@ internal sealed partial class ClientApplication
             ?? session!.Features.NetworkName
             ?? session.State.DisplayName;
 
+        var scope = persistent ? network : $"{network} (this session only)";
+
         if (input.Arguments.Count == 0)
         {
             var entries = directory!.IgnoreEntries;
             if (entries.Count == 0)
             {
                 return ValueTask.FromResult(
-                    CommandResult.Success($"No ignore entries are defined for {network}."));
+                    CommandResult.Success($"No ignore entries are defined for {scope}."));
             }
 
             var rows = entries
@@ -397,7 +399,7 @@ internal sealed partial class ClientApplication
                 "IGNORE:",
                 Table: new PresentationTable(["Entry"], rows),
                 Summary: $"{entries.Count} ignore {(entries.Count == 1 ? "entry" : "entries")}",
-                TitleHighlight: network)));
+                TitleHighlight: scope)));
         }
 
         if (input.Arguments.Count != 1)
@@ -410,10 +412,10 @@ internal sealed partial class ClientApplication
         {
             var entry = input.Arguments[0].Trim();
             directory!.AddIgnore(entry, session!.State.CaseMapping);
-            SaveUserDirectory(directory);
+            if (persistent) SaveUserDirectory(directory);
 
             return ValueTask.FromResult(
-                CommandResult.Success($"Added ignore entry '{entry}' for {network}."));
+                CommandResult.Success($"Added ignore entry '{entry}' for {scope}."));
         }
         catch (Exception exception) when (
             exception is ArgumentException
@@ -430,7 +432,7 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserDirectory(out var session, out var directory, out var failure))
+        if (!TryGetIgnoreDirectory(out var session, out var directory, out var persistent, out var failure))
         {
             return ValueTask.FromResult(failure);
         }
@@ -445,19 +447,21 @@ internal sealed partial class ClientApplication
             ?? session!.Features.NetworkName
             ?? session.State.DisplayName;
 
+        var scope = persistent ? network : $"{network} (this session only)";
+
         try
         {
             var entry = input.Arguments[0].Trim();
             if (!directory!.RemoveIgnore(entry, session!.State.CaseMapping))
             {
                 return ValueTask.FromResult(
-                    CommandResult.Failure($"No ignore entry '{entry}' exists for {network}."));
+                    CommandResult.Failure($"No ignore entry '{entry}' exists for {scope}."));
             }
 
-            SaveUserDirectory(directory);
+            if (persistent) SaveUserDirectory(directory);
 
             return ValueTask.FromResult(
-                CommandResult.Success($"Removed ignore entry '{entry}' from {network}."));
+                CommandResult.Success($"Removed ignore entry '{entry}' from {scope}."));
         }
         catch (Exception exception) when (
             exception is ArgumentException
@@ -1393,6 +1397,25 @@ internal sealed partial class ClientApplication
             failure = CommandResult.Failure(exception.Message);
             return false;
         }
+    }
+
+    private bool TryGetIgnoreDirectory(
+        out IrcNetworkSession? session,
+        out NetworkUserDirectory? directory,
+        out bool persistent,
+        out CommandResult failure)
+    {
+        session = ActiveSession();
+        if (session is not null && ProfileFor(session) is null)
+        {
+            directory = _userAndChannelPolicy.GetSessionIgnoreDirectory(session.State.Id);
+            persistent = false;
+            failure = CommandResult.Success();
+            return true;
+        }
+
+        persistent = true;
+        return TryGetUserDirectory(out session, out directory, out failure);
     }
 
     private void SaveUserDirectory(NetworkUserDirectory directory)
