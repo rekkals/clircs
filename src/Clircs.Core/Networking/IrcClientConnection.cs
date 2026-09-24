@@ -22,6 +22,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private readonly Dictionary<string, string?> _advertisedCapabilities = new(StringComparer.Ordinal);
     private readonly HashSet<string> _enabledCapabilities = new(StringComparer.Ordinal);
     private readonly HashSet<string> _requestedCapabilities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _acknowledgedCapabilities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _deferredNewCapabilities = new(StringComparer.Ordinal);
+    private bool _requestedCapabilityWithdrawn;
     private CapabilityNegotiationStage _capabilityStage;
     private SaslRegistrationStage _saslStage;
     private bool _reportedExcessParameterDiagnostic;
@@ -82,6 +85,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _advertisedCapabilities.Clear();
         _enabledCapabilities.Clear();
         _requestedCapabilities.Clear();
+        _acknowledgedCapabilities.Clear();
+        _deferredNewCapabilities.Clear();
+        _requestedCapabilityWithdrawn = false;
         _capabilityStage = CapabilityNegotiationStage.AwaitingCapabilities;
         _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
         _reportedExcessParameterDiagnostic = false;
@@ -402,7 +408,14 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
                 if (requested.Length > 0)
                 {
-                    await RequestCapabilitiesAsync(requested, cancellationToken).ConfigureAwait(false);
+                    if (_requestedCapabilities.Count > 0)
+                    {
+                        _deferredNewCapabilities.UnionWith(requested);
+                    }
+                    else
+                    {
+                        await RequestCapabilitiesAsync(requested, cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
 
@@ -413,8 +426,13 @@ public sealed class IrcClientConnection : IAsyncDisposable
         {
             foreach (var capability in ParseCapabilityNames(message.Parameters[^1]))
             {
+                if (_requestedCapabilities.Contains(capability))
+                {
+                    _requestedCapabilityWithdrawn = true;
+                }
                 _advertisedCapabilities.Remove(capability);
                 _enabledCapabilities.Remove(capability);
+                _deferredNewCapabilities.Remove(capability);
             }
             return;
         }
@@ -424,14 +442,43 @@ public sealed class IrcClientConnection : IAsyncDisposable
             return;
         }
 
+        if (_requestedCapabilities.Count == 0 ||
+            (_state != IrcConnectionState.Online &&
+            _capabilityStage != CapabilityNegotiationStage.AwaitingAcknowledgement))
+        {
+            return;
+        }
+
+        var replyCapabilities = message.Parameters[^1].Split(
+            ' ',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (replyCapabilities.Length == 0 ||
+            replyCapabilities.Any(capability => !_requestedCapabilities.Contains(capability)))
+        {
+            return;
+        }
+
         if (subcommand == "ACK")
         {
-            ApplyCapabilityAcknowledgement(message.Parameters[^1]);
+            _acknowledgedCapabilities.UnionWith(replyCapabilities);
+            if (!_acknowledgedCapabilities.SetEquals(_requestedCapabilities))
+            {
+                return;
+            }
+
+            if (!_requestedCapabilityWithdrawn)
+            {
+                _enabledCapabilities.UnionWith(_acknowledgedCapabilities);
+            }
         }
 
         if (_state == IrcConnectionState.Online)
         {
+            _acknowledgedCapabilities.Clear();
             _requestedCapabilities.Clear();
+            _requestedCapabilityWithdrawn = false;
+            await RequestDeferredNewCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -442,7 +489,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
         var saslRequested = _requestedCapabilities.Contains("sasl");
         var saslAcknowledged = _enabledCapabilities.Contains("sasl");
+        _acknowledgedCapabilities.Clear();
         _requestedCapabilities.Clear();
+        _requestedCapabilityWithdrawn = false;
         if (saslRequested && (subcommand == "NAK" || !saslAcknowledged))
         {
             FailSasl(_options!.Sasl!, "the server rejected the SASL capability");
@@ -510,7 +559,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
         IReadOnlyList<string> capabilities,
         CancellationToken cancellationToken)
     {
+        _acknowledgedCapabilities.Clear();
         _requestedCapabilities.Clear();
+        _requestedCapabilityWithdrawn = false;
         foreach (var capability in capabilities)
         {
             _requestedCapabilities.Add(capability);
@@ -518,6 +569,23 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
         await SendAsync("CAP", ["REQ", string.Join(' ', capabilities)], IrcOutboundPriority.Critical, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async ValueTask RequestDeferredNewCapabilitiesAsync(CancellationToken cancellationToken)
+    {
+        var requested = AutomaticallyRequestedCapabilities
+            .Where(capability =>
+                _deferredNewCapabilities.Contains(capability) &&
+                _advertisedCapabilities.ContainsKey(capability) &&
+                !_enabledCapabilities.Contains(capability))
+            .ToArray();
+
+        _deferredNewCapabilities.Clear();
+
+        if (requested.Length > 0)
+        {
+            await RequestCapabilitiesAsync(requested, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async ValueTask HandleSaslAuthenticationAsync(
@@ -573,23 +641,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _enabledCapabilities.Contains("message-tags") ||
         _enabledCapabilities.Contains("server-time");
 
-    private void ApplyCapabilityAcknowledgement(string value)
-    {
-        foreach (var token in value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var disable = token[0] == '-';
-            var capability = disable ? token[1..] : token;
-            if (disable)
-            {
-                _enabledCapabilities.Remove(capability);
-            }
-            else
-            {
-                _enabledCapabilities.Add(capability);
-            }
-        }
-    }
-
     private static IEnumerable<string> ParseCapabilityNames(string value)
     {
         foreach (var token in value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -607,7 +658,9 @@ public sealed class IrcClientConnection : IAsyncDisposable
         }
 
         _capabilityStage = CapabilityNegotiationStage.Complete;
+        _acknowledgedCapabilities.Clear();
         _requestedCapabilities.Clear();
+        _requestedCapabilityWithdrawn = false;
         await SendAsync("CAP", ["END"], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
     }
 

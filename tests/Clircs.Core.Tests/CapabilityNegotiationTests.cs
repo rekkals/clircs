@@ -12,6 +12,11 @@ internal static class CapabilityNegotiationTests
         suite.Add("CAP negotiation requests supported capabilities without SASL", SupportedCapabilitiesAreRequestedWithoutSaslAsync);
         suite.Add("CAP negotiation accepts a multiline capability list", MultilineCapabilityListIsCollectedAsync);
         suite.Add("CAP negotiation continues when multi-prefix is rejected", RejectedMultiPrefixIsNonfatalAsync);
+        suite.Add("split CAP ACK applies capabilities only after the final line", SplitAckWaitsForCompleteReplyAsync);
+        suite.Add("CAP DEL prevents a pending ACK from restoring withdrawn capabilities", DelCancelsPendingRequestAsync);
+        suite.Add("CAP NEW waits for an outstanding capability request", NewWaitsForOutstandingRequestAsync);
+        suite.Add("CAP NAK discards partial ACK and later stray ACK", NakDiscardsPartialAckAsync);
+        suite.Add("CAP NAK listing one capability rejects the entire request", NakSubsetRejectsWholeRequestAsync);
         suite.Add("servers without CAP support complete ordinary registration", UnsupportedCapabilityNegotiationIsNonfatalAsync);
         suite.Add("CAP NEW can enable supported capabilities after registration", NewCapabilitiesAreRequestedAsync);
         suite.Add("server-time timestamps require capability acknowledgement", NegotiatedServerTimeControlsTimestampsAsync);
@@ -63,6 +68,178 @@ internal static class CapabilityNegotiationTests
         await DisconnectAsync(session, transport, timeout.Token);
     }
 
+    private static async ValueTask NakDiscardsPartialAckAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var connection = new IrcClientConnection(new ScriptedTransportFactory(transport));
+        var strayAckProcessed = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connection.MessageReceived += message =>
+        {
+            if (message.Command == "CAP" &&
+                message.Parameters.Count >= 3 &&
+                message.Parameters[1] == "ACK" &&
+                message.Parameters[^1] == "multi-prefix echo-message")
+            {
+                strayAckProcessed.TrySetResult(true);
+            }
+
+            return ValueTask.CompletedTask;
+        };
+
+        await connection.ConnectAsync(
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example.test", 6667, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "TestUser")),
+            timeout.Token);
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+
+        transport.Receive(":server CAP * LS :multi-prefix echo-message");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message",
+            await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick ACK :multi-prefix");
+        transport.Receive(":server CAP TestNick NAK :multi-prefix echo-message");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+
+        Assert.False(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.False(connection.IsCapabilityEnabled("echo-message"));
+
+        transport.Receive(":server 001 TestNick :Welcome");
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
+        await strayAckProcessed.Task.WaitAsync(timeout.Token);
+
+        Assert.False(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.False(connection.IsCapabilityEnabled("echo-message"));
+        Assert.False(transport.HasPendingSentLines);
+
+        await connection.DisconnectAsync("done", timeout.Token);
+        Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
+    }
+
+    private static async ValueTask NakSubsetRejectsWholeRequestAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var connection = new IrcClientConnection(new ScriptedTransportFactory(transport));
+
+        await connection.ConnectAsync(
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example.test", 6667, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "TestUser")),
+            timeout.Token);
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+
+        transport.Receive(":server CAP * LS :multi-prefix echo-message");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message",
+            await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick NAK :echo-message");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+
+        Assert.False(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.False(connection.IsCapabilityEnabled("echo-message"));
+
+        await connection.DisconnectAsync("done", timeout.Token);
+        Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
+    }
+
+    private static async ValueTask SplitAckWaitsForCompleteReplyAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var connection = new IrcClientConnection(new ScriptedTransportFactory(transport));
+        var firstAckProcessed = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connection.MessageReceived += message =>
+        {
+            if (message.Command == "CAP" &&
+                message.Parameters.Count >= 3 &&
+                message.Parameters[1] == "ACK" &&
+                message.Parameters[^1] == "multi-prefix echo-message")
+            {
+                firstAckProcessed.TrySetResult(true);
+            }
+
+            return ValueTask.CompletedTask;
+        };
+
+        await connection.ConnectAsync(
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example.test", 6667, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "TestUser")),
+            timeout.Token);
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+
+        transport.Receive(":server CAP * LS :multi-prefix echo-message message-tags server-time");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
+        await firstAckProcessed.Task.WaitAsync(timeout.Token);
+
+        Assert.False(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.False(connection.IsCapabilityEnabled("echo-message"));
+        Assert.False(transport.HasPendingSentLines);
+
+        transport.Receive(":server CAP TestNick ACK :message-tags server-time");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+
+        Assert.True(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.True(connection.IsCapabilityEnabled("echo-message"));
+        Assert.True(connection.IsCapabilityEnabled("message-tags"));
+        Assert.True(connection.IsCapabilityEnabled("server-time"));
+
+        await connection.DisconnectAsync("done", timeout.Token);
+        Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
+    }
+
+    private static async ValueTask DelCancelsPendingRequestAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var connection = new IrcClientConnection(new ScriptedTransportFactory(transport));
+
+        await connection.ConnectAsync(
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example.test", 6667, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "TestUser")),
+            timeout.Token);
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+
+        transport.Receive(":server CAP * LS :multi-prefix echo-message");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message",
+            await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick ACK :multi-prefix");
+        transport.Receive(":server CAP TestNick DEL :multi-prefix");
+        transport.Receive(":server CAP TestNick ACK :echo-message");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+
+        Assert.False(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.False(connection.IsCapabilityEnabled("echo-message"));
+
+        transport.Receive(":server 001 TestNick :Welcome");
+        transport.Receive(":server CAP TestNick NEW :multi-prefix");
+        Assert.Equal("CAP REQ multi-prefix", await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick ACK :multi-prefix");
+        transport.Receive("PING :probe");
+        Assert.Equal("PONG probe", await transport.NextSentAsync(timeout.Token));
+
+        Assert.True(connection.IsCapabilityEnabled("multi-prefix"));
+
+        await connection.DisconnectAsync("done", timeout.Token);
+        Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
+    }
+
     private static async ValueTask RejectedMultiPrefixIsNonfatalAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -100,6 +277,68 @@ internal static class CapabilityNegotiationTests
         Assert.False(events.Any(item => item.Text.Contains("[421]", StringComparison.Ordinal)));
         Assert.False(events.Any(item => item.Text.Contains("Unknown command", StringComparison.Ordinal)));
         await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask NewWaitsForOutstandingRequestAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var connection = new IrcClientConnection(new ScriptedTransportFactory(transport));
+        var secondNewProcessed = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        connection.MessageReceived += message =>
+        {
+            if (message.Command == "CAP" &&
+                message.Parameters.Count >= 3 &&
+                message.Parameters[1] == "NEW" &&
+                message.Parameters[^1] == "message-tags server-time")
+            {
+                secondNewProcessed.TrySetResult(true);
+            }
+
+            return ValueTask.CompletedTask;
+        };
+
+        await connection.ConnectAsync(
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example.test", 6667, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "TestUser")),
+            timeout.Token);
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+
+        transport.Receive(":server CAP * LS :away-notify");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server 001 TestNick :Welcome");
+
+        transport.Receive(":server CAP TestNick NEW :multi-prefix echo-message");
+        Assert.Equal(
+            "CAP REQ :multi-prefix echo-message",
+            await transport.NextSentAsync(timeout.Token));
+
+        transport.Receive(":server CAP TestNick NEW :message-tags server-time");
+        await secondNewProcessed.Task.WaitAsync(timeout.Token);
+        Assert.False(transport.HasPendingSentLines);
+
+        transport.Receive(":server CAP TestNick ACK :multi-prefix echo-message");
+        Assert.Equal(
+            "CAP REQ :message-tags server-time",
+            await transport.NextSentAsync(timeout.Token));
+
+        Assert.True(connection.IsCapabilityEnabled("multi-prefix"));
+        Assert.True(connection.IsCapabilityEnabled("echo-message"));
+        Assert.False(connection.IsCapabilityEnabled("message-tags"));
+        Assert.False(connection.IsCapabilityEnabled("server-time"));
+
+        transport.Receive(":server CAP TestNick ACK :message-tags server-time");
+        transport.Receive("PING :probe");
+        Assert.Equal("PONG probe", await transport.NextSentAsync(timeout.Token));
+
+        Assert.True(connection.IsCapabilityEnabled("message-tags"));
+        Assert.True(connection.IsCapabilityEnabled("server-time"));
+
+        await connection.DisconnectAsync("done", timeout.Token);
+        Assert.Equal("QUIT done", await transport.NextSentAsync(timeout.Token));
     }
 
     private static async ValueTask NewCapabilitiesAreRequestedAsync()
@@ -345,6 +584,8 @@ internal static class CapabilityNegotiationTests
 
         public ValueTask<string> NextSentAsync(CancellationToken cancellationToken) =>
             _sent.Reader.ReadAsync(cancellationToken);
+
+        public bool HasPendingSentLines => _sent.Reader.TryPeek(out _);
 
         public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken)
         {
