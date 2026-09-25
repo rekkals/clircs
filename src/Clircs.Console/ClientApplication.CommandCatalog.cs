@@ -41,19 +41,19 @@ internal sealed partial class ClientApplication
         Register("describe", [], "Send an action to a nickname or channel.", DescribeAsync);
         Register("ame", [], "Send an action to every joined channel on this network.", AllChannelActionAsync);
         Register("amsg", [], "Send a message to every joined channel on this network.", AllChannelMessageAsync);
-        Register("query", ["q"], "Open a private query window with <nick>.", QueryAsync);
-        Register("ctcp", [], "Send a CTCP request to <nick>.", CtcpAsync);
+        Register("query", ["q"], "Open a private query window, optionally sending a message.", QueryAsync);
+        Register("ctcp", [], "Send a CTCP request to a nickname.", CtcpAsync);
         Register("dcc", [], "Start and manage DCC chats, file transfers, and requests.", DccAsync);
         Register("xdcc", [], "Request file packs from XDCC bots.", XdccAsync);
         Register("ping", [], "Send a CTCP PING request.", PingAsync);
         Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
         Register("time", [], "Show local time or query a [nickname].", TimeAsync);
-        Register("raw", ["quote"], "Send raw input to the IRC server.", RawAsync);
+        Register("raw", ["quote"], "Send an IRC command directly to the server.", RawAsync);
         Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
-        Register("join", ["j"], "Join a channel.", JoinAsync);
+        Register("join", ["j"], "Join one or more channels; separate multiple channels and keys with commas.", JoinAsync);
         Register("part", ["p"], "Part a channel.", PartAsync);
         Register("cycle", [], "Part and rejoin the active channel.", CycleAsync);
-        Register("invite", ["i"], "Invite <nick> to [channel].", InviteAsync);
+        Register("invite", ["i"], "Invite a nickname to a channel; defaults to the active channel.", InviteAsync);
         Register("topic", ["t"], "Show or set a channel topic.", TopicAsync);
         Register("rt", [], "Set a configured default topic or a random quote.", RandomTopicAsync);
         Register("mode", ["cm"], "Show or change modes.", ModeAsync);
@@ -62,15 +62,15 @@ internal sealed partial class ClientApplication
         Register("voice", ["v"], "Grant channel voice status.", VoiceAsync);
         Register("devoice", ["dv"], "Remove channel voice status.", DevoiceAsync);
         Register("kick", ["k"], "Kick a user from the active channel.", KickAsync);
-        Register("ban", [], "Ban a <nick> or <hostmask> from the active channel.", BanAsync);
+        Register("ban", [], "Set a ban in the active channel. A nickname must have a known user and host.", BanAsync);
         Register("kickban", ["kb", "bk"], "Kick and ban a user from the active channel.", KickBanAsync);
         Register("tban", [], "Apply a ban and remove it after a <duration>.", TimedBanAsync);
         Register("mop", [], "Op every non-opped member in the active channel.", MassOpAsync);
-        Register("mdop", [], "Deop every operator except yourself.", MassDeopAsync);
-        Register("mv", [], "Voice every regular member.", MassVoiceAsync);
-        Register("mdv", [], "Devoice every voiced member except yourself.", MassDevoiceAsync);
+        Register("mdop", [], "Deop every operator except yourself in the active channel.", MassDeopAsync);
+        Register("mv", [], "Voice every regular member in the active channel.", MassVoiceAsync);
+        Register("mdv", [], "Devoice every voiced member except yourself in the active channel.", MassDevoiceAsync);
         Register("mmode", [], "Apply the given mode to multiple users.", MultiModeAsync);
-        Register("banlist", [], "Check and display the channel ban list.", BanListAsync);
+        Register("banlist", [], "Request the current ban list for a joined channel.", BanListAsync);
         Register("exceptlist", [], "Display channel ban exceptions.", ExceptListAsync);
         Register("invitelist", [], "Display channel invite exceptions.", InviteListAsync);
         Register("quietlist", [], "Display channel quiet masks.", QuietListAsync);
@@ -88,7 +88,7 @@ internal sealed partial class ClientApplication
         Register("remchan", [], "Remove a channel from the user policy entry.", RemoveUserChannelAsync);
         Register("chinfo", [], "Set a global or channel-specific JOIN infoline for a user.", ChangeUserInfoAsync);
         Register("uwhois", [], "Show a user record or match a visible nickname.", UserWhoisAsync);
-        Register("users", [], "List active network's user records.", UsersAsync);
+        Register("users", [], "List saved user records for the active network profile.", UsersAsync);
         Register("usersum", [], "Summarize active network's user flags.", UserSummaryAsync);
         Register("ignore", [], "List or add entries ignored on the active network.", IgnoreAsync);
         Register("unignore", [], "Remove an exact ignore entry from the active network.", UnignoreAsync);
@@ -98,37 +98,37 @@ internal sealed partial class ClientApplication
         Register("pprot", ["fprot"], "Configure personal protection.", PersonalProtectionAsync);
         Register("protect", [], "Inspect the combined protection engine and audit data.", ProtectAsync);
         Register("clones", [], "Find channel users sharing the same visible host.", ClonesAsync);
-        Register("ufind", [], "Match visible channel members to user records.", UserFindAsync);
-        Register("addban", [], "Add a persistent network policy ban.", AddPolicyBanAsync);
-        Register("remban", [], "Remove a persistent network policy ban.", RemovePolicyBanAsync);
-        Register("bans", [], "List persistent network policy bans.", PolicyBansAsync);
-        Register("umop", [], "Op userlist members eligible for operator status.", UserMassOpAsync);
-        Register("umdop", [], "Deop members not eligible for operator status.", UserMassDeopAsync);
-        Register("umv", [], "Voice userlist members eligible for voice.", UserMassVoiceAsync);
-        Register("umdv", [], "Devoice members not eligible for voice.", UserMassDevoiceAsync);
+        Register("ufind", [], "Show which visible channel members match saved user records.", UserFindAsync);
+        Register("addban", [], "Save a network policy ban and apply it in eligible joined channels.", AddPolicyBanAsync);
+        Register("remban", [], "Remove a saved policy ban; existing channel bans stay in place.", RemovePolicyBanAsync);
+        Register("bans", [], "List saved network policy bans.", PolicyBansAsync);
+        Register("umop", [], "Op eligible user-directory members in the active channel.", UserMassOpAsync);
+        Register("umdop", [], "Deop members who are not operator-eligible in the user directory.", UserMassDeopAsync);
+        Register("umv", [], "Voice eligible user-directory members in the active channel.", UserMassVoiceAsync);
+        Register("umdv", [], "Devoice members who are not voice-eligible in the user directory.", UserMassDevoiceAsync);
         Register("filterkick", ["fk"], "Kick members matching a hostmask.", FilterKickAsync);
-        Register("filterkickban", ["fkb"], "Ban a hostmask and kick matching members.", FilterKickBanAsync);
-        Register("findnickkick", ["fnk"], "Kick members whose nicknames match a wildcard.", FindNickKickAsync);
-        Register("kicknonops", ["knop"], "Kick non-operators except protected users.", KickNonOperatorsAsync);
-        Register("cop", [], "Op a nick in every eligible common channel.", CommonOpAsync);
-        Register("cban", [], "Ban and deop a nick in every eligible common channel.", CommonBanAsync);
-        Register("ckick", [], "Kick a nick from every eligible common channel.", CommonKickAsync);
-        Register("ckb", [], "Kick-ban a nick in every eligible common channel.", CommonKickBanAsync);
-        Register("massinvite", ["mi"], "Invite active-channel members to another joined channel.", MassInviteAsync);
-        Register("inviteall", ["ia"], "Invite one nick to every eligible joined channel.", InviteAllAsync);
+        Register("filterkickban", ["fkb"], "Ban a hostmask and kick matching, unprotected members of the active channel.", FilterKickBanAsync);
+        Register("findnickkick", ["fnk"], "Kick active-channel members whose nicknames match a wildcard, except protected users.", FindNickKickAsync);
+        Register("kicknonops", ["knop"], "Kick non-operators from the active channel, except protected users.", KickNonOperatorsAsync);
+        Register("cop", [], "Op a nickname in every common channel where you can do so.", CommonOpAsync);
+        Register("cban", [], "Ban and deop a nickname in eligible common channels.", CommonBanAsync);
+        Register("ckick", [], "Kick a nickname from eligible common channels.", CommonKickAsync);
+        Register("ckb", [], "Ban and kick a nickname in eligible common channels.", CommonKickBanAsync);
+        Register("massinvite", ["mi"], "Invite members of the active channel to another joined channel.", MassInviteAsync);
+        Register("inviteall", ["ia"], "Invite a nickname to every eligible channel you've joined.", InviteAllAsync);
         Register("wall", ["on", "wl"], "Notice operators in the active channel.", OperatorWallAsync);
         Register("wallmsg", ["wallm", "wm"], "Message operators in the active channel.", OperatorWallMessageAsync);
-        Register("voicenotice", ["vnotice", "vn", "vwall", "wallv"], "Notice voiced users and operators.", VoiceNoticeAsync);
-        Register("voicemsg", ["vmsg"], "Message voiced users and operators.", VoiceMessageAsync);
+        Register("voicenotice", ["vnotice", "vn", "vwall", "wallv"], "Notice voiced users and operators in the active channel.", VoiceNoticeAsync);
+        Register("voicemsg", ["vmsg"], "Message voiced users and operators in the active channel.", VoiceMessageAsync);
         Register("nonopnotice", ["nnotice", "nn", "nwall", "walln"], "Notice non-operators.", NonOperatorNoticeAsync);
-        Register("nonopmsg", ["nmsg"], "Message non-operators.", NonOperatorMessageAsync);
-        Register("userwall", ["uwall"], "Notice non-bot operators.", UserWallAsync);
-        Register("names", [], "List users in the active channel.", NamesAsync);
+        Register("nonopmsg", ["nmsg"], "Message non-operators in the active channel.", NonOperatorMessageAsync);
+        Register("userwall", ["uwall"], "Notice active-channel operators who are not marked as bots.", UserWallAsync);
+        Register("names", [], "Request a channel's nickname list; defaults to the active channel.", NamesAsync);
         Register("who", [], "Performs a WHO on the active window or specified [channel|nickname|mask].", WhoAsync);
         Register("whois", ["wi", "w"], "Performs a WHOIS on <nickname>.", WhoisAsync);
         Register("iwhois", ["wii"], "Performs WHOIS on <nickname> with idle and sign-on information.", IdleWhoisAsync);
         Register("whowas", ["ww"], "Performs WHOWAS on <nickname>.", WhowasAsync);
-        Register("motd", [], "Request the server MOTD.", MotdAsync);
+        Register("motd", [], "Request a server's message of the day.", MotdAsync);
         Register("links", [], "Request server links.", LinksAsync);
         Register("stats", [], "Request server statistics.", StatsAsync);
         Register("list", [], "Show publicly listed channels on the server.", ListAsync);
@@ -219,6 +219,12 @@ internal sealed partial class ClientApplication
         [
             new("Remove", "/unignore <nickname|nick!user@host>"),
             new("Matching", "Removes one exact stored entry; wildcards are not expanded.")
+        ],
+        "users" =>
+        [
+            new("Export", "/users export <path> [--force]"),
+            new("Import", "/users import <path> [--force]"),
+            new("Import preview", "Omit --force to inspect the import before replacing the saved directory.")
         ],
         "dcc" =>
         [
