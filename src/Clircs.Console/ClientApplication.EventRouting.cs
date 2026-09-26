@@ -470,10 +470,13 @@ internal sealed partial class ClientApplication
 
     private void OnSessionStateChanged(IrcNetworkSession session)
     {
-        if (_windowStates.IsActiveSession(session.State.Id))
+        _applicationEvents.Dispatch(() =>
         {
-            RefreshWindowChrome();
-        }
+            if (_windowStates.IsActiveSession(session.State.Id))
+            {
+                RefreshWindowChrome();
+            }
+        });
     }
 
     private SessionEvent RouteActiveResponse(SessionEvent sessionEvent)
