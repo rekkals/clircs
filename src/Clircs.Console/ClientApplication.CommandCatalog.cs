@@ -25,12 +25,12 @@ internal sealed partial class ClientApplication
         Register("away", [], "Set yourself as away.", AwayAsync);
         Register("back", [], "Set yourself as back.", BackAsync);
         Register("awaylog", ["msglog"], "Enables or disables logging messages while away.", AwayLogAsync);
-        Register("messages", ["mchk"], "Read or remove messages logged while away.", AwayMessagesAsync);
+        Register("messages", [], "Read or remove messages logged while away.", AwayMessagesAsync);
         Register("window", ["win"], "List windows or switch to window [number|name].", BufferAsync);
         Register("next", ["wn"], "Switch to the next window.", NextBufferAsync);
         Register("previous", ["wp"], "Switch to the previous window.", PreviousBufferAsync);
         Register("close", [], "Close the active window.", CloseBufferAsync);
-        Register("clear", ["cls"], "Clear the visible terminal.", ClearAsync);
+        Register("clear", [], "Clear the visible terminal.", ClearAsync);
         Register("autojoin", ["ajoin", "aj"], "Manage autojoin channels for the active network profile.", AutojoinAsync);
         Register("rj", [], "Remove a channel from the active network profile's autojoin list.", AutojoinRemoveAliasAsync);
         Register("msg", ["m"], "Send a message to a nickname or channel.", MessageAsync);
@@ -56,7 +56,7 @@ internal sealed partial class ClientApplication
         Register("invite", ["i"], "Invite a nickname to a channel; defaults to the active channel.", InviteAsync);
         Register("topic", ["t"], "Show or set a channel topic.", TopicAsync);
         Register("rt", [], "Set a configured default topic or a random quote.", RandomTopicAsync);
-        Register("mode", ["cm"], "Show or change modes.", ModeAsync);
+        Register("mode", [], "Show or change modes.", ModeAsync);
         Register("op", [], "Grant channel operator status.", OpAsync);
         Register("deop", ["dop"], "Remove channel operator status.", DeopAsync);
         Register("voice", ["v"], "Grant channel voice status.", VoiceAsync);
@@ -75,7 +75,7 @@ internal sealed partial class ClientApplication
         Register("invitelist", [], "Display channel invite exceptions.", InviteListAsync);
         Register("quietlist", [], "Display channel quiet masks.", QuietListAsync);
         Register("unban", [], "Remove a channel ban mask.", UnbanAsync);
-        Register("clearbans", ["clban"], "Remove all channel bans.", ClearBansAsync);
+        Register("clearbans", [], "Remove all channel bans.", ClearBansAsync);
         Register("appendtopic", ["at"], "Append text to the active channel topic.", AppendTopicAsync);
         Register("cleartopic", ["ct"], "Clear the active channel topic.", ClearTopicAsync);
         Register("adduser", [], "Add a user to the active network's user directory.", AddUserAsync);
@@ -116,11 +116,11 @@ internal sealed partial class ClientApplication
         Register("ckb", [], "Ban and kick a nickname in eligible common channels.", CommonKickBanAsync);
         Register("massinvite", ["mi"], "Invite members of the active channel to another joined channel.", MassInviteAsync);
         Register("inviteall", ["ia"], "Invite a nickname to every eligible channel you've joined.", InviteAllAsync);
-        Register("wall", ["on", "wl"], "Notice operators in the active channel.", OperatorWallAsync);
-        Register("wallmsg", ["wallm", "wm"], "Message operators in the active channel.", OperatorWallMessageAsync);
-        Register("voicenotice", ["vnotice", "vn", "vwall", "wallv"], "Notice voiced users and operators in the active channel.", VoiceNoticeAsync);
+        Register("wall", ["onotice"], "Notice operators in the active channel.", OperatorWallAsync);
+        Register("wallmsg", ["wmsg"], "Message operators in the active channel.", OperatorWallMessageAsync);
+        Register("voicenotice", ["vnotice"], "Notice voiced users and operators in the active channel.", VoiceNoticeAsync);
         Register("voicemsg", ["vmsg"], "Message voiced users and operators in the active channel.", VoiceMessageAsync);
-        Register("nonopnotice", ["nnotice", "nn", "nwall", "walln"], "Notice non-operators.", NonOperatorNoticeAsync);
+        Register("nonopnotice", ["nnotice"], "Notice non-operators.", NonOperatorNoticeAsync);
         Register("nonopmsg", ["nmsg"], "Message non-operators in the active channel.", NonOperatorMessageAsync);
         Register("userwall", ["uwall"], "Notice active-channel operators who are not marked as bots.", UserWallAsync);
         Register("names", [], "Request a channel's nickname list; defaults to the active channel.", NamesAsync);
