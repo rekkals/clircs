@@ -584,7 +584,7 @@ internal sealed partial class ClientApplication
                 fields.Add(new PresentationField("Trusted on", pin.TrustedAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")));
                 fields.Add(new PresentationField("Revoke", $"/tls forget {pin.Host} {pin.Port}"));
             }
-            return ValueTask.FromResult(CommandResult.Success(new PresentationBlock("Trusted TLS certificates", fields)));
+            return ValueTask.FromResult(CommandResult.Success(new PresentationBlock("Trusted TLS Certificates", fields)));
         }
 
         if (input.Arguments.Count == 3 &&

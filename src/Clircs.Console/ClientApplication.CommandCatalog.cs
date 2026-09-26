@@ -584,8 +584,7 @@ internal sealed partial class ClientApplication
                 new("Logging", _loggingStore.Path),
                 new("Logs", _logWriter.RootDirectory),
                 new("DCC downloads", _preferences.DccDownloads)
-            ],
-            Summary: "Changes are saved immediately. Close clircs before manually editing these files.")));
+            ])));
     }
 
     private async ValueTask<CommandResult> BackupAsync(
@@ -620,8 +619,7 @@ internal sealed partial class ClientApplication
                                 file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                                 FormatFileSize(file.Length)
                             }).ToArray(),
-                            new HashSet<int> { 0 }),
-                        Summary: _backupManager.BackupDirectory));
+                            new HashSet<int> { 0 })));
                 default:
                     return CommandResult.Failure("Usage: /backup [create|list|path]");
             }
@@ -662,17 +660,17 @@ internal sealed partial class ClientApplication
             var rows = new List<IReadOnlyList<string>>();
             foreach (var rule in rules)
             {
-                rows.Add([rule.NetworkName, rule.Enabled ? "on" : "off", "(network)", ""]);
+                rows.Add([rule.NetworkName, "Profile default", rule.Enabled ? "on" : "off"]);
                 rows.AddRange(rule.Targets
                     .OrderBy(target => target.Key, StringComparer.OrdinalIgnoreCase)
                     .Select(target => (IReadOnlyList<string>)new[]
                     {
-                        rule.NetworkName, rule.Enabled ? "on" : "off", target.Key, target.Value ? "on" : "off"
+                        rule.NetworkName, target.Key, target.Value ? "on" : "off"
                     }));
             }
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "Logging Rules",
-                Table: new PresentationTable(["Network", "Network state", "Target", "Target state"], rows))));
+                Table: new PresentationTable(["Profile", "Target", "Status"], rows))));
         }
         if (operation == "status" && input.Arguments.Count == 1)
         {

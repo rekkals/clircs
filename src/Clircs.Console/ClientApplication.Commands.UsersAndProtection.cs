@@ -362,7 +362,7 @@ internal sealed partial class ClientApplication
         var grid = summaries.Select(summary =>
             $"{summary.Label}: {(summary.Role is null ? users.Count : users.Count(user => user.Roles.HasFlag(summary.Role.Value)))}").ToArray();
         return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
-            $"User summary: {network}",
+            $"User Summary: {network}",
             Grid: grid)));
     }
 
@@ -500,7 +500,7 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(failure);
                 var effective = _protectionStore.SettingsFor(scope!);
                 return ValueTask.FromResult(CommandResult.Success(FriendlyProtectionPresentation(
-                    $"Channel protection: {label}", effective, ChannelProtectionDetectors)));
+                    $"Channel Protection: {label}", effective, ChannelProtectionDetectors)));
             }
 
             if (operation == "action")
@@ -608,7 +608,7 @@ internal sealed partial class ClientApplication
                 if (!TryFriendlyNetworkScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
                 return ValueTask.FromResult(CommandResult.Success(FriendlyProtectionPresentation(
-                    $"Personal protection: {label}", _protectionStore.SettingsFor(scope!), PersonalProtectionDetectors)));
+                    $"Personal Protection: {label}", _protectionStore.SettingsFor(scope!), PersonalProtectionDetectors)));
             }
 
             if (operation == "ignoretime")
@@ -685,7 +685,7 @@ internal sealed partial class ClientApplication
                 {
                     var effective = EffectiveProtection(session, ActiveChannel());
                     return ValueTask.FromResult(CommandResult.Success(ProtectionPresentation(
-                        "Protection status", effective, includeRules: false)));
+                        "Protection Status", effective, includeRules: false)));
                 }
                 case "settings":
                 case "show":
@@ -697,7 +697,7 @@ internal sealed partial class ClientApplication
                         return ValueTask.FromResult(CommandResult.Failure("Usage: /protect show [detector]"));
                     }
                     return ValueTask.FromResult(CommandResult.Success(ProtectionPresentation(
-                        detector is null ? "Protection settings" : $"Protection: {DetectorName(detector.Value)}",
+                        detector is null ? "Protection Settings" : $"Protection: {DetectorName(detector.Value)}",
                         effective,
                         includeRules: true,
                         detector)));

@@ -913,8 +913,7 @@ internal sealed partial class ClientApplication
                 new PresentationField("Evidence", count.ToString()),
                 new PresentationField("Threshold", $"{rule.Threshold} in {rule.WindowSeconds}s"),
                 new PresentationField("Result", detection is null ? "not triggered" : $"triggered at {detection.Count}")
-            ],
-            Summary: "Test mode never changes live counters or sends IRC actions."));
+            ]));
     }
 
     private BufferState ProtectionAuditBuffer(IrcNetworkSession session) =>

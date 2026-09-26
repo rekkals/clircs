@@ -252,9 +252,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
                         // TODO: Reassess whether this compatibility diagnostic should remain
                         // user-visible after extended inbound framing has received wider testing.
                         Diagnostic?.Invoke(
-                            $"Accepted an IRC line with {framedLine.Length} payload bytes; " +
-                            $"the traditional limit is {IrcLineFramer.MaximumPayloadBytes}. " +
-                            "Further occurrences will be accepted silently.");
+                            $"Accepted an IRC line with {framedLine.Length + 2} bytes, exceeding the traditional 512-byte limit.");
                     }
                     var rawLine = IrcTextEncoding.Decode(framedLine);
                     RaiseWireLine(IrcWireDirection.Received, rawLine);
@@ -288,9 +286,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
                         // TODO: Reassess whether this protocol-violation diagnostic should remain
                         // user-visible. It is currently exposed to help test real-world compatibility.
                         Diagnostic?.Invoke(
-                            $"Accepted a nonstandard IRC message with {message.Parameters.Count} parameters; " +
-                            $"the traditional limit is {IrcMessage.TraditionalParameterLimit}. " +
-                            "Further occurrences will be accepted silently.");
+                            $"Accepted a nonstandard IRC message with {message.Parameters.Count} parameters, exceeding the traditional 15-parameter limit.");
                     }
 
                     await HandleProtocolMessageAsync(message, cancellationToken).ConfigureAwait(false);

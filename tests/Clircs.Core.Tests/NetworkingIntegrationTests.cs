@@ -884,8 +884,7 @@ internal static class NetworkingIntegrationTests
             1,
             diagnostics.Count(message =>
                 message ==
-                "Accepted an IRC line with 515 payload bytes; the traditional limit is 510. " +
-                "Further occurrences will be accepted silently."));
+                "Accepted an IRC line with 517 bytes, exceeding the traditional 512-byte limit."));
 
         await connection.DisconnectAsync("done", timeout.Token);
 

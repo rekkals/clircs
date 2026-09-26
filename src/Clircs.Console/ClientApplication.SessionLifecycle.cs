@@ -989,11 +989,6 @@ internal sealed partial class ClientApplication
                     sessionToken);
             }
 
-            if (op.Count + voice.Count + deop.Count + kick.Count > 0)
-            {
-                PublishStatus(session, SessionEventKind.Status,
-                    $"Applied user policy in {channel.Name}: +o {op.Count}, +v {voice.Count}, -o {deop.Count}, kicks {kick.Count}.");
-            }
             if (appliedBans > 0)
             {
                 PublishStatus(session, SessionEventKind.Status,
