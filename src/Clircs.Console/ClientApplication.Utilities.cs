@@ -24,7 +24,7 @@ internal sealed partial class ClientApplication
             new("Network", session.Features.NetworkName ?? session.State.DisplayName),
             new("Connection", ConnectionStatusLabel(session)),
             new("IRC server", session.State.ServerName ?? session.Options.Endpoint.Host),
-            new("IRC network TLS", upstreamTls switch
+            new("Server TLS", upstreamTls switch
             {
                 true => "enabled",
                 false => "disabled",
@@ -46,7 +46,9 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            fields.Insert(4, new PresentationField("Bouncer endpoint", session.Options.Endpoint.ToString()));
+            fields.Insert(4, new PresentationField(
+                "Bouncer endpoint",
+                $"{session.Options.Endpoint.Host}:{session.Options.Endpoint.Port}"));
             fields.Insert(5, new PresentationField(
                 "Bouncer TLS",
                 session.State.ClientTransportTls ? "enabled" : "disabled"));
