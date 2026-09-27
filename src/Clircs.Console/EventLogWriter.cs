@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Channels;
 using Clircs.State;
@@ -170,18 +171,64 @@ internal sealed class EventLogWriter : IAsyncDisposable
 
     private static string SafeSegment(string value)
     {
-        value = value.Trim();
-        if (value.Length == 0) return "_";
-        var invalid = Path.GetInvalidFileNameChars();
-        var sanitized = new string(value.Select(character =>
-            invalid.Contains(character) ? '_' : character).ToArray()).TrimEnd('.', ' ');
-        if (sanitized.Length == 0) return "_";
-        if (sanitized is "." or "..") return "_" + sanitized.Replace('.', '_');
-        var stem = sanitized.Split('.')[0];
+        if (value.Length == 0) return ",";
+
+        var bytes = Encoding.UTF8.GetBytes(value);
+        var trailingStart = bytes.Length;
+        while (trailingStart > 0 &&
+               (bytes[trailingStart - 1] == (byte)'.' ||
+                bytes[trailingStart - 1] == (byte)' '))
+        {
+            trailingStart--;
+        }
+
+        const string forbidden = "<>:\"/\\|?*,";
+        var result = new StringBuilder();
+
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            var current = bytes[index];
+            var escape = current < 0x20 ||
+                         current >= 0x7F ||
+                         forbidden.Contains((char)current) ||
+                         (index >= trailingStart &&
+                          (current == (byte)'.' || current == (byte)' '));
+
+            if (escape)
+            {
+                result.Append(',');
+                result.Append(current.ToString("X2"));
+            }
+            else
+            {
+                result.Append((char)current);
+            }
+        }
+
+        var segment = result.ToString();
+        var stem = segment.Split('.')[0];
         string[] reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
             "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
             "LPT7", "LPT8", "LPT9"];
-        return reserved.Contains(stem, StringComparer.OrdinalIgnoreCase) ? "_" + sanitized : sanitized;
+
+        if (reserved.Contains(stem, StringComparer.OrdinalIgnoreCase))
+            segment = "," + bytes[0].ToString("X2") + segment[1..];
+
+        const int maximumLength = 120;
+        if (segment.Length <= maximumLength) return segment;
+
+        var suffix = ",H" + Convert.ToHexString(SHA256.HashData(bytes))[..32];
+        var prefixLength = maximumLength - suffix.Length;
+
+        // Don't cut through a ,HH escape.
+        while (prefixLength > 0 &&
+               (segment[prefixLength - 1] == ',' ||
+                (prefixLength > 1 && segment[prefixLength - 2] == ',')))
+        {
+            prefixLength--;
+        }
+
+        return segment[..prefixLength] + suffix;
     }
 
     private sealed record LogEntry(

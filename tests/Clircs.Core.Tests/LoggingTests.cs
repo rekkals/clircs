@@ -12,6 +12,8 @@ internal static class LoggingTests
     {
         suite.Add("logging rules inherit and persist target overrides", RulesPersist);
         suite.Add("event logger writes daily UTF-8 files by window kind", WritesDailyFilesAsync);
+        suite.Add("log paths keep distinct channel names separate", DistinctChannelLogPathsAsync);
+        suite.Add("log paths escape special and long names", EscapesLogPathSegmentsAsync);
         suite.Add("event logger retains a burst larger than its former queue", RetainsLargeBurstAsync);
         suite.Add("log formatter records semantic events but skips startup UI", FormatsSemanticEvents);
         suite.Add("logging status shows network and effective window rules", StatusPresentationIsReadable);
@@ -62,6 +64,57 @@ internal static class LoggingTests
         Assert.True(File.Exists(debug));
         Assert.Equal("[12:34:56] <slakker> hello", File.ReadAllText(channel).Trim());
         Assert.Equal("[12:34:56] >> CAP LS 302", File.ReadAllText(debug).Trim());
+    }
+
+    private static async ValueTask DistinctChannelLogPathsAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var timestamp = new DateTimeOffset(2026, 9, 27, 12, 34, 56, TimeSpan.Zero);
+        var writer = new EventLogWriter(temporary.Path);
+
+        writer.Enqueue("EFnet", BufferKind.Channel, "#a/b", timestamp, ["slash channel"]);
+        writer.Enqueue("EFnet", BufferKind.Channel, "#a_b", timestamp, ["underscore channel"]);
+        await writer.DisposeAsync();
+
+        var slashPath = Path.Combine(
+            temporary.Path, "EFnet", "#a,2Fb", "2026-09-27.log");
+        var underscorePath = Path.Combine(
+            temporary.Path, "EFnet", "#a_b", "2026-09-27.log");
+
+        Assert.Equal("[12:34:56] slash channel", File.ReadAllText(slashPath).Trim());
+        Assert.Equal("[12:34:56] underscore channel", File.ReadAllText(underscorePath).Trim());
+    }
+
+    private static async ValueTask EscapesLogPathSegmentsAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        await using var writer = new EventLogWriter(temporary.Path);
+        var timestamp = new DateTimeOffset(2026, 9, 27, 12, 34, 56, TimeSpan.Zero);
+        const string date = "2026-09-27.log";
+
+        Assert.Equal(
+            Path.Combine(temporary.Path, "EFnet", "#chat,2E", date),
+            writer.PathFor("EFnet", BufferKind.Channel, "#chat.", timestamp));
+
+        Assert.Equal(
+            Path.Combine(temporary.Path, ",43ON", "status", date),
+            writer.PathFor("CON", BufferKind.Status, "status", timestamp));
+        Assert.Equal(
+            Path.Combine(temporary.Path, ",2C43ON", "status", date),
+            writer.PathFor(",43ON", BufferKind.Status, "status", timestamp));
+
+        Assert.Equal(
+            Path.Combine(temporary.Path, "EFnet", "#caf,C3,A9", date),
+            writer.PathFor("EFnet", BufferKind.Channel, "#café", timestamp));
+
+        var longA = writer.PathFor(
+            "EFnet", BufferKind.Channel, "#" + new string('a', 180) + "x", timestamp);
+        var longB = writer.PathFor(
+            "EFnet", BufferKind.Channel, "#" + new string('a', 180) + "y", timestamp);
+
+        Assert.False(string.Equals(longA, longB, StringComparison.OrdinalIgnoreCase));
+        Assert.True(Path.GetFileName(Path.GetDirectoryName(longA)!).Length <= 120);
+        Assert.True(Path.GetFileName(Path.GetDirectoryName(longB)!).Length <= 120);
     }
 
     private static async ValueTask RetainsLargeBurstAsync()
