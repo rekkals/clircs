@@ -25,8 +25,8 @@ public sealed class IrcSessionProcessor
         CurrentNickname = initialNickname;
         _eventBuilder = new SessionEventBuilder(_state);
         _identityQueries = new IdentityQueryResponseProcessor(_state, Features, _eventBuilder);
-        _networkQueries = new NetworkQueryResponseProcessor(_eventBuilder);
-        _channelLists = new ChannelListResponseProcessor(_state, _eventBuilder);
+        _networkQueries = new NetworkQueryResponseProcessor(Features, _eventBuilder);
+        _channelLists = new ChannelListResponseProcessor(_state, Features, _eventBuilder);
     }
 
     public string CurrentNickname { get; private set; }
@@ -147,6 +147,54 @@ public sealed class IrcSessionProcessor
                 }
 
                 events.Add(Status(SessionEventKind.Server, Last(message), now));
+                break;
+            case "010":
+                if (message.Parameters.Count >= 3)
+                {
+                    var redirectServer = message.Parameters[1];
+                    var redirectPort = message.Parameters[2];
+                    events.Add(Status(
+                        SessionEventKind.Server,
+                        $"Server redirect: use {redirectServer}:{redirectPort}",
+                        now,
+                        Fields(
+                            ("numeric", "010"),
+                            ("server", redirectServer),
+                            ("port", redirectPort))));
+                }
+
+                break;
+            case "020":
+                events.Add(Status(
+                    SessionEventKind.Server,
+                    Last(message),
+                    now,
+                    Fields(("numeric", "020"))));
+                break;
+            case "042":
+                if (message.Parameters.Count >= 2)
+                {
+                    var uniqueId = message.Parameters[1];
+                    Features.ObserveIrcNetUniqueId();
+                    events.Add(Status(
+                        SessionEventKind.Server,
+                        $"Your unique ID: {uniqueId}",
+                        now,
+                        Fields(("numeric", "042"), ("uniqueId", uniqueId))));
+                }
+
+                break;
+            case "043":
+                if (message.Parameters.Count >= 2)
+                {
+                    ApplySelfNicknameChange(
+                        message.Parameters[0],
+                        message.Parameters[1],
+                        now,
+                        events,
+                        forcedByCollision: true);
+                }
+
                 break;
             case "005":
                 var previousCaseMapping = _state.CaseMapping;
@@ -396,23 +444,33 @@ public sealed class IrcSessionProcessor
                 }
 
                 var newNickname = message.Parameters[0];
-                var selfNickChange = new IrcNameComparer(_state.CaseMapping).Equals(sender, CurrentNickname);
-                if (selfNickChange)
+                var nameComparer = new IrcNameComparer(_state.CaseMapping);
+                var selfNickChange = nameComparer.Equals(sender, CurrentNickname);
+
+                if (!selfNickChange && nameComparer.Equals(newNickname, CurrentNickname))
                 {
-                    CurrentNickname = newNickname;
+                    // IRCnet follows numeric 043 with a normal NICK message when the
+                    // affected client shares a suitable channel. The state change and
+                    // user-facing notification were already applied from 043.
+                    foreach (var channel in _state.Channels)
+                    {
+                        channel.RenameMember(sender, newNickname);
+                    }
+
+                    break;
                 }
 
-                var nickChannels = _state.Channels.Where(channel => channel.RenameMember(sender, newNickname)).ToArray();
                 if (selfNickChange)
                 {
-                    foreach (var buffer in _state.Buffers.Where(buffer =>
-                                 buffer.Kind is BufferKind.Status or BufferKind.Channel or BufferKind.Query or BufferKind.Results))
-                    {
-                        events.Add(Event(buffer, SessionEventKind.Nick, $"You are now known as {newNickname}", now,
-                            Fields(("oldNick", sender), ("newNick", newNickname), ("self", "true"))));
-                    }
+                    ApplySelfNicknameChange(sender, newNickname, now, events);
+                    break;
                 }
-                else if (nickChannels.Length == 0)
+
+                var nickChannels = _state.Channels
+                    .Where(channel => channel.RenameMember(sender, newNickname))
+                    .ToArray();
+
+                if (nickChannels.Length == 0)
                 {
                     events.Add(Status(SessionEventKind.Nick, $"{sender} is now known as {newNickname}", now));
                 }
@@ -467,6 +525,26 @@ public sealed class IrcSessionProcessor
                         }
                         events.Add(Status(SessionEventKind.Mode, $"{sender} sets mode {modeChange} on {modeTarget}", now));
                     }
+                }
+
+                break;
+            case "331":
+                if (message.Parameters.Count >= 2)
+                {
+                    var topicChannel = message.Parameters[1];
+                    var topicState = _state.GetOrCreateChannel(topicChannel);
+                    topicState.Topic = null;
+                    topicState.TopicSetBy = null;
+                    topicState.TopicSetAt = null;
+
+                    events.Add(Event(
+                        _state.GetOrCreateBuffer(BufferKind.Channel, topicChannel),
+                        SessionEventKind.Topic,
+                        Last(message),
+                        now,
+                        Fields(
+                            ("numeric", "331"),
+                            ("channel", topicChannel))));
                 }
 
                 break;
@@ -555,6 +633,25 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 3)
                 {
                     ApplyModes(_state.GetOrCreateChannel(message.Parameters[1]), message.Parameters.Skip(2).ToArray(), reset: true);
+                }
+
+                break;
+            case "325":
+                if (message.Parameters.Count >= 3)
+                {
+                    var uniqueOperatorChannel = message.Parameters[1];
+                    var uniqueOperatorNick = message.Parameters[2];
+                    events.Add(Event(
+                        _state.GetOrCreateBuffer(
+                            BufferKind.Channel,
+                            uniqueOperatorChannel),
+                        SessionEventKind.ChannelInfo,
+                        $"Unique channel operator: {uniqueOperatorNick}",
+                        now,
+                        Fields(
+                            ("numeric", "325"),
+                            ("channel", uniqueOperatorChannel),
+                            ("nick", uniqueOperatorNick))));
                 }
 
                 break;
@@ -857,6 +954,40 @@ public sealed class IrcSessionProcessor
         }
 
         return events;
+    }
+
+    private void ApplySelfNicknameChange(
+        string oldNickname,
+        string newNickname,
+        DateTimeOffset now,
+        ICollection<SessionEvent> events,
+        bool forcedByCollision = false)
+    {
+        CurrentNickname = newNickname;
+
+        foreach (var channel in _state.Channels)
+        {
+            channel.RenameMember(oldNickname, newNickname);
+        }
+
+        var text = forcedByCollision
+            ? $"Nickname collision: you are now known as {newNickname}"
+            : $"You are now known as {newNickname}";
+
+        foreach (var buffer in _state.Buffers.Where(buffer =>
+                     buffer.Kind is BufferKind.Status or BufferKind.Channel or BufferKind.Query or BufferKind.Results))
+        {
+            events.Add(Event(
+                buffer,
+                SessionEventKind.Nick,
+                text,
+                now,
+                Fields(
+                    ("oldNick", oldNickname),
+                    ("newNick", newNickname),
+                    ("self", "true"),
+                    ("numeric", forcedByCollision ? "043" : null))));
+        }
     }
 
     private void ProcessPrivmsg(IrcMessage message, string sender, DateTimeOffset now, ICollection<SessionEvent> events)
@@ -1191,7 +1322,10 @@ public sealed class IrcSessionProcessor
             _state.SetServerName(message.Prefix);
         }
 
-        if (message.Command == "671" && message.Parameters.Count >= 2 &&
+        var secureWhoisNumeric = message.Command == "671" ||
+            message.Command == "320" && Features.DaemonFamily == IrcDaemonFamily.IrcNet;
+
+        if (secureWhoisNumeric && message.Parameters.Count >= 2 &&
             new IrcNameComparer(_state.CaseMapping).Equals(message.Parameters[1], CurrentNickname))
         {
             _state.SetUpstreamTls(true);

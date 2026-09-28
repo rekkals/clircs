@@ -6,6 +6,7 @@ namespace Clircs.Sessions;
 
 internal sealed class ChannelListResponseProcessor(
     NetworkSessionState state,
+    ServerFeatures features,
     SessionEventBuilder events)
 {
     private static readonly IReadOnlyDictionary<string, char> EntryNumerics =
@@ -14,6 +15,7 @@ internal sealed class ChannelListResponseProcessor(
             ["367"] = 'b',
             ["348"] = 'e',
             ["346"] = 'I',
+            ["344"] = 'R',
             ["728"] = 'q'
         };
 
@@ -23,11 +25,19 @@ internal sealed class ChannelListResponseProcessor(
             ["368"] = 'b',
             ["349"] = 'e',
             ["347"] = 'I',
+            ["345"] = 'R',
             ["729"] = 'q'
         };
 
     public bool TryProcess(IrcMessage message, DateTimeOffset now, out IReadOnlyList<SessionEvent> results)
     {
+        if (message.Command is "344" or "345" &&
+            features.DaemonFamily != IrcDaemonFamily.IrcNet)
+        {
+            results = [];
+            return false;
+        }
+
         if (EntryNumerics.TryGetValue(message.Command, out var entryMode))
         {
             AddEntry(message, entryMode);
@@ -146,6 +156,7 @@ internal sealed class ChannelListResponseProcessor(
         'b' => new("BANS:", "Bans", "ban", "bans"),
         'e' => new("BAN EXCEPTIONS:", "Ban exceptions", "ban exception", "ban exceptions"),
         'I' => new("INVITE EXCEPTIONS:", "Invite exceptions", "invite exception", "invite exceptions"),
+        'R' => new("REOP LIST:", "Reop list", "reop entry", "reop entries"),
         'q' => new("QUIETS:", "Quiets", "quiet", "quiets"),
         _ => throw new ArgumentOutOfRangeException(nameof(mode))
     };

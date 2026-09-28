@@ -2,7 +2,9 @@ using Clircs.Protocol;
 
 namespace Clircs.Sessions;
 
-internal sealed class NetworkQueryResponseProcessor(SessionEventBuilder events)
+internal sealed class NetworkQueryResponseProcessor(
+    ServerFeatures features,
+    SessionEventBuilder events)
 {
     private readonly List<LinkResultRow> _linkResults = [];
     private readonly List<ListResultRow> _listResults = [];
@@ -68,6 +70,15 @@ internal sealed class NetworkQueryResponseProcessor(SessionEventBuilder events)
         var hopsText = separator < 0 ? details : details[..separator];
         var hops = int.TryParse(hopsText, out var parsedHops) ? Math.Clamp(parsedHops, 0, 32) : 0;
         var description = separator < 0 ? string.Empty : details[(separator + 1)..];
+        if (features.DaemonFamily == IrcDaemonFamily.IrcNet)
+        {
+            var serverIdSeparator = description.IndexOf(' ');
+            if (serverIdSeparator > 0 &&
+                ServerFeatures.IsIrcNetServerId(description[..serverIdSeparator]))
+            {
+                description = description[(serverIdSeparator + 1)..];
+            }
+        }
         _linkResults.Add(new LinkResultRow(message.Parameters[1], hops, description));
     }
 

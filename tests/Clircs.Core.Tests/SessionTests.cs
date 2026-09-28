@@ -17,6 +17,14 @@ internal static class SessionTests
         suite.Add("CASEMAPPING changes reindex pending IRC nickname state", PendingNamesFollowNegotiatedCaseMapping);
         suite.Add("STATUSMSG channel messages route to the underlying channel", StatusMessageRouting);
         suite.Add("daemon detection is advisory and connection-specific", DaemonDetectionIsAdvisory);
+        suite.Add("IRCnet 042 identifies the daemon and formats the unique ID", IrcNetUniqueIdIsFormatted);
+        suite.Add("IRCnet 020 formats the pre-registration wait message", IrcNetConnectionWaitIsFormatted);
+        suite.Add("numeric 010 formats a server redirect without following it", ServerRedirectIsFormatted);
+        suite.Add("IRCnet 043 applies a forced nickname without duplicating its NICK echo", IrcNetForcedNicknameIsAppliedOnce);
+        suite.Add("IRCnet 320 becomes TLS state without redefining other WHOIS replies", IrcNetWhoisTlsIsRecognized);
+        suite.Add("IRCnet 352 removes its server ID without corrupting ordinary real names", IrcNetWhoServerIdIsRemoved);
+        suite.Add("IRCnet 364 removes its server ID without corrupting ordinary descriptions", IrcNetLinksServerIdIsRemoved);
+        suite.Add("IRCnet 344/345 produce a reop list without stealing WHOIS country replies", IrcNetReopListDoesNotCollideWithWhoisCountry);
         suite.Add("major daemon registration signatures retain their advertised capabilities", MajorDaemonSignatures);
         suite.Add("major daemon WHOIS transcripts complete without raw numeric leakage", MajorDaemonWhoisTranscripts);
         suite.Add("channel messages route to channel buffers", ChannelMessageRouting);
@@ -33,6 +41,7 @@ internal static class SessionTests
         suite.Add("channel chat carries the speaker's highest privilege prefix", ChannelChatCarriesPrivilegePrefix);
         suite.Add("MODE events render in the affected channel", ModeEventsRouteToChannel);
         suite.Add("numeric 324 silently synchronizes current channel modes", ModeNumericSynchronizesSilently);
+        suite.Add("numeric 325 identifies a channel's unique operator", UniqueChannelOperatorIsFormatted);
         suite.Add("server-confirmed user modes remain synchronized", UserModesRemainSynchronized);
         suite.Add("JOIN failures are formatted without raw numerics", JoinFailuresAreFormatted);
         suite.Add("ISON replies remain internal instead of rendering raw 303", IsonRepliesAreSilent);
@@ -43,6 +52,7 @@ internal static class SessionTests
         suite.Add("channel permission errors are formatted without raw numerics", PermissionErrorsAreFormatted);
         suite.Add("numeric 421 becomes a readable unknown-command error", UnknownCommandIsFormatted);
         suite.Add("numeric 333 renders topic setter metadata in the channel", TopicSetterRoutesToChannel);
+        suite.Add("numeric 331 clears stale topic state and routes to the channel", NoTopicClearsChannelState);
         suite.Add("numeric 329 renders channel creation time in the channel", ChannelCreationRoutesToChannel);
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
         suite.Add("STATS p replies produce a formatted operator table", StatsOperatorsProduceInformationBox);
@@ -477,6 +487,216 @@ internal static class SessionTests
         Assert.Equal('h', halfopMode);
     }
 
+    private static void IrcNetUniqueIdIsFormatted()
+    {
+        var (_, processor) = CreateProcessor();
+
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 004 me ircnet.example 2.12.0-pre aoOirw abeiIklmnoOpqrRstv"));
+        Assert.Equal(IrcDaemonFamily.Unknown, processor.Features.DaemonFamily);
+
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 042 me 528TATD51 :your unique ID"));
+
+        Assert.Equal(IrcDaemonFamily.IrcNet, processor.Features.DaemonFamily);
+        Assert.Equal(1, events.Count);
+        Assert.Equal("Your unique ID: 528TATD51", events[0].Text);
+        Assert.Equal("042", events[0].Fields!["numeric"]!);
+        Assert.Equal("528TATD51", events[0].Fields!["uniqueId"]!);
+
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 005 me NETWORK=IRCnet :are supported"));
+        Assert.Equal(IrcDaemonFamily.IrcNet, processor.Features.DaemonFamily);
+
+        processor.ResetForReconnect("me");
+        Assert.Equal(IrcDaemonFamily.Unknown, processor.Features.DaemonFamily);
+    }
+
+    private static void IrcNetConnectionWaitIsFormatted()
+    {
+        var (_, processor) = CreateProcessor();
+
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 020 * :Please wait while we process your connection."));
+
+        Assert.Equal(IrcDaemonFamily.Unknown, processor.Features.DaemonFamily);
+        Assert.Equal(1, events.Count);
+        Assert.Equal("Please wait while we process your connection.", events[0].Text);
+        Assert.Equal("020", events[0].Fields!["numeric"]!);
+    }
+
+    private static void ServerRedirectIsFormatted()
+    {
+        var (_, processor) = CreateProcessor();
+
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 010 * irc2.example 6697 :Please use this Server/Port instead"));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal(
+            "Server redirect: use irc2.example:6697",
+            events[0].Text);
+        Assert.Equal("010", events[0].Fields!["numeric"]!);
+        Assert.Equal("irc2.example", events[0].Fields!["server"]!);
+        Assert.Equal("6697", events[0].Fields!["port"]!);
+    }
+
+    private static void IrcNetForcedNicknameIsAppliedOnce()
+    {
+        var (state, processor) = CreateProcessor();
+        var channelBuffer = state.GetOrCreateBuffer(BufferKind.Channel, "#clircs");
+        var channel = state.GetOrCreateChannel("#clircs");
+        channel.GetOrAddMember("me", "user", "host");
+        var query = state.GetOrCreateBuffer(BufferKind.Query, "Alice");
+        var results = state.GetOrCreateBuffer(BufferKind.Results, "=whois");
+
+        var forced = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 043 me 528TATD51 :nickname collision, forcing nick change to your unique ID."));
+
+        Assert.Equal("528TATD51", processor.CurrentNickname);
+        Assert.Equal(4, forced.Count);
+        Assert.True(forced.All(entry =>
+            entry.Text == "Nickname collision: you are now known as 528TATD51"));
+        Assert.True(forced.All(entry => entry.Fields!["numeric"] == "043"));
+        Assert.True(forced.Select(entry => entry.BufferId).ToHashSet().SetEquals(
+            [state.StatusBuffer.Id, channelBuffer.Id, query.Id, results.Id]));
+        Assert.False(channel.TryGetMember("me", out _));
+        Assert.True(channel.TryGetMember("528TATD51", out _));
+
+        var echoed = processor.Process(IrcMessageParser.Parse(
+            ":me!user@host NICK :528TATD51"));
+
+        Assert.Equal(0, echoed.Count);
+        Assert.Equal("528TATD51", processor.CurrentNickname);
+        Assert.True(channel.TryGetMember("528TATD51", out _));
+    }
+
+    private static void IrcNetWhoisTlsIsRecognized()
+    {
+        var (state, processor) = CreateProcessor();
+        state.ResetForReconnect(clientTransportTls: false);
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 042 me 528TATD51 :your unique ID"));
+
+        processor.BeginWhoisRequest("me", includeIdle: false);
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 311 me me user host * :Test User"));
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 312 me me ircnet.example :IRCnet server"));
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 320 me me :is a Secure Connection (SSL/TLS)"));
+        var ircNet = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 318 me me :End of WHOIS")).Single().Presentation!;
+
+        Assert.True(state.UpstreamTls == true);
+        Assert.True(ircNet.Fields!.Single(field => field.Label == "Server").Value
+            .EndsWith("[TLS]", StringComparison.Ordinal));
+        Assert.False(ircNet.Fields!.Any(field => field.Label == "Info"));
+
+        var (_, other) = CreateProcessor();
+        other.BeginWhoisRequest("Alice", includeIdle: false);
+        other.Process(IrcMessageParser.Parse(
+            ":server 311 me Alice user host * :Alice Person"));
+        other.Process(IrcMessageParser.Parse(
+            ":server 312 me Alice server.example :Example server"));
+        other.Process(IrcMessageParser.Parse(
+            ":server 320 me Alice :is identified for this nick"));
+        var ordinary = other.Process(IrcMessageParser.Parse(
+            ":server 318 me Alice :End of WHOIS")).Single().Presentation!;
+
+        Assert.False(ordinary.Fields!.Single(field => field.Label == "Server").Value
+            .EndsWith("[TLS]", StringComparison.Ordinal));
+        Assert.Equal(
+            "identified for this nick",
+            ordinary.Fields!.Single(field => field.Label == "Info").Value);
+    }
+
+    private static void IrcNetWhoServerIdIsRemoved()
+    {
+        var (state, processor) = CreateProcessor();
+        var channel = state.GetOrCreateChannel("#clircs");
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 042 me 528TATD51 :your unique ID"));
+
+        processor.BeginWhoRequest(["#clircs"]);
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 352 me #clircs ~slakker 72.180.216.223 ircnet.example slakker H :0 528T slakker"));
+        var ircNet = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 315 me #clircs :End of WHO")).Single().Presentation!;
+
+        Assert.Equal("slakker", ircNet.Table!.Rows.Single()[4]);
+        Assert.True(channel.TryGetMember("slakker", out var member));
+        Assert.Equal("slakker", member!.RealName!);
+
+        var (_, other) = CreateProcessor();
+        other.BeginWhoRequest(["Alice"]);
+        other.Process(IrcMessageParser.Parse(
+            ":server 352 me * user host server Alice H :0 528T slakker"));
+        var ordinary = other.Process(IrcMessageParser.Parse(
+            ":server 315 me Alice :End of WHO")).Single().Presentation!;
+
+        Assert.Equal("528T slakker", ordinary.Table!.Rows.Single()[5]);
+    }
+
+    private static void IrcNetLinksServerIdIsRemoved()
+    {
+        var (_, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 042 me 528TATD51 :your unique ID"));
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 364 me ircnet.example hub.example :1 528T IRCnet server"));
+        var ircNet = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 365 me * :End of LINKS")).Single().Presentation!;
+
+        Assert.Equal("IRCnet server", ircNet.Table!.Rows.Single()[1]);
+
+        var (_, other) = CreateProcessor();
+        other.Process(IrcMessageParser.Parse(
+            ":server 364 me irc.example hub.example :1 528T IRCnet server"));
+        var ordinary = other.Process(IrcMessageParser.Parse(
+            ":server 365 me * :End of LINKS")).Single().Presentation!;
+
+        Assert.Equal("528T IRCnet server", ordinary.Table!.Rows.Single()[1]);
+    }
+
+    private static void IrcNetReopListDoesNotCollideWithWhoisCountry()
+    {
+        var (state, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 042 me 528TATD51 :your unique ID"));
+        processor.Process(IrcMessageParser.Parse(
+            ":me!self@localhost JOIN #clirc"));
+
+        var entry = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 344 me #clirc Alice!user@host"));
+        var completed = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 345 me #clirc :End of Channel Reop List"));
+
+        Assert.Equal(0, entry.Count);
+        Assert.Equal(1, completed.Count);
+        Assert.Equal("REOP LIST:", completed[0].Presentation!.Title);
+        Assert.Equal("#clirc", completed[0].Presentation!.TitleHighlight!);
+        Assert.Equal(
+            "Alice!user@host",
+            completed[0].Presentation!.Table!.Rows.Single()[0]);
+        Assert.Equal("unknown", completed[0].Presentation!.Table!.Rows.Single()[1]);
+        Assert.Equal("R", completed[0].Fields!["listMode"]!);
+        Assert.Equal(
+            1,
+            state.GetOrCreateChannel("#clirc").ChannelList('R').Count);
+
+        var (_, other) = CreateProcessor();
+        other.BeginWhoisRequest("Alice", includeIdle: false);
+        other.Process(IrcMessageParser.Parse(
+            ":server 344 me Alice :United States"));
+        var country = other.Process(IrcMessageParser.Parse(
+            ":server 318 me Alice :End of WHOIS")).Single().Presentation!;
+
+        Assert.Equal(
+            "United States",
+            country.Fields!.Single(field => field.Label == "Country").Value);
+    }
+
     private static void MajorDaemonSignatures()
     {
         var signatures = new[]
@@ -814,6 +1034,32 @@ internal static class SessionTests
         Assert.True(state.TryGetChannel("#clirc", out var channel));
         Assert.True(channel!.Modes.ContainsKey('n'));
         Assert.True(channel.Modes.ContainsKey('t'));
+
+        var empty = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 324 me #clirc +"));
+
+        Assert.Equal(0, empty.Count);
+        Assert.Equal(0, channel.Modes.Count);
+    }
+
+    private static void UniqueChannelOperatorIsFormatted()
+    {
+        var (state, processor) = CreateProcessor();
+
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":ircnet.example 325 me !ABCDEclircs Alice"));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal(
+            "Unique channel operator: Alice",
+            events[0].Text);
+        Assert.Equal(SessionEventKind.ChannelInfo, events[0].Kind);
+        Assert.Equal("325", events[0].Fields!["numeric"]!);
+        Assert.Equal("!ABCDEclircs", events[0].Fields!["channel"]!);
+        Assert.Equal("Alice", events[0].Fields!["nick"]!);
+        Assert.Equal(
+            state.GetOrCreateBuffer(BufferKind.Channel, "!ABCDEclircs").Id,
+            events[0].BufferId);
     }
 
     private static void JoinFailuresAreFormatted()
@@ -963,6 +1209,31 @@ internal static class SessionTests
         Assert.True(events[0].Text.StartsWith("Set by: Alice on ", StringComparison.Ordinal));
         Assert.False(events[0].Text.Contains("333", StringComparison.Ordinal));
         Assert.Equal(state.GetOrCreateBuffer(BufferKind.Channel, "#clirc").Id, events[0].BufferId);
+    }
+
+    private static void NoTopicClearsChannelState()
+    {
+        var (state, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(
+            ":server 332 me #clirc :An old topic"));
+        processor.Process(IrcMessageParser.Parse(
+            ":server 333 me #clirc Alice!user@host 1700000000"));
+
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":server 331 me #clirc :No topic is set"));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal("No topic is set", events[0].Text);
+        Assert.Equal("331", events[0].Fields!["numeric"]!);
+        Assert.Equal("#clirc", events[0].Fields!["channel"]!);
+        Assert.Equal(
+            state.GetOrCreateBuffer(BufferKind.Channel, "#clirc").Id,
+            events[0].BufferId);
+
+        Assert.True(state.TryGetChannel("#clirc", out var channel));
+        Assert.True(channel!.Topic is null);
+        Assert.True(channel.TopicSetBy is null);
+        Assert.True(channel.TopicSetAt is null);
     }
 
     private static void ChannelCreationRoutesToChannel()

@@ -117,6 +117,12 @@ internal sealed class IdentityQueryResponseProcessor
             case "401":
                 CompleteMissingWhois(message, now, results);
                 break;
+            case "344" when
+                _features.DaemonFamily == IrcDaemonFamily.IrcNet &&
+                message.Parameters.Count >= 2 &&
+                _features.IsChannel(message.Parameters[1]):
+                sessionEvents = [];
+                return false;
             case var command when IsWhoisNumeric(command):
                 var whois = ProcessWhois(message, now);
                 if (whois is not null) results.Add(whois);
@@ -219,9 +225,7 @@ internal sealed class IdentityQueryResponseProcessor
         var status = flags.Contains('G') ? "away" : "here";
         if (flags.Contains('*')) status += "*";
         var privilege = new string(flags.Where(symbol => _features.TryGetPrefixMode(symbol, out _)).ToArray());
-        var trailing = message.Parameters[7];
-        var separator = trailing.IndexOf(' ');
-        var realName = separator < 0 ? string.Empty : trailing[(separator + 1)..];
+        var realName = ParseWhoRealName(message.Parameters[7]);
         var row = new WhoResultRow(
             message.Parameters[5], status, privilege, target,
             $"{message.Parameters[2]}@{message.Parameters[3]}", message.Parameters[4], realName);
@@ -234,9 +238,9 @@ internal sealed class IdentityQueryResponseProcessor
         if (message.Parameters.Count < 7) return;
         var channelName = message.Parameters[1];
         if (!_features.IsChannel(channelName) || !_state.TryGetChannel(channelName, out var channel)) return;
-        var trailing = message.Parameters.Count >= 8 ? message.Parameters[7] : string.Empty;
-        var separator = trailing.IndexOf(' ');
-        var realName = separator < 0 ? null : trailing[(separator + 1)..];
+        var realName = message.Parameters.Count >= 8
+            ? ParseWhoRealName(message.Parameters[7])
+            : null;
         var member = channel!.GetOrAddMember(
             message.Parameters[5], message.Parameters[2], message.Parameters[3], realName);
         foreach (var symbol in message.Parameters[6])
@@ -321,6 +325,9 @@ internal sealed class IdentityQueryResponseProcessor
             case "307": result.Registered = true; break;
             case "335": result.Bot = true; break;
             case "275" or "671": result.Secure = true; break;
+            case "320" when _features.DaemonFamily == IrcDaemonFamily.IrcNet:
+                result.Secure = true;
+                break;
             case "338" when message.Parameters.Count >= 3:
                 result.ActualHost = NormalizeActualConnection([message.Parameters[2]]);
                 break;
@@ -551,6 +558,30 @@ internal sealed class IdentityQueryResponseProcessor
         if (authFlags is "" or "[none]" || authFlags?.Equals("none", StringComparison.OrdinalIgnoreCase) == true)
             authFlags = null;
         return (modes.Length == 0 ? null : modes, authFlags);
+    }
+
+    private string ParseWhoRealName(string trailing)
+    {
+        var separator = trailing.IndexOf(' ');
+        if (separator < 0)
+        {
+            return string.Empty;
+        }
+
+        var realName = trailing[(separator + 1)..];
+        if (_features.DaemonFamily != IrcDaemonFamily.IrcNet)
+        {
+            return realName;
+        }
+
+        var serverIdSeparator = realName.IndexOf(' ');
+        if (serverIdSeparator <= 0 ||
+            !ServerFeatures.IsIrcNetServerId(realName[..serverIdSeparator]))
+        {
+            return realName;
+        }
+
+        return realName[(serverIdSeparator + 1)..];
     }
 
     private static string FormatElapsed(long seconds)

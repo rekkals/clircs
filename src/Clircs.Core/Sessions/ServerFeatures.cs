@@ -15,6 +15,7 @@ public sealed class ServerFeatures
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<char, char> _prefixSymbols = new() { ['@'] = 'o', ['+'] = 'v' };
     private readonly Dictionary<char, char> _prefixModes = new() { ['o'] = '@', ['v'] = '+' };
+    private bool _ircNetUniqueIdObserved;
 
     public IrcCaseMapping CaseMapping { get; private set; } = IrcCaseMapping.Rfc1459;
 
@@ -126,6 +127,12 @@ public sealed class ServerFeatures
         DetectDaemonFamily();
     }
 
+    public void ObserveIrcNetUniqueId()
+    {
+        _ircNetUniqueIdObserved = true;
+        DetectDaemonFamily();
+    }
+
     public void ObserveNetworkName(string? networkName)
     {
         if (string.IsNullOrWhiteSpace(networkName))
@@ -165,6 +172,7 @@ public sealed class ServerFeatures
         StatusMessagePrefixes = string.Empty;
         DaemonFamily = IrcDaemonFamily.Unknown;
         ServerSoftware = null;
+        _ircNetUniqueIdObserved = false;
         _isupport.Clear();
         ResetPrefix();
     }
@@ -230,6 +238,7 @@ public sealed class ServerFeatures
             var text when text.Contains("ratbox") => IrcDaemonFamily.Ratbox,
             var text when text.StartsWith("u2.", StringComparison.Ordinal) ||
                 text.Contains(" u2.", StringComparison.Ordinal) => IrcDaemonFamily.UndernetIrcu,
+            _ when _ircNetUniqueIdObserved => IrcDaemonFamily.IrcNet,
             _ => IrcDaemonFamily.Unknown
         };
     }
@@ -326,6 +335,17 @@ public sealed class ServerFeatures
         ChannelModesD = groups[3];
         return true;
     }
+
+    internal static bool IsIrcNetServerId(string value)
+    {
+        if (value.Length != 4 || value[0] is < '0' or > '9')
+        {
+            return false;
+        }
+
+        return value.All(character =>
+            character is >= '0' and <= '9' or >= 'A' and <= 'Z');
+    }
 }
 
 public enum IrcDaemonFamily
@@ -338,5 +358,6 @@ public enum IrcDaemonFamily
     NgIRCd,
     InspIRCd,
     Unreal,
+    IrcNet,
     UndernetIrcu
 }
