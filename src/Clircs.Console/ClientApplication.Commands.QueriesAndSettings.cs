@@ -502,7 +502,7 @@ internal sealed partial class ClientApplication
                     _presenter.SetTheme(reloadedTheme!);
                     fellBack = true;
                 }
-                RefreshWindowChrome();
+                RedrawActiveBuffer();
                 SaveAppearanceSettings();
                 return ValueTask.FromResult(CommandResult.Success(
                     $"Reloaded themes from {_themeManager.DirectoryPath}." +
@@ -521,7 +521,7 @@ internal sealed partial class ClientApplication
             if (_themeManager.TryGet(requested, out var theme))
             {
                 _presenter.SetTheme(theme!);
-                RefreshWindowChrome();
+                RedrawActiveBuffer();
                 try
                 {
                     SaveAppearanceSettings();
