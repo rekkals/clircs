@@ -12,7 +12,6 @@ public enum ProtectionDetector
     MassDeop,
     Caps,
     Controls,
-    ServerOp,
     PrivateMessage,
     PrivateNotice,
     Ctcp,
@@ -27,6 +26,12 @@ public enum ChannelProtectionAction
     KickBan
 }
 
+public enum PersonalProtectionAction
+{
+    Ignore,
+    Monitor
+}
+
 public sealed record ProtectionRule(bool Enabled, int Threshold, int WindowSeconds)
 {
     public ProtectionRule Validate()
@@ -37,39 +42,50 @@ public sealed record ProtectionRule(bool Enabled, int Threshold, int WindowSecon
     }
 }
 
-public sealed record ProtectionSettings(
-    bool ChannelEnabled,
-    bool PersonalEnabled,
-    bool MonitorOnly,
+public sealed record ChannelProtectionSettings(
+    bool Enabled,
     bool ExemptOperators,
     bool ExemptProtected,
-    bool ExemptProtectionExempt,
     Dictionary<ProtectionDetector, ProtectionRule> Rules,
-    ChannelProtectionAction ChannelAction = ChannelProtectionAction.Kick,
-    int BanSeconds = 1800,
-    int PersonalIgnoreSeconds = 45)
+    ChannelProtectionAction Action = ChannelProtectionAction.Kick,
+    int BanSeconds = 1800)
 {
-    public ProtectionSettings DeepCopy() => this with { Rules = Rules.ToDictionary(entry => entry.Key, entry => entry.Value) };
+    private static readonly ProtectionDetector[] Detectors =
+    [
+        ProtectionDetector.Text,
+        ProtectionDetector.Repeat,
+        ProtectionDetector.Join,
+        ProtectionDetector.Nick,
+        ProtectionDetector.MassKick,
+        ProtectionDetector.MassDeop,
+        ProtectionDetector.Caps,
+        ProtectionDetector.Controls,
+        ProtectionDetector.ChannelCtcp
+    ];
 
-    public ProtectionSettings Validate()
+    public ChannelProtectionSettings DeepCopy() =>
+        this with { Rules = Rules.ToDictionary(entry => entry.Key, entry => entry.Value) };
+
+    public ChannelProtectionSettings Validate()
     {
-        if (!Enum.IsDefined(ChannelAction)) throw new InvalidDataException("Unknown channel protection action.");
-        if (BanSeconds is < 0 or > 2_592_000) throw new InvalidDataException("Protection ban time must be from 0 through 30 days.");
-        if (PersonalIgnoreSeconds is < 1 or > 86_400) throw new InvalidDataException("Personal ignore time must be from 1 second through 1 day.");
-        foreach (var detector in Enum.GetValues<ProtectionDetector>())
+        if (!Enum.IsDefined(Action))
+            throw new InvalidDataException("Unknown channel protection action.");
+        if (BanSeconds is < 0 or > 2_592_000)
+            throw new InvalidDataException("Protection ban time must be from 0 through 30 days.");
+        if (Rules.Count != Detectors.Length || Detectors.Any(detector => !Rules.ContainsKey(detector)))
+            throw new InvalidDataException("Channel protection rules are incomplete.");
+        foreach (var rule in Rules.Values)
         {
-            if (!Rules.TryGetValue(detector, out var rule))
-            {
-                throw new InvalidDataException($"Protection settings are missing {detector}.");
-            }
             rule.Validate();
         }
         return this;
     }
 
-    public static ProtectionSettings Defaults(ProtectionSettings? basis = null)
-    {
-        var rules = new Dictionary<ProtectionDetector, ProtectionRule>
+    public static ChannelProtectionSettings Defaults() => new(
+        false,
+        true,
+        true,
+        new Dictionary<ProtectionDetector, ProtectionRule>
         {
             [ProtectionDetector.Text] = new(true, 6, 4),
             [ProtectionDetector.Repeat] = new(true, 3, 12),
@@ -79,25 +95,53 @@ public sealed record ProtectionSettings(
             [ProtectionDetector.MassDeop] = new(true, 3, 10),
             [ProtectionDetector.Caps] = new(true, 4, 10),
             [ProtectionDetector.Controls] = new(true, 3, 10),
-            [ProtectionDetector.ServerOp] = new(true, 1, 5),
+            [ProtectionDetector.ChannelCtcp] = new(true, 4, 10)
+        });
+}
+
+public sealed record PersonalProtectionSettings(
+    bool Enabled,
+    bool ExemptProtected,
+    Dictionary<ProtectionDetector, ProtectionRule> Rules,
+    PersonalProtectionAction Action = PersonalProtectionAction.Ignore,
+    int IgnoreSeconds = 45)
+{
+    private static readonly ProtectionDetector[] Detectors =
+    [
+        ProtectionDetector.PrivateMessage,
+        ProtectionDetector.PrivateNotice,
+        ProtectionDetector.Ctcp,
+        ProtectionDetector.Invite
+    ];
+
+    public PersonalProtectionSettings DeepCopy() =>
+        this with { Rules = Rules.ToDictionary(entry => entry.Key, entry => entry.Value) };
+
+    public PersonalProtectionSettings Validate()
+    {
+        if (!Enum.IsDefined(Action))
+            throw new InvalidDataException("Unknown personal protection action.");
+        if (IgnoreSeconds is < 1 or > 86_400)
+            throw new InvalidDataException("Personal ignore time must be from 1 second through 1 day.");
+        if (Rules.Count != Detectors.Length || Detectors.Any(detector => !Rules.ContainsKey(detector)))
+            throw new InvalidDataException("Personal protection rules are incomplete.");
+        foreach (var rule in Rules.Values)
+        {
+            rule.Validate();
+        }
+        return this;
+    }
+
+    public static PersonalProtectionSettings Defaults() => new(
+        false,
+        true,
+        new Dictionary<ProtectionDetector, ProtectionRule>
+        {
             [ProtectionDetector.PrivateMessage] = new(true, 6, 5),
             [ProtectionDetector.PrivateNotice] = new(true, 6, 5),
             [ProtectionDetector.Ctcp] = new(true, 4, 10),
-            [ProtectionDetector.Invite] = new(true, 4, 30),
-            [ProtectionDetector.ChannelCtcp] = new(true, 4, 10)
-        };
-        return new ProtectionSettings(
-            basis?.ChannelEnabled ?? false,
-            basis?.PersonalEnabled ?? false,
-            basis?.MonitorOnly ?? false,
-            basis?.ExemptOperators ?? true,
-            basis?.ExemptProtected ?? true,
-            basis?.ExemptProtectionExempt ?? true,
-            rules,
-            basis?.ChannelAction ?? ChannelProtectionAction.Kick,
-            basis?.BanSeconds ?? 1800,
-            basis?.PersonalIgnoreSeconds ?? 45);
-    }
+            [ProtectionDetector.Invite] = new(true, 4, 30)
+        });
 }
 
 public sealed record ProtectionEvidence(

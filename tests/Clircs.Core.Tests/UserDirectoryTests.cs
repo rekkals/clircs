@@ -127,10 +127,12 @@ internal static class UserDirectoryTests
         Assert.True(compact.Add.HasFlag(UserRole.Protected));
         Assert.True(compact.Remove.HasFlag(UserRole.KickOnJoin));
 
-        var descriptive = UserRoleParser.ParseChanges("+operator,+autoop,-protected");
+        var descriptive = UserRoleParser.ParseChanges("+operator,+autoop,-friend");
         Assert.True(descriptive.Add.HasFlag(UserRole.OperatorEligible));
         Assert.True(descriptive.Add.HasFlag(UserRole.AutoOp));
         Assert.True(descriptive.Remove.HasFlag(UserRole.Protected));
+        Assert.Throws<ArgumentException>(() =>
+            UserRoleParser.ParseChanges("+protected"));
     }
 
     private static void UserRoleOutputUsesFlags()
@@ -143,10 +145,9 @@ internal static class UserDirectoryTests
             UserRole.AutoVoice |
             UserRole.Protected |
             UserRole.Deop |
-            UserRole.KickOnJoin |
-            UserRole.ProtectionExempt;
+            UserRole.KickOnJoin;
 
-        Assert.Equal("+boavfdke", UserRoleParser.FormatFlags(roles));
+        Assert.Equal("+boavfdk", UserRoleParser.FormatFlags(roles));
         Assert.Equal("none", UserRoleParser.FormatFlags(UserRole.None));
     }
 

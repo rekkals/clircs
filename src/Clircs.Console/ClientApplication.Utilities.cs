@@ -229,13 +229,29 @@ internal sealed partial class ClientApplication
         return duration >= TimeSpan.FromSeconds(1) && duration <= TimeSpan.FromDays(30);
     }
 
-    private static string FormatDuration(TimeSpan duration) => duration.TotalDays >= 1
-        ? $"{duration.TotalDays:0.##}d"
-        : duration.TotalHours >= 1
-            ? $"{duration.TotalHours:0.##}h"
-            : duration.TotalMinutes >= 1
-                ? $"{duration.TotalMinutes:0.##}m"
-                : $"{duration.TotalSeconds:0.##}s";
+    private static string FormatDuration(TimeSpan duration)
+    {
+        var totalSeconds = Math.Round(duration.TotalSeconds, 2);
+        var sign = totalSeconds < 0 ? "-" : string.Empty;
+        var remaining = Math.Abs(totalSeconds);
+        var parts = new List<string>();
+
+        var days = (long)(remaining / 86400);
+        remaining -= days * 86400;
+
+        var hours = (int)(remaining / 3600);
+        remaining -= hours * 3600;
+
+        var minutes = (int)(remaining / 60);
+        remaining -= minutes * 60;
+
+        if (days > 0) parts.Add($"{days}d");
+        if (hours > 0) parts.Add($"{hours}h");
+        if (minutes > 0) parts.Add($"{minutes}m");
+        if (remaining > 0 || parts.Count == 0) parts.Add($"{remaining:0.##}s");
+
+        return sign + string.Join(' ', parts);
+    }
 
     private static bool TryParseOutputDestination(string value, out OutputDestination destination)
     {

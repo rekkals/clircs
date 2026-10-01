@@ -53,7 +53,9 @@ public sealed class ProtectionMonitor
         }
     }
 
-    public IReadOnlyList<ProtectionCounter> Counters(DateTimeOffset now)
+    public IReadOnlyList<ProtectionCounter> Counters(
+        Clircs.Identity.NetworkSessionId network,
+        DateTimeOffset now)
     {
         lock (_gate)
         {
@@ -61,6 +63,8 @@ public sealed class ProtectionMonitor
             var counters = new List<ProtectionCounter>();
             foreach (var (key, window) in _windows)
             {
+                if (key.Network != network)
+                    continue;
                 var seconds = _windowSeconds.GetValueOrDefault(key, 3600);
                 counters.Add(new ProtectionCounter(
                     key.Detector,

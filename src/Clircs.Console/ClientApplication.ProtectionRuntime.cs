@@ -19,6 +19,7 @@ internal sealed partial class ClientApplication
         {
             return;
         }
+        var isPrivate = false;
         try
         {
             var fields = sessionEvent.Fields;
@@ -28,7 +29,7 @@ internal sealed partial class ClientApplication
             {
                 channel = buffer.Name;
             }
-            var isPrivate = fields.GetValueOrDefault("private") == "true" ||
+            isPrivate = fields.GetValueOrDefault("private") == "true" ||
                 session.State.TryGetBuffer(sessionEvent.BufferId, out var eventBuffer) && eventBuffer!.Kind == BufferKind.Query;
             var actor = sessionEvent.Kind switch
             {
@@ -43,14 +44,39 @@ internal sealed partial class ClientApplication
                 return;
             }
 
-            var effective = EffectiveProtection(session, channel);
-            var settings = effective.Settings;
-            var evidence = BuildProtectionEvidence(sessionEvent, session, actor, channel, isPrivate, settings);
+            var profileId = ProfileFor(session)?.Id.ToString();
+            var literalChannel = channel?.ToLowerInvariant();
+            var foldedChannel = channel is null
+                ? null
+                : IrcCaseFold.Fold(channel, session.State.CaseMapping);
+
+            var channelSettings = isPrivate
+                ? null
+                : _protectionStore.EffectiveChannel(profileId, literalChannel, foldedChannel).Settings;
+            var personalSettings = isPrivate
+                ? _protectionStore.EffectivePersonal(profileId).Settings
+                : null;
+
+            var enabled = personalSettings?.Enabled ?? channelSettings!.Enabled;
+            if (!enabled || !isPrivate && channel is null)
+            {
+                return;
+            }
+
+            var rules = personalSettings?.Rules ?? channelSettings!.Rules;
+            var evidence = BuildProtectionEvidence(sessionEvent, session, actor, channel, isPrivate);
             foreach (var item in evidence)
             {
-                var detection = _userAndChannelPolicy.Evaluate(item, settings.Rules[item.Detector]);
+                var detection = _userAndChannelPolicy.Evaluate(item, rules[item.Detector]);
                 if (detection is null) continue;
-                var exemption = ProtectionExemption(session, channel, actor, fields, settings, item.Detector);
+                var exemption = ProtectionExemption(
+                    session,
+                    channel,
+                    actor,
+                    fields,
+                    channelSettings?.ExemptOperators ?? false,
+                    personalSettings?.ExemptProtected ?? channelSettings!.ExemptProtected,
+                    item.Detector);
                 var location = channel ?? "private messages";
                 var prefix =
                     $"{DetectorName(item.Detector)}: {actor} in {location} reached {detection.Count}/{detection.Rule.Threshold} " +
@@ -58,20 +84,16 @@ internal sealed partial class ClientApplication
                 if (exemption is not null)
                 {
                     PublishProtectionAudit(session, $"{prefix}; SUPPRESSED - {exemption}.",
-                        item.Detector, actor, channel, exemption);
+                        item.Detector, actor, channel, exemption, isPrivate);
                     continue;
                 }
-                if (settings.MonitorOnly || !isPrivate && settings.ChannelAction == ChannelProtectionAction.Monitor)
+                var monitorOnly =
+                    personalSettings?.Action == PersonalProtectionAction.Monitor ||
+                    channelSettings?.Action == ChannelProtectionAction.Monitor;
+                if (monitorOnly)
                 {
                     PublishProtectionAudit(session, $"{prefix}; MONITOR - no IRC action sent.",
-                        item.Detector, actor, channel, null);
-                    continue;
-                }
-                if (item.Detector == ProtectionDetector.ServerOp)
-                {
-                    PublishProtectionAudit(session,
-                        $"{prefix}; MONITOR - server-origin operator changes have no client offender to punish.",
-                        item.Detector, actor, channel, "server-origin mode");
+                        item.Detector, actor, channel, null, isPrivate);
                     continue;
                 }
                 if (isPrivate)
@@ -80,16 +102,16 @@ internal sealed partial class ClientApplication
                     _userAndChannelPolicy.IgnorePersonally(
                         session.State.Id,
                         identity,
-                        DateTimeOffset.UtcNow.AddSeconds(settings.PersonalIgnoreSeconds));
+                        DateTimeOffset.UtcNow.AddSeconds(personalSettings!.IgnoreSeconds));
                     PublishProtectionAudit(session,
-                        $"{prefix}; IGNORED locally for {FormatDuration(TimeSpan.FromSeconds(settings.PersonalIgnoreSeconds))}.",
-                        item.Detector, actor, channel, null);
+                        $"{prefix}; IGNORED locally for {FormatDuration(TimeSpan.FromSeconds(personalSettings!.IgnoreSeconds))}.",
+                        item.Detector, actor, channel, null, isPrivate);
                     continue;
                 }
                 if (channel is null)
                 {
                     PublishProtectionAudit(session, $"{prefix}; SUPPRESSED - no channel target was available.",
-                        item.Detector, actor, channel, "missing channel");
+                        item.Detector, actor, channel, "missing channel", isPrivate);
                     continue;
                 }
                 var actionKey = $"{IrcCaseFold.Fold(channel, session.State.CaseMapping)}\0" +
@@ -102,7 +124,7 @@ internal sealed partial class ClientApplication
                         actionNow.AddSeconds(Math.Max(5, detection.Rule.WindowSeconds))))
                 {
                     PublishProtectionAudit(session, $"{prefix}; SUPPRESSED - a protection action is already pending.",
-                        item.Detector, actor, channel, "action already pending");
+                        item.Detector, actor, channel, "action already pending", isPrivate);
                     continue;
                 }
                 StartSessionWork(
@@ -114,13 +136,13 @@ internal sealed partial class ClientApplication
                         actor,
                         fields,
                         detection,
-                        settings,
+                        channelSettings!,
                         prefix));
             }
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
-            PublishProtectionAudit(session, $"Protection monitor error: {exception.Message}", null, null, null, "evaluation error");
+            PublishProtectionAudit(session, $"Protection monitor error: {exception.Message}", null, null, null, "evaluation error", isPrivate);
         }
     }
 
@@ -228,7 +250,7 @@ internal sealed partial class ClientApplication
         string actor,
         IReadOnlyDictionary<string, string?> fields,
         ProtectionDetection detection,
-        ProtectionSettings settings,
+        ChannelProtectionSettings settings,
         string auditPrefix)
     {
         var detector = detection.Evidence.Detector;
@@ -241,7 +263,7 @@ internal sealed partial class ClientApplication
             {
                 PublishProtectionAudit(session,
                     $"{auditPrefix}; SUPPRESSED - you are not an operator in {channelName}.",
-                    detector, actor, channelName, "client is not a channel operator");
+                    detector, actor, channelName, "client is not a channel operator", false);
                 return;
             }
 
@@ -252,12 +274,12 @@ internal sealed partial class ClientApplication
             {
                 PublishProtectionAudit(session,
                     $"{auditPrefix}; SUPPRESSED - {targetNick} is no longer in {channelName}.",
-                    detector, actor, channelName, "target is no longer present");
+                    detector, actor, channelName, "target is no longer present", false);
                 return;
             }
 
             string? banMask = null;
-            if (settings.ChannelAction == ChannelProtectionAction.KickBan)
+            if (settings.Action == ChannelProtectionAction.KickBan)
             {
                 var username = target!.Username ?? fields.GetValueOrDefault("username");
                 var host = target.Host ?? fields.GetValueOrDefault("host");
@@ -265,7 +287,7 @@ internal sealed partial class ClientApplication
                 {
                     PublishProtectionAudit(session,
                         $"{auditPrefix}; SUPPRESSED - no synchronized address is available for {targetNick}.",
-                        detector, actor, channelName, "missing synchronized address");
+                        detector, actor, channelName, "missing synchronized address", false);
                     return;
                 }
                 banMask = BanmaskFormatter.Create(
@@ -292,11 +314,11 @@ internal sealed partial class ClientApplication
                 [channelName, targetNick, reason],
                 IrcOutboundPriority.Automation,
                 SessionWorkToken(session));
-            var action = settings.ChannelAction == ChannelProtectionAction.KickBan
+            var action = settings.Action == ChannelProtectionAction.KickBan
                 ? $"KICKBAN sent to {targetNick} using {banMask}"
                 : $"KICK sent to {targetNick}";
             PublishProtectionAudit(session, $"{auditPrefix}; {action}.",
-                detector, actor, channelName, null);
+                detector, actor, channelName, null, false);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -307,7 +329,7 @@ internal sealed partial class ClientApplication
             if (FindSession(session.State.Id) is not null)
             {
                 PublishProtectionAudit(session, $"{auditPrefix}; ACTION FAILED - {exception.Message}",
-                    detector, actor, channelName, "action failed");
+                    detector, actor, channelName, "action failed", false);
             }
         }
     }
@@ -337,8 +359,7 @@ internal sealed partial class ClientApplication
         IrcNetworkSession session,
         string actor,
         string? channel,
-        bool isPrivate,
-        ProtectionSettings settings)
+        bool isPrivate)
     {
         var evidence = new List<ProtectionEvidence>();
         var fields = sessionEvent.Fields!;
@@ -347,7 +368,7 @@ internal sealed partial class ClientApplication
             evidence.Add(new ProtectionEvidence(
                 session.State.Id, detector, counterActor ?? actor, channel, text, sessionEvent.ReceivedAt, weight));
 
-        if (isPrivate && settings.PersonalEnabled)
+        if (isPrivate)
         {
             if (fields.GetValueOrDefault("event") is "ctcp" or "dcc.request" or "dcc.invalid")
                 Add(ProtectionDetector.Ctcp);
@@ -357,7 +378,7 @@ internal sealed partial class ClientApplication
                 Add(ProtectionDetector.PrivateMessage);
             return evidence;
         }
-        if (channel is null || !settings.ChannelEnabled) return evidence;
+        if (channel is null) return evidence;
 
         if (fields.GetValueOrDefault("event") is "ctcp" or "dcc.request" or "dcc.invalid")
         {
@@ -391,10 +412,7 @@ internal sealed partial class ClientApplication
         {
             var modes = fields.GetValueOrDefault("modes") ?? string.Empty;
             var deops = CountModeChanges(modes, 'o', adding: false);
-            var ops = CountModeChanges(modes, 'o', adding: true);
             if (deops > 0) Add(ProtectionDetector.MassDeop, deops);
-            if (ops > 0 && session.State.TryGetChannel(channel, out var state) && !state!.TryGetMember(actor, out _))
-                Add(ProtectionDetector.ServerOp, ops);
         }
         return evidence;
     }
@@ -404,7 +422,8 @@ internal sealed partial class ClientApplication
         string? channel,
         string actor,
         IReadOnlyDictionary<string, string?> fields,
-        ProtectionSettings settings,
+        bool exemptOperators,
+        bool exemptProtected,
         ProtectionDetector detector)
     {
         ChannelMemberState? member = null;
@@ -412,7 +431,7 @@ internal sealed partial class ClientApplication
         {
             channelState!.TryGetMember(actor, out member);
         }
-        if (OperatorExemptionApplies(detector) && settings.ExemptOperators && member is not null &&
+        if (OperatorExemptionApplies(detector) && exemptOperators && member is not null &&
             HasOperatorPrivilege(session.Features, member))
             return "channel operator exemption";
 
@@ -425,10 +444,8 @@ internal sealed partial class ClientApplication
         var match = directory.Match($"{actor}!{username}@{host}", session.State.CaseMapping);
         if (match.Conflict || match.User is null) return null;
         var roles = match.User.EffectiveRoles(channel, session.State.CaseMapping);
-        if (settings.ExemptProtectionExempt && roles.HasFlag(UserRole.ProtectionExempt))
-            return $"{match.User.Handle} is protection-exempt";
-        if (settings.ExemptProtected && roles.HasFlag(UserRole.Protected))
-            return $"{match.User.Handle} is protected";
+        if (exemptProtected && roles.HasFlag(UserRole.Protected))
+            return $"{match.User.Handle} is a friend";
         return null;
     }
 
@@ -438,11 +455,12 @@ internal sealed partial class ClientApplication
         ProtectionDetector? detector,
         string? actor,
         string? channel,
-        string? suppression)
+        string? suppression,
+        bool personal)
     {
         OnSessionEvent(new SessionEvent(
             session.State.Id,
-            ProtectionAuditBuffer(session).Id,
+            ProtectionAuditBuffer(session, personal).Id,
             SessionEventKind.Protection,
             TerminalTextSanitizer.Sanitize(text),
             DateTimeOffset.Now,
@@ -476,7 +494,7 @@ internal sealed partial class ClientApplication
     }
 
     internal static bool OperatorExemptionApplies(ProtectionDetector detector) =>
-        detector is not (ProtectionDetector.MassKick or ProtectionDetector.MassDeop or ProtectionDetector.ServerOp);
+        detector is not (ProtectionDetector.MassKick or ProtectionDetector.MassDeop);
 
     private void OnLogWriterError(string message) => _presenter.Result(message, success: false);
 
@@ -494,7 +512,14 @@ internal sealed partial class ClientApplication
         NetworkProfile? profile;
         IrcNetworkSession? session;
 
-        if (arguments.Count == 0)
+        if (arguments.Count == 1 &&
+            arguments[0].Equals("--global", StringComparison.OrdinalIgnoreCase))
+        {
+            scope = new ProtectionScope(ProtectionScopeKind.Global);
+            label = "global defaults";
+            return true;
+        }
+        else if (arguments.Count == 0)
         {
             session = ActiveSession();
             channel = ActiveChannel() ?? string.Empty;
@@ -537,7 +562,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            failure = CommandResult.Failure("Channel protection needs an active channel or [network] [channel].");
+            failure = CommandResult.Failure("Channel protection scope must be <channel>, <network> <channel>, <network> *, or --global.");
             return false;
         }
 
@@ -568,7 +593,14 @@ internal sealed partial class ClientApplication
         label = string.Empty;
         failure = CommandResult.Success();
         NetworkProfile? profile;
-        if (arguments.Count == 0)
+        if (arguments.Count == 1 &&
+            arguments[0].Equals("--global", StringComparison.OrdinalIgnoreCase))
+        {
+            scope = new ProtectionScope(ProtectionScopeKind.Global);
+            label = "global defaults";
+            return true;
+        }
+        else if (arguments.Count == 0)
         {
             var session = ActiveSession();
             if (session is null)
@@ -591,7 +623,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            failure = CommandResult.Failure("Personal protection accepts at most one network name.");
+            failure = CommandResult.Failure("Personal protection scope must be <network> or --global.");
             return false;
         }
         scope = new ProtectionScope(ProtectionScopeKind.Network, profile!.Id.ToString());
@@ -622,14 +654,21 @@ internal sealed partial class ClientApplication
             .ToLowerInvariant();
         var detector = normalized switch
         {
+            "text" => ProtectionDetector.Text,
+            "repeat" => ProtectionDetector.Repeat,
+            "join" => ProtectionDetector.Join,
+            "nick" => ProtectionDetector.Nick,
+            "kick" => ProtectionDetector.MassKick,
+            "deop" => ProtectionDetector.MassDeop,
+            "caps" => ProtectionDetector.Caps,
+            "controls" => ProtectionDetector.Controls,
+            "ctcp" => personal
+                ? ProtectionDetector.Ctcp
+                : ProtectionDetector.ChannelCtcp,
             "message" or "msg" or "privmsg" => ProtectionDetector.PrivateMessage,
             "notice" => ProtectionDetector.PrivateNotice,
-            "ctcpchannel" => ProtectionDetector.ChannelCtcp,
-            "ctcpuser" => ProtectionDetector.Ctcp,
-            "masskick" => ProtectionDetector.MassKick,
-            "massdeop" => ProtectionDetector.MassDeop,
-            "serverop" or "servop" => ProtectionDetector.ServerOp,
-            _ => ParseProtectionDetector(normalized)
+            "invite" => ProtectionDetector.Invite,
+            _ => (ProtectionDetector?)null
         };
         if (detector is null) return null;
         return (personal ? PersonalProtectionDetectors : ChannelProtectionDetectors).Contains(detector.Value)
@@ -637,19 +676,31 @@ internal sealed partial class ClientApplication
             : null;
     }
 
-    private static PresentationBlock? FriendlyProtectionHelp(string requested, bool personal)
+    private static PresentationBlock? FriendlyProtectionHelp(
+        string requested,
+        bool personal)
     {
         var detector = ParseFriendlyProtectionDetector(requested, personal);
-        if (detector is null) return null;
+        if (detector is null)
+            return null;
+
         var command = personal ? "pprot" : "cprot";
-        var scope = personal ? "[network]" : "[network] [channel]";
         var name = DetectorName(detector.Value);
+        var scopes = personal
+            ? "<network>, --global"
+            : "<channel>, <network> <channel>, <network> *, --global";
+        var example = personal
+            ? $"/{command} {name} 4 10s EFnet"
+            : $"/{command} {name} 4 10s EFnet #clircs";
+
         return new PresentationBlock("HELP:",
         [
-            new("Usage", $"/{command} {name} <events> <within> {scope}"),
+            new("Usage", $"/{command} {name} <events> <within> [scope]"),
+            new("Disable/reset", $"/{command} {name} off|default [scope]"),
             new("Description", $"Configures how many {name} events within a duration trigger detection."),
             new("Time", "A bare number means seconds; suffixes s, m, and h are accepted."),
-            new("Example", $"/{command} {name} 4 10s")
+            new("Scopes", scopes),
+            new("Example", example)
         ], TitleHighlight: $"/{command} {name}");
     }
 
@@ -663,282 +714,143 @@ internal sealed partial class ClientApplication
         return TryParseDuration(value, out duration);
     }
 
-    internal static PresentationBlock FriendlyProtectionPresentation(
+    internal static PresentationBlock ChannelProtectionPresentation(
         string title,
-        ProtectionSettings settings,
-        IReadOnlyCollection<ProtectionDetector> detectors)
+        ChannelProtectionSettings settings)
     {
-        var personal = detectors.Contains(ProtectionDetector.PrivateMessage);
-        var enabled = personal ? settings.PersonalEnabled : settings.ChannelEnabled;
         var fields = new List<PresentationField>
         {
-            new("Protection", !enabled ? "off" : settings.MonitorOnly ? "monitor only" : "on")
+            new("Protection", settings.Enabled ? "on" : "off"),
+            new("Action", ChannelActionName(settings.Action))
         };
 
-        if (personal)
+        if (settings.Action == ChannelProtectionAction.KickBan)
         {
             fields.Add(new PresentationField(
-                "Ignore time",
-                FormatDuration(TimeSpan.FromSeconds(settings.PersonalIgnoreSeconds))));
-        }
-        else
-        {
-            fields.Add(new PresentationField("Action", ChannelActionName(settings.ChannelAction)));
-            if (settings.ChannelAction == ChannelProtectionAction.KickBan)
-            {
-                fields.Add(new PresentationField("Ban time", settings.BanSeconds == 0
+                "Ban time",
+                settings.BanSeconds == 0
                     ? "permanent"
                     : FormatDuration(TimeSpan.FromSeconds(settings.BanSeconds))));
-            }
         }
+        fields.Add(new PresentationField(
+            "Exempt chanops",
+            settings.ExemptOperators ? "yes" : "no"));
+        fields.Add(new PresentationField(
+            "Exempt friends",
+            settings.ExemptProtected ? "yes" : "no"));
+        fields.Add(new PresentationField(string.Empty, string.Empty));
 
         return new PresentationBlock(
             title,
             fields,
-            new PresentationTable(
-                ["Detector", "State", "Events", "Within"],
-                detectors.Select(detector =>
-                {
-                    var rule = settings.Rules[detector];
-                    return (IReadOnlyList<string>)new[]
-                    {
-                        DetectorName(detector), rule.Enabled ? "on" : "off",
-                        rule.Threshold.ToString(), $"{rule.WindowSeconds}s"
-                    };
-                }).ToArray()));
+            ProtectionRuleTable(settings.Rules, ChannelProtectionDetectors));
     }
 
-    private EffectiveProtectionSettings EffectiveProtection(IrcNetworkSession? session, string? channel)
-    {
-        if (session is null) return _protectionStore.Effective(null, null);
-        var profile = ProfileFor(session);
-        var literalChannel = channel?.ToLowerInvariant();
-        var foldedChannel = channel is null ? null : IrcCaseFold.Fold(channel, session.State.CaseMapping);
-        return _protectionStore.Effective(profile?.Id.ToString(), literalChannel, foldedChannel);
-    }
-
-    private bool TryProtectionScope(
-        IrcNetworkSession? session,
-        IReadOnlyList<string> arguments,
-        bool defaultChannel,
-        out ProtectionScope? scope,
-        out CommandResult failure)
-    {
-        scope = null;
-        failure = CommandResult.Success();
-        if (arguments.Count > 0 && arguments[0].Equals("--global", StringComparison.OrdinalIgnoreCase))
-        {
-            if (arguments.Count != 1)
-            {
-                failure = CommandResult.Failure("--global does not take a channel name.");
-                return false;
-            }
-            scope = new ProtectionScope(ProtectionScopeKind.Global);
-            return true;
-        }
-        if (session is null)
-        {
-            if (arguments.Count == 0)
-            {
-                scope = new ProtectionScope(ProtectionScopeKind.Global);
-                return true;
-            }
-            failure = CommandResult.Failure("Connect to a network or use --global.");
-            return false;
-        }
-
-        var profile = ProfileFor(session);
-        if (profile is null)
-        {
-            failure = CommandResult.Failure(
-                "Network and channel protection require a saved network profile. Connect with /server <profile>, or use --global.");
-            return false;
-        }
-        var networkId = profile.Id.ToString();
-        if (arguments.Count > 0 && arguments[0].Equals("--network", StringComparison.OrdinalIgnoreCase))
-        {
-            if (arguments.Count != 1)
-            {
-                failure = CommandResult.Failure("--network does not take a channel name.");
-                return false;
-            }
-            scope = new ProtectionScope(ProtectionScopeKind.Network, networkId);
-            return true;
-        }
-
-        var explicitChannel = arguments.Count > 0 && arguments[0].Equals("--channel", StringComparison.OrdinalIgnoreCase);
-        if (arguments.Count > 0 && !explicitChannel)
-        {
-            failure = CommandResult.Failure("Protection scope must be --global, --network, or --channel [name].");
-            return false;
-        }
-        if (arguments.Count > 2)
-        {
-            failure = CommandResult.Failure("--channel accepts at most one channel name.");
-            return false;
-        }
-        var channel = explicitChannel && arguments.Count == 2 ? arguments[1] : ActiveChannel();
-        if (explicitChannel || defaultChannel && channel is not null)
-        {
-            if (string.IsNullOrWhiteSpace(channel) || !session.Features.IsChannel(channel))
-            {
-                failure = CommandResult.Failure("A channel scope requires an active or explicitly named channel.");
-                return false;
-            }
-            scope = new ProtectionScope(
-                ProtectionScopeKind.Channel,
-                networkId,
-                channel.ToLowerInvariant());
-            return true;
-        }
-        scope = new ProtectionScope(ProtectionScopeKind.Network, networkId);
-        return true;
-    }
-
-    private void ChangeProtectionSetting(ProtectionScope scope, string key, string value)
-    {
-        var normalized = key.Replace("-", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-        if (normalized is "exempt.operators" or "exempt.protected" or "exempt.protectionexempt")
-        {
-            if (!TryParseOnOff(value, out var enabled)) throw new ArgumentException("Exemption values must be on or off.");
-            switch (normalized)
-            {
-                case "exempt.operators":
-                    _protectionStore.SetExemptOperators(scope, enabled);
-                    break;
-                case "exempt.protected":
-                    _protectionStore.SetExemptProtected(scope, enabled);
-                    break;
-                default:
-                    _protectionStore.SetExemptProtectionExempt(scope, enabled);
-                    break;
-            }
-            return;
-        }
-
-        var separator = normalized.LastIndexOf('.');
-        if (separator <= 0 || separator == normalized.Length - 1)
-        {
-            throw new ArgumentException("Detector settings use <detector>.count, <detector>.window, or <detector>.enabled.");
-        }
-        var detector = ParseProtectionDetector(normalized[..separator])
-            ?? throw new ArgumentException($"Unknown protection detector '{normalized[..separator]}'.");
-        var property = normalized[(separator + 1)..];
-        switch (property)
-        {
-            case "count" when int.TryParse(value, out var threshold):
-                _protectionStore.SetRule(scope, detector, threshold: threshold);
-                return;
-            case "window" when TryParseDuration(value, out var duration) && duration.TotalSeconds <= 3600:
-                _protectionStore.SetRule(scope, detector, windowSeconds: (int)Math.Ceiling(duration.TotalSeconds));
-                return;
-            case "enabled" when TryParseOnOff(value, out var enabled):
-                _protectionStore.SetRule(scope, detector, enabled: enabled);
-                return;
-            case "count":
-                throw new ArgumentException("Detector count must be a positive number.");
-            case "window":
-                throw new ArgumentException("Detector window must be between 1 second and 1 hour, such as 10s or 2m.");
-            case "enabled":
-                throw new ArgumentException("Detector enabled state must be on or off.");
-            default:
-                throw new ArgumentException($"Unknown detector property '{property}'.");
-        }
-    }
-
-    private PresentationBlock ProtectionPresentation(
+    internal static PresentationBlock PersonalProtectionPresentation(
         string title,
-        EffectiveProtectionSettings effective,
-        bool includeRules,
-        ProtectionDetector? selected = null)
+        PersonalProtectionSettings settings)
     {
-        var settings = effective.Settings;
         var fields = new List<PresentationField>
         {
-            new("Source", effective.Source.DisplayName),
-            new("Channel protection", settings.ChannelEnabled ? "on" : "off"),
-            new("Personal protection", settings.PersonalEnabled ? "on" : "off"),
-            new("Safety override", settings.MonitorOnly ? "monitor only" : "off"),
-            new("Exempt operators", settings.ExemptOperators ? "yes" : "no"),
-            new("Exempt protected users", settings.ExemptProtected ? "yes" : "no"),
-            new("Exempt protection-exempt users", settings.ExemptProtectionExempt ? "yes" : "no")
+            new("Protection", settings.Enabled ? "on" : "off"),
+            new("Action", PersonalActionName(settings.Action))
         };
-        fields.Add(new PresentationField("Channel action", ChannelActionName(settings.ChannelAction)));
-        fields.Add(new PresentationField("Protection ban time", settings.BanSeconds == 0
-            ? "permanent"
-            : FormatDuration(TimeSpan.FromSeconds(settings.BanSeconds))));
-        fields.Add(new PresentationField("Personal ignore time",
-            FormatDuration(TimeSpan.FromSeconds(settings.PersonalIgnoreSeconds))));
-        PresentationTable? table = null;
-        if (includeRules)
+
+        if (settings.Action == PersonalProtectionAction.Ignore)
         {
-            var rules = settings.Rules
-                .Where(entry => selected is null || entry.Key == selected)
-                .OrderBy(entry => entry.Key)
-                .Select(entry => (IReadOnlyList<string>)new[]
-                {
-                    DetectorName(entry.Key), entry.Value.Enabled ? "on" : "off",
-                    entry.Value.Threshold.ToString(), $"{entry.Value.WindowSeconds}s"
-                }).ToArray();
-            table = new PresentationTable(["Detector", "Enabled", "Events", "Within"], rules);
+            fields.Add(new PresentationField(
+                "Ignore time",
+                FormatDuration(TimeSpan.FromSeconds(settings.IgnoreSeconds))));
         }
-        return new PresentationBlock(title, fields, table);
+        fields.Add(new PresentationField(
+            "Exempt friends",
+            settings.ExemptProtected ? "yes" : "no"));
+        fields.Add(new PresentationField(string.Empty, string.Empty));
+
+        return new PresentationBlock(
+            title,
+            fields,
+            ProtectionRuleTable(settings.Rules, PersonalProtectionDetectors));
     }
 
-    private CommandResult ProtectionTest(IrcNetworkSession? session, IReadOnlyList<string> arguments)
+    internal static PresentationBlock ProtectionCountersPresentation(
+        string title,
+        IReadOnlyList<ProtectionCounter> counters,
+        DateTimeOffset now,
+        bool personal)
     {
-        if (arguments.Count < 4 || ParseProtectionDetector(arguments[1]) is not { } detector ||
-            !int.TryParse(arguments[3], out var count) || count is < 1 or > 1000)
+        var detectors = personal
+            ? PersonalProtectionDetectors
+            : ChannelProtectionDetectors;
+        var relevant = counters
+            .Where(counter => detectors.Contains(counter.Detector))
+            .ToArray();
+
+        if (relevant.Length == 0)
         {
-            return CommandResult.Failure("Usage: /protect test <detector> <actor> <count> [sample text]");
+            var kind = personal ? "personal" : "channel";
+            return new PresentationBlock(
+                title,
+                Summary: $"No active {kind} protection counters.");
         }
-        var effective = EffectiveProtection(session, ActiveChannel());
-        var rule = effective.Settings.Rules[detector];
-        var monitor = new ProtectionMonitor();
-        ProtectionDetection? detection = null;
-        var now = DateTimeOffset.Now;
-        var networkId = session?.State.Id ?? NetworkSessionId.New();
-        var text = arguments.Count > 4 ? string.Join(' ', arguments.Skip(4)) : "sample text";
-        for (var index = 0; index < count; index++)
-        {
-            detection ??= monitor.Evaluate(new ProtectionEvidence(
-                networkId, detector, arguments[2], ActiveChannel(), text,
-                now.AddMilliseconds(index)), rule);
-        }
-        return CommandResult.Success(new PresentationBlock(
-            "Protection test",
+
+        IReadOnlyList<IReadOnlyList<string>> rows = personal
+            ? relevant.Select(counter => (IReadOnlyList<string>)
             [
-                new PresentationField("Detector", DetectorName(detector)),
-                new PresentationField("Actor", arguments[2]),
-                new PresentationField("Evidence", count.ToString()),
-                new PresentationField("Threshold", $"{rule.Threshold} in {rule.WindowSeconds}s"),
-                new PresentationField("Result", detection is null ? "not triggered" : $"triggered at {detection.Count}")
-            ]));
+                DetectorName(counter.Detector),
+                counter.Actor,
+                counter.Count.ToString(),
+                FormatDuration(counter.ExpiresAt - now)
+            ]).ToArray()
+            : relevant.Select(counter => (IReadOnlyList<string>)
+            [
+                DetectorName(counter.Detector),
+                counter.Actor,
+                counter.Channel ?? "-",
+                counter.Count.ToString(),
+                FormatDuration(counter.ExpiresAt - now)
+            ]).ToArray();
+
+        return new PresentationBlock(
+            title,
+            Table: new PresentationTable(
+                personal
+                    ? ["Rule", "Actor", "Events", "Expires in"]
+                    : ["Rule", "Actor", "Channel", "Events", "Expires in"],
+                rows));
     }
 
-    private BufferState ProtectionAuditBuffer(IrcNetworkSession session) =>
-        session.State.GetOrCreateBuffer(BufferKind.Results, "=protection");
+    private static PresentationTable ProtectionRuleTable(
+        IReadOnlyDictionary<ProtectionDetector, ProtectionRule> rules,
+        IReadOnlyCollection<ProtectionDetector> detectors) =>
+        new(
+            ["Rule", "State", "Events", "Within"],
+            detectors.Select(detector =>
+            {
+                var rule = rules[detector];
+                return (IReadOnlyList<string>)new[]
+                {
+                    DetectorName(detector),
+                    rule.Enabled ? "on" : "off",
+                    rule.Threshold.ToString(),
+                    $"{rule.WindowSeconds}s"
+                };
+            }).ToArray());
 
-    private static ProtectionDetector? ParseProtectionDetector(string value)
-    {
-        var normalized = value.Replace("-", string.Empty, StringComparison.Ordinal)
-            .Replace("_", string.Empty, StringComparison.Ordinal)
-            .Replace(".", string.Empty, StringComparison.Ordinal)
-            .ToLowerInvariant();
-        if (normalized == "ctcpchannel") return ProtectionDetector.ChannelCtcp;
-        if (normalized is "ctcpuser" or "ctcp") return ProtectionDetector.Ctcp;
-        return Enum.TryParse<ProtectionDetector>(normalized, true, out var detector) ? detector : null;
-    }
+    private BufferState ProtectionAuditBuffer(
+        IrcNetworkSession session,
+        bool personal) =>
+        session.State.GetOrCreateBuffer(
+            BufferKind.Results,
+            personal ? "=pprot" : "=cprot");
 
     internal static string DetectorName(ProtectionDetector detector) => detector switch
     {
-        ProtectionDetector.MassKick => "mass.kick",
-        ProtectionDetector.MassDeop => "mass.deop",
-        ProtectionDetector.ServerOp => "servop",
-        ProtectionDetector.PrivateMessage => "private message",
-        ProtectionDetector.PrivateNotice => "private notice",
-        ProtectionDetector.Ctcp => "ctcp.user",
-        ProtectionDetector.ChannelCtcp => "ctcp.channel",
+        ProtectionDetector.MassKick => "kick",
+        ProtectionDetector.MassDeop => "deop",
+        ProtectionDetector.PrivateMessage => "message",
+        ProtectionDetector.PrivateNotice => "notice",
+        ProtectionDetector.Ctcp or ProtectionDetector.ChannelCtcp => "ctcp",
         _ => detector.ToString().ToLowerInvariant()
     };
 
@@ -962,6 +874,13 @@ internal sealed partial class ClientApplication
         ChannelProtectionAction.Monitor => "monitor",
         ChannelProtectionAction.Kick => "kick",
         ChannelProtectionAction.KickBan => "kickban",
+        _ => throw new ArgumentOutOfRangeException(nameof(action))
+    };
+
+    private static string PersonalActionName(PersonalProtectionAction action) => action switch
+    {
+        PersonalProtectionAction.Ignore => "ignore",
+        PersonalProtectionAction.Monitor => "monitor",
         _ => throw new ArgumentOutOfRangeException(nameof(action))
     };
 

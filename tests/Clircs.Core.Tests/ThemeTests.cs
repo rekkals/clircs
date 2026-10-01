@@ -16,7 +16,7 @@ internal static class ThemeTests
         suite.Add("activity numbers remain visible against the status bar", ActivityNumbersRemainVisible);
         suite.Add("startup logo and default text colors do not drift", StartupAndTextColorsAreStable);
         suite.Add("white theme uses a black-on-white topic bar", WhiteThemeUsesBlackOnWhiteTopicBar);
-        suite.Add("contextual settings and protection help is available", ContextualHelpIsAvailable);
+        suite.Add("contextual settings help is available", ContextualHelpIsAvailable);
         suite.Add("fullscreen input disables mouse-wheel arrow translation", FullScreenDisablesAlternateScroll);
         suite.Add("startup presentations are measurable history entries", StartupPresentationIsHistoryReady);
         suite.Add("user themes inherit a constrained built-in palette", ThemeInheritance);
@@ -319,11 +319,6 @@ internal static class ThemeTests
             Environment.SetEnvironmentVariable("CLIRCS_DATA_DIR", previous);
         }
 
-        var detector = ClientApplication.ProtectionHelp("text.count")!;
-        Assert.Equal("HELP:", detector.Title);
-        Assert.Equal("/protect text.count", detector.TitleHighlight!);
-        Assert.True(detector.Fields!.Any(field => field.Label == "Usage" && field.Value.Contains("text.count", StringComparison.Ordinal)));
-        Assert.True(ClientApplication.ProtectionHelp("audit") is not null);
     }
 
     private static void FullScreenDisablesAlternateScroll()
@@ -938,14 +933,16 @@ internal static class ThemeTests
                 "Personal protection: EFNet",
                 [
                     new PresentationField("Protection", "off"),
-                    new PresentationField("Ignore time", "45s")
+                    new PresentationField("Action", "ignore"),
+                    new PresentationField("Ignore time", "45s"),
+                    new PresentationField("Exempt friends", "yes")
                 ],
                 new PresentationTable(
-                    ["Detector", "State", "Events", "Within"],
+                    ["Rule", "State", "Events", "Within"],
                     [
-                        ["private message", "on", "6", "5s"],
-                        ["private notice", "on", "6", "5s"],
-                        ["ctcp.user", "on", "4", "10s"],
+                        ["message", "on", "6", "5s"],
+                        ["notice", "on", "6", "5s"],
+                        ["ctcp", "on", "4", "10s"],
                         ["invite", "on", "4", "30s"]
                     ])));
         var original = Console.Out;
@@ -962,8 +959,8 @@ internal static class ThemeTests
             Console.SetOut(tableWriter);
             presenter.EventRows(sessionEvent, "#clircs", skipRows: 3, takeRows: 7);
             var table = tableWriter.ToString();
-            Assert.True(table.Contains("Detector", StringComparison.Ordinal));
-            Assert.True(table.Contains("private message", StringComparison.Ordinal));
+            Assert.True(table.Contains("Rule", StringComparison.Ordinal));
+            Assert.True(table.Contains("message", StringComparison.Ordinal));
         }
         finally
         {

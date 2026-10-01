@@ -354,10 +354,9 @@ internal sealed partial class ClientApplication
             ("Voice eligible", UserRole.VoiceEligible),
             ("Auto-op", UserRole.AutoOp),
             ("Auto-voice", UserRole.AutoVoice),
-            ("Protected", UserRole.Protected),
+            ("Friends", UserRole.Protected),
             ("Deop", UserRole.Deop),
             ("Kick on join", UserRole.KickOnJoin),
-            ("Protection exempt", UserRole.ProtectionExempt)
         };
         var grid = summaries.Select(summary =>
             $"{summary.Label}: {(summary.Role is null ? users.Count : users.Count(user => user.Roles.HasFlag(summary.Role.Value)))}").ToArray();
@@ -491,23 +490,101 @@ internal sealed partial class ClientApplication
                 _protectionStore.SetChannelEnabled(scope!, operation == "on");
                 return ValueTask.FromResult(CommandResult.Success(
                     $"Channel protection turned {operation} for {label}. " +
-                    $"Action: {ChannelActionName(_protectionStore.SettingsFor(scope!).ChannelAction)}."));
+                    $"Action: {ChannelActionName(_protectionStore.ChannelSettingsFor(scope!).Action)}."));
             }
 
-            if (operation is "status" or "show")
+            if (operation == "status")
             {
                 if (!TryFriendlyChannelScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
-                var effective = _protectionStore.SettingsFor(scope!);
-                return ValueTask.FromResult(CommandResult.Success(FriendlyProtectionPresentation(
-                    $"Channel Protection: {label}", effective, ChannelProtectionDetectors)));
+                var settings = _protectionStore.ChannelSettingsFor(scope!);
+                return ValueTask.FromResult(CommandResult.Success(ChannelProtectionPresentation(
+                    $"Channel Protection: {label}", settings)));
+            }
+
+            if (operation == "reset")
+            {
+                if (!TryFriendlyChannelScope(tail, out var scope, out var label, out var failure))
+                    return ValueTask.FromResult(failure);
+
+                var changed = _protectionStore.ResetChannel(scope!);
+                var message = scope!.Kind == ProtectionScopeKind.Global
+                    ? "Global channel protection settings reset to factory defaults."
+                    : changed
+                        ? $"Channel protection settings reset for {label}."
+                        : $"Channel protection settings were already inherited for {label}.";
+                return ValueTask.FromResult(CommandResult.Success(message));
+            }
+
+            if (operation == "audit")
+            {
+                if (tail.Length != 0)
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /cprot audit"));
+
+                var session = RequireSession(out var failure);
+                return ValueTask.FromResult(session is null
+                    ? failure
+                    : SwitchTo(session, ProtectionAuditBuffer(session, personal: false)));
+            }
+
+            if (operation == "counters")
+            {
+                if (tail.Length != 0)
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /cprot counters"));
+
+                var session = RequireSession(out var failure);
+                if (session is null)
+                    return ValueTask.FromResult(failure);
+
+                var now = DateTimeOffset.UtcNow;
+                var counters = _userAndChannelPolicy.Counters(session.State.Id, now);
+                return ValueTask.FromResult(CommandResult.Success(
+                    ProtectionCountersPresentation(
+                        "Channel Protection Counters",
+                        counters,
+                        now,
+                        personal: false)));
+            }
+
+            if (operation == "exempt")
+            {
+                if (tail.Length < 2 || !TryParseOnOff(tail[1], out var enabled))
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /cprot exempt <chanops|friends> <on|off> [scope]"));
+
+                var exemption = tail[0].ToLowerInvariant();
+                if (exemption is not ("chanops" or "friends"))
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Channel protection exemption must be chanops or friends."));
+
+                if (!TryFriendlyChannelScope(
+                        tail.Skip(2).ToArray(),
+                        out var scope,
+                        out var label,
+                        out var failure))
+                {
+                    return ValueTask.FromResult(failure);
+                }
+
+                if (exemption == "chanops")
+                    _protectionStore.SetChannelExemptOperators(scope!, enabled);
+                else
+                    _protectionStore.SetChannelExemptProtected(scope!, enabled);
+                var group = exemption == "chanops"
+                    ? "Channel operators"
+                    : "Friends";
+                return ValueTask.FromResult(CommandResult.Success(enabled
+                    ? $"{group} are now exempt from channel protection on {label}."
+                    : $"{group} are no longer exempt from channel protection on {label}."));
             }
 
             if (operation == "action")
             {
                 if (tail.Length == 0 || !TryParseChannelProtectionAction(tail[0], out var action))
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /cprot action <monitor|kick|kickban> [network] [channel]"));
+                        "Usage: /cprot action <monitor|kick|kickban> [scope]"));
                 if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var actionScope, out var actionLabel,
                     out var actionFailure))
                     return ValueTask.FromResult(actionFailure);
@@ -520,7 +597,7 @@ internal sealed partial class ClientApplication
             {
                 if (tail.Length == 0)
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /cprot bantime <duration|permanent> [network] [channel]"));
+                        "Usage: /cprot bantime <duration|permanent> [scope]"));
                 var permanent = tail[0].Equals("permanent", StringComparison.OrdinalIgnoreCase);
                 var banDuration = TimeSpan.Zero;
                 if (!permanent && (!TryParseDuration(tail[0], out banDuration) ||
@@ -531,7 +608,7 @@ internal sealed partial class ClientApplication
                     out var banFailure))
                     return ValueTask.FromResult(banFailure);
                 var banSeconds = permanent ? 0 : (int)Math.Ceiling(banDuration.TotalSeconds);
-                _protectionStore.SetBanSeconds(banScope!, banSeconds);
+                _protectionStore.SetChannelBanSeconds(banScope!, banSeconds);
                 return ValueTask.FromResult(CommandResult.Success(
                     $"Channel protection ban time for {banLabel} changed to " +
                     $"{(permanent ? "permanent" : FormatDuration(banDuration))}."));
@@ -540,17 +617,17 @@ internal sealed partial class ClientApplication
             var detector = ParseFriendlyProtectionDetector(operation, personal: false);
             if (detector is null)
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /cprot on|off|status [network] [channel], or /cprot <detector> <count> <seconds> [network] [channel]"));
+                    "Unknown channel protection operation or rule. Use /help cprot."));
 
             if (tail.Length == 0)
                 return ValueTask.FromResult(CommandResult.Failure(
-                    $"Usage: /cprot {operation} <count> <seconds>|off|default [network] [channel]"));
+                    $"Usage: /cprot {operation} <events> <within>|off|default [scope]"));
 
             if (tail[0].Equals("off", StringComparison.OrdinalIgnoreCase))
             {
                 if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
-                _protectionStore.SetRule(scope!, detector.Value, enabled: false);
+                _protectionStore.SetChannelRule(scope!, detector.Value, enabled: false);
                 return ValueTask.FromResult(CommandResult.Success(
                     $"{DetectorName(detector.Value)} detection turned off for {label}."));
             }
@@ -559,22 +636,25 @@ internal sealed partial class ClientApplication
             {
                 if (!TryFriendlyChannelScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
-                var changed = _protectionStore.ClearRule(scope!, detector.Value);
-                return ValueTask.FromResult(CommandResult.Success(changed
-                    ? $"{DetectorName(detector.Value)} now inherits its defaults for {label}."
-                    : $"{DetectorName(detector.Value)} was already inherited for {label}."));
+                var changed = _protectionStore.ClearChannelRule(scope!, detector.Value);
+                var message = scope!.Kind == ProtectionScopeKind.Global
+                    ? $"{DetectorName(detector.Value)} reset to its factory default."
+                    : changed
+                        ? $"{DetectorName(detector.Value)} now inherits its defaults for {label}."
+                        : $"{DetectorName(detector.Value)} was already inherited for {label}.";
+                return ValueTask.FromResult(CommandResult.Success(message));
             }
 
             if (tail.Length < 2 || !int.TryParse(tail[0], out var count) ||
                 !TryFriendlyProtectionDuration(tail[1], out var duration) || duration.TotalSeconds > 3600)
             {
                 return ValueTask.FromResult(CommandResult.Failure(
-                    $"Usage: /cprot {operation} <count> <seconds> [network] [channel]"));
+                    $"Usage: /cprot {operation} <events> <within> [scope]"));
             }
             if (!TryFriendlyChannelScope(tail.Skip(2).ToArray(), out var ruleScope, out var ruleLabel, out var ruleFailure))
                 return ValueTask.FromResult(ruleFailure);
             var seconds = (int)Math.Ceiling(duration.TotalSeconds);
-            _protectionStore.SetRule(ruleScope!, detector.Value, enabled: true, threshold: count, windowSeconds: seconds);
+            _protectionStore.SetChannelRule(ruleScope!, detector.Value, enabled: true, threshold: count, windowSeconds: seconds);
             return ValueTask.FromResult(CommandResult.Success(
                 $"{DetectorName(detector.Value)} detection set to {count} in {seconds}s for {ruleLabel}."));
         }
@@ -601,14 +681,110 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(failure);
                 _protectionStore.SetPersonalEnabled(scope!, operation == "on");
                 return ValueTask.FromResult(CommandResult.Success(
-                    $"Personal protection turned {operation} for {label}. Triggered clients are ignored locally."));
+                    $"Personal protection turned {operation} for {label}."));
             }
-            if (operation is "status" or "show")
+            if (operation == "status")
             {
                 if (!TryFriendlyNetworkScope(tail, out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
-                return ValueTask.FromResult(CommandResult.Success(FriendlyProtectionPresentation(
-                    $"Personal Protection: {label}", _protectionStore.SettingsFor(scope!), PersonalProtectionDetectors)));
+                return ValueTask.FromResult(CommandResult.Success(PersonalProtectionPresentation(
+                    $"Personal Protection: {label}", _protectionStore.PersonalSettingsFor(scope!))));
+            }
+            if (operation == "reset")
+            {
+                if (!TryFriendlyNetworkScope(tail, out var scope, out var label, out var failure))
+                    return ValueTask.FromResult(failure);
+
+                var changed = _protectionStore.ResetPersonal(scope!);
+                var message = scope!.Kind == ProtectionScopeKind.Global
+                    ? "Global personal protection settings reset to factory defaults."
+                    : changed
+                        ? $"Personal protection settings reset for {label}."
+                        : $"Personal protection settings were already inherited for {label}.";
+                return ValueTask.FromResult(CommandResult.Success(message));
+            }
+            if (operation == "audit")
+            {
+                if (tail.Length != 0)
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /pprot audit"));
+
+                var session = RequireSession(out var failure);
+                return ValueTask.FromResult(session is null
+                    ? failure
+                    : SwitchTo(session, ProtectionAuditBuffer(session, personal: true)));
+            }
+            if (operation == "counters")
+            {
+                if (tail.Length != 0)
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /pprot counters"));
+
+                var session = RequireSession(out var failure);
+                if (session is null)
+                    return ValueTask.FromResult(failure);
+
+                var now = DateTimeOffset.UtcNow;
+                var counters = _userAndChannelPolicy.Counters(session.State.Id, now);
+                return ValueTask.FromResult(CommandResult.Success(
+                    ProtectionCountersPresentation(
+                        "Personal Protection Counters",
+                        counters,
+                        now,
+                        personal: true)));
+            }
+            if (operation == "exempt")
+            {
+                if (tail.Length < 2 ||
+                    !tail[0].Equals("friends", StringComparison.OrdinalIgnoreCase) ||
+                    !TryParseOnOff(tail[1], out var enabled))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /pprot exempt friends <on|off> [scope]"));
+                }
+
+                if (!TryFriendlyNetworkScope(
+                        tail.Skip(2).ToArray(),
+                        out var scope,
+                        out var label,
+                        out var failure))
+                {
+                    return ValueTask.FromResult(failure);
+                }
+
+                _protectionStore.SetPersonalExemptProtected(scope!, enabled);
+                return ValueTask.FromResult(CommandResult.Success(enabled
+                    ? $"Friends are now exempt from personal protection on {label}."
+                    : $"Friends are no longer exempt from personal protection on {label}."));
+            }
+            if (operation == "action")
+            {
+                if (tail.Length == 0)
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Usage: /pprot action <monitor|ignore> [scope]"));
+
+                var action = tail[0].ToLowerInvariant() switch
+                {
+                    "monitor" => PersonalProtectionAction.Monitor,
+                    "ignore" => PersonalProtectionAction.Ignore,
+                    _ => (PersonalProtectionAction?)null
+                };
+                if (action is null)
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "Personal protection action must be monitor or ignore."));
+
+                if (!TryFriendlyNetworkScope(
+                        tail.Skip(1).ToArray(),
+                        out var actionScope,
+                        out var actionLabel,
+                        out var actionFailure))
+                {
+                    return ValueTask.FromResult(actionFailure);
+                }
+
+                _protectionStore.SetPersonalAction(actionScope!, action.Value);
+                return ValueTask.FromResult(CommandResult.Success(
+                    $"Personal protection action for {actionLabel} changed to {PersonalActionName(action.Value)}."));
             }
 
             if (operation == "ignoretime")
@@ -616,7 +792,7 @@ internal sealed partial class ClientApplication
                 if (tail.Length == 0 || !TryParseDuration(tail[0], out var ignoreDuration) ||
                     ignoreDuration > TimeSpan.FromDays(1))
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /pprot ignoretime <duration> [network] (maximum 1 day)"));
+                        "Usage: /pprot ignoretime <duration> [scope] (maximum 1 day)"));
                 if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), out var ignoreScope, out var ignoreLabel,
                     out var ignoreFailure))
                     return ValueTask.FromResult(ignoreFailure);
@@ -629,16 +805,16 @@ internal sealed partial class ClientApplication
             var detector = ParseFriendlyProtectionDetector(operation, personal: true);
             if (detector is null)
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /pprot on|off|status [network], or /pprot <message|notice|ctcp|invite> <count> <seconds> [network]"));
+                    "Unknown personal protection operation or rule. Use /help pprot."));
             if (tail.Length == 0)
                 return ValueTask.FromResult(CommandResult.Failure(
-                    $"Usage: /pprot {operation} <count> <seconds>|off|default [network]"));
+                    $"Usage: /pprot {operation} <events> <within>|off|default [scope]"));
 
             if (tail[0].Equals("off", StringComparison.OrdinalIgnoreCase))
             {
                 if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
-                _protectionStore.SetRule(scope!, detector.Value, enabled: false);
+                _protectionStore.SetPersonalRule(scope!, detector.Value, enabled: false);
                 return ValueTask.FromResult(CommandResult.Success(
                     $"{DetectorName(detector.Value)} detection turned off for {label}."));
             }
@@ -646,152 +822,29 @@ internal sealed partial class ClientApplication
             {
                 if (!TryFriendlyNetworkScope(tail.Skip(1).ToArray(), out var scope, out var label, out var failure))
                     return ValueTask.FromResult(failure);
-                var changed = _protectionStore.ClearRule(scope!, detector.Value);
-                return ValueTask.FromResult(CommandResult.Success(changed
-                    ? $"{DetectorName(detector.Value)} now inherits its defaults for {label}."
-                    : $"{DetectorName(detector.Value)} was already inherited for {label}."));
+                var changed = _protectionStore.ClearPersonalRule(scope!, detector.Value);
+                var message = scope!.Kind == ProtectionScopeKind.Global
+                    ? $"{DetectorName(detector.Value)} reset to its factory default."
+                    : changed
+                        ? $"{DetectorName(detector.Value)} now inherits its defaults for {label}."
+                        : $"{DetectorName(detector.Value)} was already inherited for {label}.";
+                return ValueTask.FromResult(CommandResult.Success(message));
             }
             if (tail.Length < 2 || !int.TryParse(tail[0], out var count) ||
                 !TryFriendlyProtectionDuration(tail[1], out var duration) || duration.TotalSeconds > 3600)
             {
                 return ValueTask.FromResult(CommandResult.Failure(
-                    $"Usage: /pprot {operation} <count> <seconds> [network]"));
+                    $"Usage: /pprot {operation} <events> <within> [scope]"));
             }
             if (!TryFriendlyNetworkScope(tail.Skip(2).ToArray(), out var ruleScope, out var ruleLabel, out var ruleFailure))
                 return ValueTask.FromResult(ruleFailure);
             var seconds = (int)Math.Ceiling(duration.TotalSeconds);
-            _protectionStore.SetRule(ruleScope!, detector.Value, enabled: true, threshold: count, windowSeconds: seconds);
+            _protectionStore.SetPersonalRule(ruleScope!, detector.Value, enabled: true, threshold: count, windowSeconds: seconds);
             return ValueTask.FromResult(CommandResult.Success(
                 $"{DetectorName(detector.Value)} detection set to {count} in {seconds}s for {ruleLabel}."));
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or
             IOException or UnauthorizedAccessException)
-        {
-            return ValueTask.FromResult(CommandResult.Failure(exception.Message));
-        }
-    }
-
-    private ValueTask<CommandResult> ProtectAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
-    {
-        var arguments = input.Arguments.ToList();
-        var operation = arguments.Count == 0 ? "status" : arguments[0].ToLowerInvariant();
-        var session = ActiveSession();
-
-        try
-        {
-            switch (operation)
-            {
-                case "status":
-                {
-                    var effective = EffectiveProtection(session, ActiveChannel());
-                    return ValueTask.FromResult(CommandResult.Success(ProtectionPresentation(
-                        "Protection Status", effective, includeRules: false)));
-                }
-                case "settings":
-                case "show":
-                {
-                    var effective = EffectiveProtection(session, ActiveChannel());
-                    var detector = arguments.Count > 1 ? ParseProtectionDetector(arguments[1]) : null;
-                    if (arguments.Count > 2 || arguments.Count > 1 && detector is null)
-                    {
-                        return ValueTask.FromResult(CommandResult.Failure("Usage: /protect show [detector]"));
-                    }
-                    return ValueTask.FromResult(CommandResult.Success(ProtectionPresentation(
-                        detector is null ? "Protection Settings" : $"Protection: {DetectorName(detector.Value)}",
-                        effective,
-                        includeRules: true,
-                        detector)));
-                }
-                case "channel":
-                case "personal":
-                {
-                    if (arguments.Count < 2 || !TryParseOnOff(arguments[1], out var enabled))
-                    {
-                        return ValueTask.FromResult(CommandResult.Failure($"Usage: /protect {operation} on|off [--global|--network|--channel [name]]"));
-                    }
-                    if (!TryProtectionScope(session, arguments.Skip(2).ToArray(), operation == "channel", out var scope, out var scopeFailure))
-                    {
-                        return ValueTask.FromResult(scopeFailure);
-                    }
-                    if (operation == "channel")
-                        _protectionStore.SetChannelEnabled(scope!, enabled);
-                    else
-                        _protectionStore.SetPersonalEnabled(scope!, enabled);
-                    return ValueTask.FromResult(CommandResult.Success(
-                        $"{(operation == "channel" ? "Channel" : "Personal")} protection {(enabled ? "enabled" : "disabled")} at {scope!.DisplayName} scope."));
-                }
-                case "monitor":
-                {
-                    if (arguments.Count < 2 || !TryParseOnOff(arguments[1], out var enabled))
-                    {
-                        return ValueTask.FromResult(CommandResult.Failure("Usage: /protect monitor on|off [--global|--network|--channel [name]]"));
-                    }
-                    if (!TryProtectionScope(session, arguments.Skip(2).ToArray(), defaultChannel: false, out var scope, out var scopeFailure))
-                    {
-                        return ValueTask.FromResult(scopeFailure);
-                    }
-                    _protectionStore.SetMonitorOnly(scope!, enabled);
-                    return ValueTask.FromResult(CommandResult.Success(
-                        $"Monitor-only protection {(enabled ? "enabled" : "disabled")} at {scope!.DisplayName} scope."));
-                }
-                case "set":
-                {
-                    if (arguments.Count < 3)
-                    {
-                        return ValueTask.FromResult(CommandResult.Failure(
-                            "Usage: /protect set <detector.count|detector.window|detector.enabled|exempt.*> <value> [scope]"));
-                    }
-                    if (!TryProtectionScope(session, arguments.Skip(3).ToArray(), defaultChannel: true, out var scope, out var scopeFailure))
-                    {
-                        return ValueTask.FromResult(scopeFailure);
-                    }
-                    ChangeProtectionSetting(scope!, arguments[1], arguments[2]);
-                    return ValueTask.FromResult(CommandResult.Success(
-                        $"Protection setting {arguments[1]} changed to {arguments[2]} at {scope!.DisplayName} scope."));
-                }
-                case "reset":
-                {
-                    if (!TryProtectionScope(session, arguments.Skip(1).ToArray(), defaultChannel: true, out var scope, out var scopeFailure))
-                    {
-                        return ValueTask.FromResult(scopeFailure);
-                    }
-                    var changed = _protectionStore.Reset(scope!);
-                    return ValueTask.FromResult(CommandResult.Success(changed
-                        ? $"Protection overrides reset at {scope!.DisplayName} scope."
-                        : $"No protection override existed at {scope!.DisplayName} scope."));
-                }
-                case "audit":
-                {
-                    if (session is null)
-                    {
-                        return ValueTask.FromResult(CommandResult.Failure("Connect to a network before opening its protection audit window."));
-                    }
-                    return ValueTask.FromResult(SwitchTo(session, ProtectionAuditBuffer(session)));
-                }
-                case "counters":
-                {
-                    var counters = _userAndChannelPolicy.Counters(DateTimeOffset.Now);
-                    if (counters.Count == 0)
-                    {
-                        return ValueTask.FromResult(CommandResult.Success("No active protection counters."));
-                    }
-                    return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
-                        "Protection counters",
-                        Table: new PresentationTable(
-                            ["Detector", "Actor", "Channel", "Count"],
-                            counters.Select(counter => (IReadOnlyList<string>)new[]
-                            {
-                                DetectorName(counter.Detector), counter.Actor, counter.Channel ?? "private", counter.Count.ToString()
-                            }).ToArray()))));
-                }
-                case "test":
-                    return ValueTask.FromResult(ProtectionTest(session, arguments));
-                default:
-                    return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /protect [status|settings|show|channel|personal|monitor|set|reset|audit|counters|test]"));
-            }
-        }
-        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             return ValueTask.FromResult(CommandResult.Failure(exception.Message));
         }
@@ -1044,7 +1097,7 @@ internal sealed partial class ClientApplication
 
         if (targets.Length == 0)
         {
-            return CommandResult.Success("No unprotected channel members matched.");
+            return CommandResult.Success("No eligible channel members matched.");
         }
 
         if (setBan)
@@ -1062,7 +1115,8 @@ internal sealed partial class ClientApplication
             await session.SendAsync("KICK", [channel.Name, target, reason], IrcOutboundPriority.Bulk, cancellationToken);
         }
 
-        return CommandResult.Success($"Queued {targets.Length} protected-aware kick(s) in {channel.Name}.");
+        return CommandResult.Success(
+            $"Queued {targets.Length} kick(s) for matching non-friends in {channel.Name}.");
     }
 
     private ValueTask<CommandResult> CommonOpAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
@@ -1156,7 +1210,8 @@ internal sealed partial class ClientApplication
             changed++;
         }
 
-        return CommandResult.Success($"Applied the common-channel operation in {changed} channel(s); ineligible and protected channels were skipped.");
+        return CommandResult.Success(
+            $"Applied the common-channel operation in {changed} eligible channel(s).");
     }
 
     private async ValueTask<CommandResult> MassInviteAsync(

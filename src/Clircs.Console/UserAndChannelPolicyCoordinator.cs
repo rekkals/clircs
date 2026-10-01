@@ -22,7 +22,10 @@ internal sealed class UserAndChannelPolicyCoordinator
     public ProtectionDetection? Evaluate(ProtectionEvidence evidence, ProtectionRule rule) =>
         _monitor.Evaluate(evidence, rule);
 
-    public IReadOnlyList<ProtectionCounter> Counters(DateTimeOffset now) => _monitor.Counters(now);
+    public IReadOnlyList<ProtectionCounter> Counters(
+        NetworkSessionId network,
+        DateTimeOffset now) =>
+        _monitor.Counters(network, now);
 
     public void IgnorePersonally(NetworkSessionId sessionId, string identity, DateTimeOffset expiresAt) =>
         _personalIgnores.Set(sessionId, identity, expiresAt);

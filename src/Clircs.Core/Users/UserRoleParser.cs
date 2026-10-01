@@ -11,11 +11,9 @@ public static class UserRoleParser
         ["voiceeligible"] = UserRole.VoiceEligible,
         ["autoop"] = UserRole.AutoOp,
         ["autovoice"] = UserRole.AutoVoice,
-        ["protected"] = UserRole.Protected,
+        ["friend"] = UserRole.Protected,
         ["deop"] = UserRole.Deop,
         ["kickonjoin"] = UserRole.KickOnJoin,
-        ["exempt"] = UserRole.ProtectionExempt,
-        ["protectionexempt"] = UserRole.ProtectionExempt
     };
 
     public static (UserRole Add, UserRole Remove) ParseChanges(string changes)
@@ -57,7 +55,6 @@ public static class UserRoleParser
         if (roles.HasFlag(UserRole.Protected)) flags.Add('f');
         if (roles.HasFlag(UserRole.Deop)) flags.Add('d');
         if (roles.HasFlag(UserRole.KickOnJoin)) flags.Add('k');
-        if (roles.HasFlag(UserRole.ProtectionExempt)) flags.Add('e');
 
         return flags.Count == 0 ? "none" : $"+{new string([.. flags])}";
     }
@@ -81,7 +78,6 @@ public static class UserRoleParser
                 'f' => UserRole.Protected,
                 'd' => UserRole.Deop,
                 'k' => UserRole.KickOnJoin,
-                'e' => UserRole.ProtectionExempt,
                 _ => throw new ArgumentException($"Unknown compact user role '{letter}'.")
             };
         }

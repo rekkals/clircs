@@ -4,7 +4,6 @@ using Clircs.Identity;
 using Clircs.Protection;
 using Clircs.Protocol;
 using Clircs.Users;
-using System.Text.Json;
 
 namespace Clircs.Core.Tests;
 
@@ -24,13 +23,14 @@ internal static class ProtectionTests
         suite.Add("join detection isolates complete client prefixes", JoinDetectionIsolatesActors);
         suite.Add("batched mode changes contribute one event per affected user", BatchedModesUseAffectedUserCount);
         suite.Add("privileged abuse detectors are not neutralized by operator exemption", PrivilegedDetectorsIgnoreOperatorExemption);
-        suite.Add("friendly detector names use dotted mass operations and servop", FriendlyDetectorNamesAreCanonical);
+        suite.Add("friendly detector names are canonical", FriendlyDetectorNamesAreCanonical);
         suite.Add("friendly protection status shows only actionable settings", FriendlyStatusShowsActionableSettings);
+        suite.Add("friendly protection counters remain separate", FriendlyProtectionCountersRemainSeparate);
         suite.Add("protection settings persist global network and channel inheritance", SettingsPersistAndInherit);
+        suite.Add("channel and personal protection reset independently", ChannelAndPersonalProtectionResetIndependently);
         suite.Add("advanced protection changes remain sparse overrides", AdvancedChangesRemainSparseOverrides);
         suite.Add("channel protection resolves live and offline case forms", ChannelScopeResolvesCaseForms);
-        suite.Add("version one protection settings migrate without losing overrides", VersionOneSettingsMigrate);
-        suite.Add("monitor-only preview settings migrate into enforcement", MonitorPreviewMigratesToEnforcement);
+        suite.Add("unsupported development protection settings are rejected", UnsupportedSettingsVersionIsRejected);
         suite.Add("user-facing versions include a lowercase v prefix", VersionHasPrefix);
         suite.Add("product version comes from assembly metadata", ProductVersionUsesAssemblyMetadata);
         suite.Add("public .NET assemblies and namespaces use Clircs naming", DotNetSurfaceUsesClircsNaming);
@@ -89,27 +89,25 @@ internal static class ProtectionTests
         Assert.False(ReferenceEquals(first, runtime.GetSessionIgnoreDirectory(firstSession)));
     }
 
-    private static void VersionOneSettingsMigrate()
+    private static void UnsupportedSettingsVersionIsRejected()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"clirc-protection-migration-tests-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"clirc-protection-version-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
             var path = Path.Combine(directory, "protection.json");
-            var global = ProtectionSettings.Defaults();
-            var network = global with { ChannelEnabled = true };
-            File.WriteAllText(path, JsonSerializer.Serialize(new
-            {
-                Version = 1,
-                Global = global,
-                Scopes = new Dictionary<string, ProtectionSettings> { ["network:legacy"] = network }
-            }));
+            var store = new ProtectionSettingsStore(path);
+            store.SetPersonalEnabled(new ProtectionScope(ProtectionScopeKind.Global), true);
 
-            var migrated = new ProtectionSettingsStore(path);
-            Assert.True(migrated.Effective("legacy", "#clircs").Settings.ChannelEnabled);
-            Assert.True(File.ReadAllText(path).Contains("\"Version\": 4", StringComparison.Ordinal));
-            Assert.False(migrated.Effective("legacy", "#clircs").Settings.MonitorOnly);
-            Assert.True(migrated.Effective("legacy", "#clircs").Settings.Rules.ContainsKey(ProtectionDetector.ChannelCtcp));
+            var unsupported = File.ReadAllText(path)
+                .Replace("\"Version\": 6", "\"Version\": 5", StringComparison.Ordinal);
+            File.WriteAllText(path, unsupported);
+
+            var rejected = new ProtectionSettingsStore(path);
+            Assert.True(rejected.LoadError is not null);
+            Assert.True(rejected.LoadError!.Contains(
+                "Unsupported protection settings version 5.",
+                StringComparison.Ordinal));
         }
         finally
         {
@@ -119,44 +117,23 @@ internal static class ProtectionTests
 
     private static void DefaultsAreSafeAndExplicit()
     {
-        var settings = ProtectionSettings.Defaults();
+        var channel = ChannelProtectionSettings.Defaults();
+        var personal = PersonalProtectionSettings.Defaults();
 
-        Assert.False(settings.MonitorOnly);
-        Assert.False(settings.ChannelEnabled);
-        Assert.False(settings.PersonalEnabled);
-        Assert.Equal(Enum.GetValues<ProtectionDetector>().Length, settings.Rules.Count);
-        Assert.Equal(new ProtectionRule(true, 6, 4), settings.Rules[ProtectionDetector.Text]);
-        Assert.Equal(new ProtectionRule(true, 3, 10), settings.Rules[ProtectionDetector.MassKick]);
-        Assert.Equal(new ProtectionRule(true, 4, 30), settings.Rules[ProtectionDetector.Invite]);
-    }
+        Assert.False(channel.Enabled);
+        Assert.False(personal.Enabled);
+        Assert.Equal(ChannelProtectionAction.Kick, channel.Action);
+        Assert.Equal(PersonalProtectionAction.Ignore, personal.Action);
 
-    private static void MonitorPreviewMigratesToEnforcement()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), $"clircs-protection-enforcement-tests-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var path = Path.Combine(directory, "protection.json");
-            var networkScope = new ProtectionScope(ProtectionScopeKind.Network, "network-1");
-            var store = new ProtectionSettingsStore(path);
-            store.SetChannelEnabled(networkScope, true);
-            store.SetChannelAction(networkScope, ChannelProtectionAction.KickBan);
-            var preview = File.ReadAllText(path)
-                .Replace("\"Version\": 4", "\"Version\": 3", StringComparison.Ordinal)
-                .Replace("\"MonitorOnly\": false", "\"MonitorOnly\": true", StringComparison.Ordinal);
-            File.WriteAllText(path, preview);
+        Assert.Equal(9, channel.Rules.Count);
+        Assert.Equal(4, personal.Rules.Count);
 
-            var migrated = new ProtectionSettingsStore(path);
-            var settings = migrated.Effective("network-1", "#clircs").Settings;
-            Assert.True(settings.ChannelEnabled);
-            Assert.Equal(ChannelProtectionAction.KickBan, settings.ChannelAction);
-            Assert.False(settings.MonitorOnly);
-            Assert.True(File.ReadAllText(path).Contains("\"Version\": 4", StringComparison.Ordinal));
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.Equal(new ProtectionRule(true, 6, 4),
+            channel.Rules[ProtectionDetector.Text]);
+        Assert.Equal(new ProtectionRule(true, 3, 10),
+            channel.Rules[ProtectionDetector.MassKick]);
+        Assert.Equal(new ProtectionRule(true, 4, 30),
+            personal.Rules[ProtectionDetector.Invite]);
     }
 
     private static void MonitorTriggersWithCooldown()
@@ -222,9 +199,9 @@ internal static class ProtectionTests
 
         monitor.Clear(first);
 
-        var counters = monitor.Counters(now);
-        Assert.False(counters.Any(counter => counter.Actor == "alice"));
-        Assert.True(counters.Any(counter => counter.Actor == "bob"));
+        Assert.False(monitor.Counters(first, now).Any());
+        Assert.True(monitor.Counters(second, now)
+            .Any(counter => counter.Actor == "bob"));
     }
 
     private static void TemporaryActionsReserveAtomically()
@@ -278,54 +255,160 @@ internal static class ProtectionTests
     {
         Assert.False(ClientApplication.OperatorExemptionApplies(ProtectionDetector.MassKick));
         Assert.False(ClientApplication.OperatorExemptionApplies(ProtectionDetector.MassDeop));
-        Assert.False(ClientApplication.OperatorExemptionApplies(ProtectionDetector.ServerOp));
         Assert.True(ClientApplication.OperatorExemptionApplies(ProtectionDetector.Text));
     }
 
     private static void FriendlyDetectorNamesAreCanonical()
     {
-        Assert.Equal("mass.kick", ClientApplication.DetectorName(ProtectionDetector.MassKick));
-        Assert.Equal("mass.deop", ClientApplication.DetectorName(ProtectionDetector.MassDeop));
-        Assert.Equal("servop", ClientApplication.DetectorName(ProtectionDetector.ServerOp));
-        Assert.Equal("ctcp.channel", ClientApplication.DetectorName(ProtectionDetector.ChannelCtcp));
-        Assert.Equal("ctcp.user", ClientApplication.DetectorName(ProtectionDetector.Ctcp));
+        Assert.Equal("kick",
+            ClientApplication.DetectorName(ProtectionDetector.MassKick));
+        Assert.Equal("deop",
+            ClientApplication.DetectorName(ProtectionDetector.MassDeop));
+        Assert.Equal("message",
+            ClientApplication.DetectorName(ProtectionDetector.PrivateMessage));
+        Assert.Equal("notice",
+            ClientApplication.DetectorName(ProtectionDetector.PrivateNotice));
+        Assert.Equal("ctcp",
+            ClientApplication.DetectorName(ProtectionDetector.ChannelCtcp));
+        Assert.Equal("ctcp",
+            ClientApplication.DetectorName(ProtectionDetector.Ctcp));
+
         Assert.Equal(ProtectionDetector.MassKick,
-            ClientApplication.ParseFriendlyProtectionDetector("mass.kick", personal: false)!.Value);
+            ClientApplication.ParseFriendlyProtectionDetector(
+                "kick",
+                personal: false)!.Value);
         Assert.Equal(ProtectionDetector.MassDeop,
-            ClientApplication.ParseFriendlyProtectionDetector("massDeop", personal: false)!.Value);
-        Assert.Equal(ProtectionDetector.ServerOp,
-            ClientApplication.ParseFriendlyProtectionDetector("servop", personal: false)!.Value);
+            ClientApplication.ParseFriendlyProtectionDetector(
+                "deop",
+                personal: false)!.Value);
         Assert.Equal(ProtectionDetector.ChannelCtcp,
-            ClientApplication.ParseFriendlyProtectionDetector("ctcp.channel", personal: false)!.Value);
+            ClientApplication.ParseFriendlyProtectionDetector(
+                "ctcp",
+                personal: false)!.Value);
         Assert.Equal(ProtectionDetector.Ctcp,
-            ClientApplication.ParseFriendlyProtectionDetector("ctcp.user", personal: true)!.Value);
+            ClientApplication.ParseFriendlyProtectionDetector(
+                "ctcp",
+                personal: true)!.Value);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "ctcp.channel",
+            personal: false) is null);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "ctcp.user",
+            personal: true) is null);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "privateMessage",
+            personal: true) is null);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "privateNotice",
+            personal: true) is null);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "channelCtcp",
+            personal: false) is null);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "mass.kick",
+            personal: false) is null);
+        Assert.True(ClientApplication.ParseFriendlyProtectionDetector(
+            "mass.deop",
+            personal: false) is null);
     }
 
     private static void FriendlyStatusShowsActionableSettings()
     {
-        var channel = ProtectionSettings.Defaults() with
+        var channel = ChannelProtectionSettings.Defaults() with
         {
-            ChannelEnabled = true,
-            ChannelAction = ChannelProtectionAction.Kick
+            Enabled = true,
+            Action = ChannelProtectionAction.Kick
         };
-        var kick = ClientApplication.FriendlyProtectionPresentation(
-            "Channel protection: EFNet #clircs", channel, [ProtectionDetector.Text]);
-        Assert.Equal("Protection,on;Action,kick", string.Join(';',
-            kick.Fields!.Select(field => $"{field.Label},{field.Value}")));
+        var kick = ClientApplication.ChannelProtectionPresentation(
+            "Channel protection: EFNet #clircs", channel);
+        Assert.Equal(
+            "Protection,on;Action,kick;Exempt chanops,yes;Exempt friends,yes",
+            string.Join(';',
+                kick.Fields!.SkipLast(1).Select(field => $"{field.Label},{field.Value}")));
 
-        var kickBan = ClientApplication.FriendlyProtectionPresentation(
+        Assert.Equal(string.Empty, kick.Fields!.Last().Label);
+        Assert.Equal(string.Empty, kick.Fields!.Last().Value);
+
+        var kickBan = ClientApplication.ChannelProtectionPresentation(
             "Channel protection: EFNet #clircs",
-            channel with { ChannelAction = ChannelProtectionAction.KickBan, BanSeconds = 1800 },
-            [ProtectionDetector.Text]);
-        Assert.Equal("Protection,on;Action,kickban;Ban time,30m", string.Join(';',
-            kickBan.Fields!.Select(field => $"{field.Label},{field.Value}")));
+            channel with { Action = ChannelProtectionAction.KickBan, BanSeconds = 1800 });
+        Assert.Equal(
+            "Protection,on;Action,kickban;Ban time,30m;Exempt chanops,yes;Exempt friends,yes",
+            string.Join(';',
+                kickBan.Fields!.SkipLast(1).Select(field => $"{field.Label},{field.Value}")));
 
-        var personal = ClientApplication.FriendlyProtectionPresentation(
+        var personal = ClientApplication.PersonalProtectionPresentation(
             "Personal protection: EFNet",
-            ProtectionSettings.Defaults() with { PersonalEnabled = true, MonitorOnly = true },
-            [ProtectionDetector.PrivateMessage]);
-        Assert.Equal("Protection,monitor only;Ignore time,45s", string.Join(';',
-            personal.Fields!.Select(field => $"{field.Label},{field.Value}")));
+            PersonalProtectionSettings.Defaults() with
+            {
+                Enabled = true,
+                Action = PersonalProtectionAction.Monitor
+            });
+        Assert.Equal(
+            "Protection,on;Action,monitor;Exempt friends,yes",
+            string.Join(';',
+                personal.Fields!.SkipLast(1).Select(field => $"{field.Label},{field.Value}")));
+
+        Assert.Equal(string.Empty, personal.Fields!.Last().Label);
+        Assert.Equal(string.Empty, personal.Fields!.Last().Value);
+
+        var ignore = ClientApplication.PersonalProtectionPresentation(
+            "Personal protection: EFNet",
+            PersonalProtectionSettings.Defaults() with
+            {
+                Enabled = true,
+                Action = PersonalProtectionAction.Ignore,
+                IgnoreSeconds = 90
+            });
+        Assert.Equal(
+            "Protection,on;Action,ignore;Ignore time,1m 30s;Exempt friends,yes",
+            string.Join(';',
+                ignore.Fields!.SkipLast(1).Select(field => $"{field.Label},{field.Value}")));
+    }
+
+    private static void FriendlyProtectionCountersRemainSeparate()
+    {
+        var now = new DateTimeOffset(
+            2026, 9, 30, 12, 0, 0, TimeSpan.Zero);
+        ProtectionCounter[] counters =
+        [
+            new(
+                ProtectionDetector.Text,
+                "alice",
+                "#clircs",
+                2,
+                now.AddSeconds(4)),
+            new(
+                ProtectionDetector.PrivateMessage,
+                "bob",
+                null,
+                3,
+                now.AddSeconds(5))
+        ];
+
+        var channel = ClientApplication.ProtectionCountersPresentation(
+            "Channel Protection Counters",
+            counters,
+            now,
+            personal: false);
+        Assert.Equal(
+            "Rule,Actor,Channel,Events,Expires in",
+            string.Join(',', channel.Table!.Columns));
+        Assert.Equal(
+            "text,alice,#clircs,2,4s",
+            string.Join(',', channel.Table.Rows.Single()));
+
+        var personal = ClientApplication.ProtectionCountersPresentation(
+            "Personal Protection Counters",
+            counters,
+            now,
+            personal: true);
+        Assert.Equal(
+            "Rule,Actor,Events,Expires in",
+            string.Join(',', personal.Table!.Columns));
+        Assert.Equal(
+            "message,bob,3,5s",
+            string.Join(',', personal.Table.Rows.Single()));
     }
 
     private static void SettingsPersistAndInherit()
@@ -339,23 +422,82 @@ internal static class ProtectionTests
             var network = "network-1";
             var networkScope = new ProtectionScope(ProtectionScopeKind.Network, network);
             store.SetPersonalEnabled(networkScope, true);
+            store.SetPersonalAction(networkScope, PersonalProtectionAction.Monitor);
             var channelScope = new ProtectionScope(ProtectionScopeKind.Channel, network, "#clirc");
             store.SetChannelEnabled(channelScope, true);
-            store.SetRule(networkScope, ProtectionDetector.Text, threshold: 9, windowSeconds: 7);
+            store.SetChannelRule(networkScope, ProtectionDetector.Text, threshold: 9, windowSeconds: 7);
             store.SetChannelAction(networkScope, ChannelProtectionAction.KickBan);
-            store.SetBanSeconds(networkScope, 900);
+            store.SetChannelBanSeconds(networkScope, 900);
             store.SetPersonalIgnoreSeconds(networkScope, 60);
 
             var reloaded = new ProtectionSettingsStore(path);
-            Assert.True(reloaded.Effective(network, null).Settings.PersonalEnabled);
-            Assert.True(reloaded.Effective(network, "#clirc").Settings.ChannelEnabled);
-            Assert.Equal(9, reloaded.Effective(network, "#clirc").Settings.Rules[ProtectionDetector.Text].Threshold);
-            Assert.Equal(7, reloaded.Effective(network, "#clirc").Settings.Rules[ProtectionDetector.Text].WindowSeconds);
-            Assert.Equal(ChannelProtectionAction.KickBan, reloaded.Effective(network, "#clirc").Settings.ChannelAction);
-            Assert.Equal(900, reloaded.Effective(network, "#clirc").Settings.BanSeconds);
-            Assert.Equal(60, reloaded.Effective(network, "#clirc").Settings.PersonalIgnoreSeconds);
-            Assert.Equal(ProtectionScopeKind.Channel, reloaded.Effective(network, "#clirc").Source.Kind);
-            Assert.False(reloaded.Effective("other", "#clirc").Settings.ChannelEnabled);
+            var channelSettings = reloaded.EffectiveChannel(network, "#clirc");
+            var personalSettings = reloaded.EffectivePersonal(network);
+
+            Assert.True(personalSettings.Settings.Enabled);
+            Assert.Equal(PersonalProtectionAction.Monitor, personalSettings.Settings.Action);
+            Assert.Equal(60, personalSettings.Settings.IgnoreSeconds);
+
+            Assert.True(channelSettings.Settings.Enabled);
+            Assert.Equal(9, channelSettings.Settings.Rules[ProtectionDetector.Text].Threshold);
+            Assert.Equal(7, channelSettings.Settings.Rules[ProtectionDetector.Text].WindowSeconds);
+            Assert.Equal(ChannelProtectionAction.KickBan, channelSettings.Settings.Action);
+            Assert.Equal(900, channelSettings.Settings.BanSeconds);
+            Assert.Equal(ProtectionScopeKind.Channel, channelSettings.Source.Kind);
+
+            Assert.False(
+                reloaded.EffectiveChannel("other", "#clirc").Settings.Enabled);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void ChannelAndPersonalProtectionResetIndependently()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"clirc-protection-reset-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            var path = Path.Combine(directory, "protection.json");
+            var global = new ProtectionScope(ProtectionScopeKind.Global);
+            var store = new ProtectionSettingsStore(path);
+
+            store.SetChannelEnabled(global, true);
+            store.SetChannelExemptOperators(global, false);
+            store.SetPersonalEnabled(global, true);
+            store.SetPersonalAction(
+                global,
+                PersonalProtectionAction.Monitor);
+
+            store.ResetChannel(global);
+
+            var afterChannelReset = new ProtectionSettingsStore(path);
+            Assert.False(
+                afterChannelReset.EffectiveChannel(null, null).Settings.Enabled);
+            Assert.True(
+                afterChannelReset.EffectiveChannel(null, null)
+                    .Settings.ExemptOperators);
+            Assert.True(
+                afterChannelReset.EffectivePersonal(null).Settings.Enabled);
+            Assert.Equal(
+                PersonalProtectionAction.Monitor,
+                afterChannelReset.EffectivePersonal(null).Settings.Action);
+
+            afterChannelReset.ResetPersonal(global);
+
+            var afterPersonalReset = new ProtectionSettingsStore(path);
+            Assert.False(
+                afterPersonalReset.EffectivePersonal(null).Settings.Enabled);
+            Assert.Equal(
+                PersonalProtectionAction.Ignore,
+                afterPersonalReset.EffectivePersonal(null).Settings.Action);
+            Assert.False(
+                afterPersonalReset.EffectiveChannel(null, null).Settings.Enabled);
         }
         finally
         {
@@ -372,11 +514,11 @@ internal static class ProtectionTests
             var store = new ProtectionSettingsStore(Path.Combine(directory, "protection.json"));
             var network = new ProtectionScope(ProtectionScopeKind.Network, "network-1");
             var channel = new ProtectionScope(ProtectionScopeKind.Channel, "network-1", "#clircs");
-            store.SetExemptOperators(channel, false);
-            store.SetBanSeconds(network, 600);
-            store.SetRule(network, ProtectionDetector.Text, threshold: 11);
+            store.SetChannelExemptOperators(channel, false);
+            store.SetChannelBanSeconds(network, 600);
+            store.SetChannelRule(network, ProtectionDetector.Text, threshold: 11);
 
-            var effective = store.Effective("network-1", "#clircs").Settings;
+            var effective = store.EffectiveChannel("network-1", "#clircs").Settings;
             Assert.False(effective.ExemptOperators);
             Assert.Equal(600, effective.BanSeconds);
             Assert.Equal(11, effective.Rules[ProtectionDetector.Text].Threshold);
@@ -398,7 +540,7 @@ internal static class ProtectionTests
                 new ProtectionScope(ProtectionScopeKind.Channel, "network-1", "#[ops]"),
                 true);
 
-            Assert.True(store.Effective("network-1", "#{ops}", "#[ops]").Settings.ChannelEnabled);
+            Assert.True(store.EffectiveChannel("network-1", "#{ops}", "#[ops]").Settings.Enabled);
         }
         finally
         {

@@ -685,7 +685,7 @@ internal sealed partial class ClientApplication
     [
         ProtectionDetector.Text, ProtectionDetector.Repeat, ProtectionDetector.Join, ProtectionDetector.Nick,
         ProtectionDetector.MassKick, ProtectionDetector.MassDeop, ProtectionDetector.Caps,
-        ProtectionDetector.Controls, ProtectionDetector.ChannelCtcp, ProtectionDetector.ServerOp
+        ProtectionDetector.Controls, ProtectionDetector.ChannelCtcp
     ];
 
     private static readonly ProtectionDetector[] PersonalProtectionDetectors =

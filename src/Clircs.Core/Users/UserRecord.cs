@@ -15,7 +15,6 @@ public enum UserRole
     Protected = 1 << 5,
     Deop = 1 << 6,
     KickOnJoin = 1 << 7,
-    ProtectionExempt = 1 << 8
 }
 
 public sealed class UserRecord

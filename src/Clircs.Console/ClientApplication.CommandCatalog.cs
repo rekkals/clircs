@@ -95,8 +95,7 @@ internal sealed partial class ClientApplication
         Register("notify", [], "Manage the active network's notify list.", NotifyAsync);
         Register("accept", [], "Manage the server-side accept list.", AcceptAsync);
         Register("cprot", [], "Configure channel protection.", ChannelProtectionAsync);
-        Register("pprot", ["fprot"], "Configure personal protection.", PersonalProtectionAsync);
-        Register("protect", [], "Inspect the combined protection engine and audit data.", ProtectAsync);
+        Register("pprot", [], "Configure personal protection.", PersonalProtectionAsync);
         Register("clones", [], "Find channel users sharing the same visible host.", ClonesAsync);
         Register("ufind", [], "Show which visible channel members match saved user records.", UserFindAsync);
         Register("addban", [], "Save a network policy ban and apply it in eligible joined channels.", AddPolicyBanAsync);
@@ -106,10 +105,10 @@ internal sealed partial class ClientApplication
         Register("umdop", [], "Deop members who are not operator-eligible in the user directory.", UserMassDeopAsync);
         Register("umv", [], "Voice eligible user-directory members in the active channel.", UserMassVoiceAsync);
         Register("umdv", [], "Devoice members who are not voice-eligible in the user directory.", UserMassDevoiceAsync);
-        Register("filterkick", ["fk"], "Kick members matching a hostmask.", FilterKickAsync);
-        Register("filterkickban", ["fkb"], "Ban a hostmask and kick matching, unprotected members of the active channel.", FilterKickBanAsync);
-        Register("findnickkick", ["fnk"], "Kick active-channel members whose nicknames match a wildcard, except protected users.", FindNickKickAsync);
-        Register("kicknonops", ["knop"], "Kick non-operators from the active channel, except protected users.", KickNonOperatorsAsync);
+        Register("filterkick", ["fk"], "Kick members matching a hostmask, except friends.", FilterKickAsync);
+        Register("filterkickban", ["fkb"], "Ban a hostmask and kick matching non-friends from the active channel.", FilterKickBanAsync);
+        Register("findnickkick", ["fnk"], "Kick active-channel members whose nicknames match a wildcard, except friends.", FindNickKickAsync);
+        Register("kicknonops", ["knop"], "Kick non-operators from the active channel, except friends.", KickNonOperatorsAsync);
         Register("cop", [], "Op a nickname in every common channel where you can do so.", CommonOpAsync);
         Register("cban", [], "Ban and deop a nickname in eligible common channels.", CommonBanAsync);
         Register("ckick", [], "Kick a nickname from eligible common channels.", CommonKickAsync);
@@ -162,7 +161,6 @@ internal sealed partial class ClientApplication
         {
             "set" => SettingHelp,
             "dcc" => DccHelp,
-            "protect" => ProtectionHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -173,9 +171,7 @@ internal sealed partial class ClientApplication
             name == "dcc" ? string.Empty : usage,
             description,
             handler,
-            // /protect remains callable for advanced use but is intentionally omitted
-            // from the general command list.
-            visibleInHelp: name != "protect",
+            visibleInHelp: true,
             ExtendedHelpFields(name),
             topicHelp));
     }
@@ -254,35 +250,35 @@ internal sealed partial class ClientApplication
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
             new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, wallops.output, invite.output, links.output, list.output, dns.output, messageguard")
         ],
-        "protect" =>
-        [
-            new("Operations", "status, settings, show, channel, personal, monitor, audit, counters, test, reset"),
-            new("Scopes", "--global, --network, --channel [name]"),
-            new("Channel", "text, repeat, join, nick, mass.kick, mass.deop, caps, controls, ctcp.channel, servop"),
-            new("Personal", "privateMessage, privateNotice, ctcp.user, invite"),
-            new("Rule fields", "<detector>.enabled, <detector>.count, <detector>.window"),
-            new("Exemptions", "exempt.operators, exempt.protected, exempt.protectionExempt"),
-            new("Friendly setup", "Use /cprot for channels and /pprot for personal protection.")
-        ],
         "cprot" =>
         [
-            new("Enable", "/cprot on|off [network] [channel]"),
-            new("Tune", "/cprot <detector> <count> <seconds> [network] [channel]"),
-            new("Other", "/cprot <detector> off|default [network] [channel]"),
-            new("Action", "/cprot action <monitor|kick|kickban> [network] [channel]"),
-            new("Ban time", "/cprot bantime <duration|permanent> [network] [channel]"),
-            new("Detectors", "text, repeat, join, nick, mass.kick, mass.deop, caps, controls, ctcp.channel, servop"),
-            new("Network default", "Use * as the channel: /cprot on EFnet *"),
-            new("Example", "/cprot text 10 5 EFnet #clircs")
+            new("Status", "/cprot, /cprot status [scope]"),
+            new("Protection", "/cprot on|off [scope]"),
+            new("Set rule", "/cprot <rule> <events> <within> [scope]"),
+            new("Disable/reset", "/cprot <rule> off|default [scope]"),
+            new("Action", "/cprot action <monitor|kick|kickban> [scope]"),
+            new("Ban time", "/cprot bantime <duration|permanent> [scope]"),
+            new("Exemptions", "/cprot exempt <chanops|friends> <on|off> [scope]"),
+            new("Reset", "/cprot reset [scope]"),
+            new("Tools", "/cprot audit|counters"),
+            new("Rules", "text, repeat, join, nick, kick, deop, caps, controls, ctcp"),
+            new("Scopes", "<channel>, <network> <channel>, <network> *, --global"),
+            new("Example", "/cprot text 10 5s EFnet #clircs")
         ],
         "pprot" =>
         [
-            new("Enable", "/pprot on|off [network]"),
-            new("Tune", "/pprot <detector> <count> <seconds> [network]"),
-            new("Other", "/pprot <detector> off|default [network]"),
-            new("Ignore time", "/pprot ignoretime <duration> [network]"),
-            new("Detectors", "message, notice, ctcp.user, invite"),
-            new("Example", "/pprot message 6 5 EFnet")
+            new("Status", "/pprot, /pprot status [scope]"),
+            new("Protection", "/pprot on|off [scope]"),
+            new("Set rule", "/pprot <rule> <events> <within> [scope]"),
+            new("Disable/reset", "/pprot <rule> off|default [scope]"),
+            new("Action", "/pprot action <monitor|ignore> [scope]"),
+            new("Ignore time", "/pprot ignoretime <duration> [scope]"),
+            new("Exemption", "/pprot exempt friends <on|off> [scope]"),
+            new("Reset", "/pprot reset [scope]"),
+            new("Tools", "/pprot audit|counters"),
+            new("Rules", "message, notice, ctcp, invite"),
+            new("Scopes", "<network>, --global"),
+            new("Example", "/pprot message 6 5s EFnet")
         ],
         "debug" =>
         [
@@ -419,78 +415,6 @@ internal sealed partial class ClientApplication
                     setting is "notice.output" or "wallops.output"),
         _ => null
     };
-
-    internal static PresentationBlock? ProtectionHelp(string requested)
-    {
-        var topic = requested.TrimStart('/');
-        var normalized = topic.ToLowerInvariant();
-        var separator = normalized.LastIndexOf('.');
-        if (normalized is "exempt.operators" or "exempt.protected" or "exempt.protectionexempt")
-        {
-            return new PresentationBlock("HELP:",
-            [
-                new("Usage", $"/protect set {topic} <on|off> [scope]"),
-                new("Default", "on"),
-                new("Description", "Excludes the selected trusted user class from protection detections."),
-                new("Scopes", "--global, --network, --channel [name]"),
-                new("Example", $"/protect set {topic} on --channel")
-            ], TitleHighlight: $"/protect {topic}");
-        }
-        if (separator > 0 && ParseProtectionDetector(normalized[..separator]) is { } detector &&
-            normalized[(separator + 1)..] is "enabled" or "count" or "window")
-        {
-            var field = normalized[(separator + 1)..];
-            var value = field == "enabled" ? "<on|off>" : "<number>";
-            var description = field switch
-            {
-                "enabled" => $"Enables or disables the {DetectorName(detector)} detector.",
-                "count" => $"Number of {DetectorName(detector)} events required to trigger detection.",
-                _ => $"Rolling time window, in seconds, for the {DetectorName(detector)} detector."
-            };
-            return new PresentationBlock("HELP:",
-            [
-                new("Usage", $"/protect set {topic} {value} [scope]"),
-                new("Default", "set by the selected preset"),
-                new("Description", description),
-                new("Scopes", "--global, --network, --channel [name]"),
-                new("Example", $"/protect set {topic} {(field == "enabled" ? "on" : field == "count" ? "6" : "10")}")
-            ], TitleHighlight: $"/protect {topic}");
-        }
-
-        if (ParseProtectionDetector(normalized) is { } selected)
-        {
-            return new PresentationBlock("HELP:",
-            [
-                new("Usage", $"/protect show {topic}"),
-                new("Description", $"Inspect the {DetectorName(selected)} detector and its enabled, count, and window fields."),
-                new("Settings", $"{topic}.enabled, {topic}.count, {topic}.window"),
-                new("Example", $"/protect set {topic}.enabled on")
-            ], TitleHighlight: $"/protect {topic}");
-        }
-
-        var operation = normalized switch
-        {
-            "status" => ("/protect status", "Show effective protection state for the current context.", "/protect status"),
-            "settings" or "show" => ("/protect show [detector]", "Show effective detector settings.", "/protect show text"),
-            "channel" => ("/protect channel <on|off> [scope]", "Enable or disable channel-event protection.", "/protect channel on --channel"),
-            "personal" => ("/protect personal <on|off> [scope]", "Enable or disable private-message protection.", "/protect personal on --network"),
-            "monitor" => ("/protect monitor <on|off> [scope]", "Turns the audit-only safety override on or off.", "/protect monitor on --network"),
-            "set" => ("/protect set <setting> <value> [scope]", "Change one detector or exemption setting.", "/protect set text.count 6 --channel"),
-            "reset" => ("/protect reset [scope]", "Remove the selected scope override.", "/protect reset --channel"),
-            "audit" => ("/protect audit", "Open the active network's protection audit window.", "/protect audit"),
-            "counters" => ("/protect counters", "Show currently active protection counters.", "/protect counters"),
-            "test" => ("/protect test <detector> <actor> <count> [channel]", "Test a detector without affecting live users.", "/protect test text Alice 6 #clircs"),
-            _ => default
-        };
-        if (operation == default) return null;
-        return new PresentationBlock("HELP:",
-        [
-            new("Usage", operation.Item1),
-            new("Description", operation.Item2),
-            new("Scopes", "--global, --network, --channel [name]"),
-            new("Example", operation.Item3)
-        ], TitleHighlight: $"/protect {topic}");
-    }
 
     private ValueTask<CommandResult> HelpAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {

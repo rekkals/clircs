@@ -27,8 +27,12 @@ internal sealed record ProtectionScope(
     };
 }
 
-internal sealed record EffectiveProtectionSettings(
-    ProtectionSettings Settings,
+internal sealed record EffectiveChannelProtectionSettings(
+    ChannelProtectionSettings Settings,
+    ProtectionScope Source);
+
+internal sealed record EffectivePersonalProtectionSettings(
+    PersonalProtectionSettings Settings,
     ProtectionScope Source);
 
 internal sealed class ProtectionSettingsStore
@@ -55,179 +59,419 @@ internal sealed class ProtectionSettingsStore
 
     public string? LoadError { get; private set; }
 
-    public EffectiveProtectionSettings Effective(string? networkId, string? channel, string? alternateChannel = null)
+    public EffectiveChannelProtectionSettings EffectiveChannel(
+        string? networkId,
+        string? channel,
+        string? alternateChannel = null)
     {
         lock (_gate)
         {
-            var settings = _document.Global.DeepCopy().Validate();
+            var settings = _document.ChannelGlobal.DeepCopy().Validate();
             var source = new ProtectionScope(ProtectionScopeKind.Global);
+
             if (networkId is not null &&
-                _document.Overrides.TryGetValue(NetworkKey(networkId), out var networkOverride))
+                _document.ChannelOverrides.TryGetValue(NetworkKey(networkId), out var networkOverride))
             {
-                settings = networkOverride.Apply(settings);
+                settings = networkOverride.Apply(settings).Validate();
                 source = new ProtectionScope(ProtectionScopeKind.Network, networkId);
             }
-            if (networkId is not null && channel is not null &&
-                TryChannelOverride(networkId, channel, alternateChannel, out var channelOverride))
+
+            if (networkId is not null &&
+                channel is not null &&
+                TryChannelSettingsOverride(
+                    networkId,
+                    channel,
+                    alternateChannel,
+                    out var channelOverride))
             {
-                settings = channelOverride.Apply(settings);
+                settings = channelOverride.Apply(settings).Validate();
                 source = new ProtectionScope(ProtectionScopeKind.Channel, networkId, channel);
             }
-            return new EffectiveProtectionSettings(settings.Validate(), source);
+
+            return new EffectiveChannelProtectionSettings(settings, source);
         }
     }
 
-    public ProtectionSettings SettingsFor(ProtectionScope scope) => scope.Kind switch
+    public EffectivePersonalProtectionSettings EffectivePersonal(string? networkId)
     {
-        ProtectionScopeKind.Global => Effective(null, null).Settings,
-        ProtectionScopeKind.Network => Effective(scope.NetworkId, null).Settings,
-        ProtectionScopeKind.Channel => Effective(scope.NetworkId, scope.Channel).Settings,
+        lock (_gate)
+        {
+            var settings = _document.PersonalGlobal.DeepCopy().Validate();
+            var source = new ProtectionScope(ProtectionScopeKind.Global);
+
+            if (networkId is not null &&
+                _document.PersonalOverrides.TryGetValue(NetworkKey(networkId), out var networkOverride))
+            {
+                settings = networkOverride.Apply(settings).Validate();
+                source = new ProtectionScope(ProtectionScopeKind.Network, networkId);
+            }
+
+            return new EffectivePersonalProtectionSettings(settings, source);
+        }
+    }
+
+    public ChannelProtectionSettings ChannelSettingsFor(ProtectionScope scope) => scope.Kind switch
+    {
+        ProtectionScopeKind.Global => EffectiveChannel(null, null).Settings,
+        ProtectionScopeKind.Network => EffectiveChannel(scope.NetworkId, null).Settings,
+        ProtectionScopeKind.Channel => EffectiveChannel(scope.NetworkId, scope.Channel).Settings,
+        _ => throw new ArgumentOutOfRangeException(nameof(scope))
+    };
+
+    public PersonalProtectionSettings PersonalSettingsFor(ProtectionScope scope) => scope.Kind switch
+    {
+        ProtectionScopeKind.Global => EffectivePersonal(null).Settings,
+        ProtectionScopeKind.Network => EffectivePersonal(scope.NetworkId).Settings,
+        ProtectionScopeKind.Channel => throw new ArgumentException(
+            "Personal protection does not support channel scope.",
+            nameof(scope)),
         _ => throw new ArgumentOutOfRangeException(nameof(scope))
     };
 
     public void SetChannelEnabled(ProtectionScope scope, bool enabled) =>
-        Change(scope, item => item.ChannelEnabled = enabled,
-            settings => settings with { ChannelEnabled = enabled });
+        ChangeChannel(
+            scope,
+            item => item.Enabled = enabled,
+            settings => settings with { Enabled = enabled });
 
     public void SetPersonalEnabled(ProtectionScope scope, bool enabled) =>
-        Change(scope, item => item.PersonalEnabled = enabled,
-            settings => settings with { PersonalEnabled = enabled });
+        ChangePersonal(
+            scope,
+            item => item.Enabled = enabled,
+            settings => settings with { Enabled = enabled });
 
-    public void SetMonitorOnly(ProtectionScope scope, bool enabled) =>
-        Change(scope, item => item.MonitorOnly = enabled,
-            settings => settings with { MonitorOnly = enabled });
+    public void SetPersonalAction(ProtectionScope scope, PersonalProtectionAction action) =>
+        ChangePersonal(
+            scope,
+            item => item.Action = action,
+            settings => settings with { Action = action });
 
-    public void SetExemptOperators(ProtectionScope scope, bool enabled) =>
-        Change(scope, item => item.ExemptOperators = enabled,
+    public void SetChannelExemptOperators(ProtectionScope scope, bool enabled) =>
+        ChangeChannel(
+            scope,
+            item => item.ExemptOperators = enabled,
             settings => settings with { ExemptOperators = enabled });
 
-    public void SetExemptProtected(ProtectionScope scope, bool enabled) =>
-        Change(scope, item => item.ExemptProtected = enabled,
+    public void SetChannelExemptProtected(ProtectionScope scope, bool enabled) =>
+        ChangeChannel(
+            scope,
+            item => item.ExemptProtected = enabled,
             settings => settings with { ExemptProtected = enabled });
 
-    public void SetExemptProtectionExempt(ProtectionScope scope, bool enabled) =>
-        Change(scope, item => item.ExemptProtectionExempt = enabled,
-            settings => settings with { ExemptProtectionExempt = enabled });
+    public void SetPersonalExemptProtected(ProtectionScope scope, bool enabled) =>
+        ChangePersonal(
+            scope,
+            item => item.ExemptProtected = enabled,
+            settings => settings with { ExemptProtected = enabled });
 
     public void SetChannelAction(ProtectionScope scope, ChannelProtectionAction action) =>
-        Change(scope, item => item.ChannelAction = action,
-            settings => settings with { ChannelAction = action });
+        ChangeChannel(
+            scope,
+            item => item.Action = action,
+            settings => settings with { Action = action });
 
-    public void SetBanSeconds(ProtectionScope scope, int seconds) =>
-        Change(scope, item => item.BanSeconds = seconds,
+    public void SetChannelBanSeconds(ProtectionScope scope, int seconds) =>
+        ChangeChannel(
+            scope,
+            item => item.BanSeconds = seconds,
             settings => settings with { BanSeconds = seconds });
 
     public void SetPersonalIgnoreSeconds(ProtectionScope scope, int seconds) =>
-        Change(scope, item => item.PersonalIgnoreSeconds = seconds,
-            settings => settings with { PersonalIgnoreSeconds = seconds });
+        ChangePersonal(
+            scope,
+            item => item.IgnoreSeconds = seconds,
+            settings => settings with { IgnoreSeconds = seconds });
 
-    public void SetRule(
+    public void SetChannelRule(
         ProtectionScope scope,
         ProtectionDetector detector,
         bool? enabled = null,
         int? threshold = null,
         int? windowSeconds = null)
     {
-        if (threshold is not null && threshold is < 1 or > 1000)
-            throw new ArgumentOutOfRangeException(nameof(threshold), "Detector count must be from 1 through 1000.");
-        if (windowSeconds is not null && windowSeconds is < 1 or > 3600)
-            throw new ArgumentOutOfRangeException(nameof(windowSeconds), "Detector window must be from 1 through 3600 seconds.");
+        if (!ChannelProtectionSettings.Defaults().Rules.ContainsKey(detector))
+            throw new ArgumentException($"{detector} is not a channel protection rule.", nameof(detector));
+
+        ValidateRuleChange(threshold, windowSeconds);
 
         lock (_gate)
         {
             EnsureWritable();
             if (scope.Kind == ProtectionScopeKind.Global)
             {
-                var current = _document.Global.Rules[detector];
-                _document.Global.Rules[detector] = new ProtectionRule(
+                var current = _document.ChannelGlobal.Rules[detector];
+                _document.ChannelGlobal.Rules[detector] = new ProtectionRule(
                     enabled ?? current.Enabled,
                     threshold ?? current.Threshold,
                     windowSeconds ?? current.WindowSeconds).Validate();
+                _document.ChannelGlobal.Validate();
             }
             else
             {
-                var item = OverrideFor(scope, create: true)!;
-                item.Rules.TryGetValue(detector, out var current);
-                item.Rules[detector] = new ProtectionRuleOverride
-                {
-                    Enabled = enabled ?? current?.Enabled,
-                    Threshold = threshold ?? current?.Threshold,
-                    WindowSeconds = windowSeconds ?? current?.WindowSeconds
-                };
+                var item = ChannelOverrideFor(scope, create: true)!;
+                ChangeRuleOverride(item.Rules, detector, enabled, threshold, windowSeconds);
             }
+
             Persist();
         }
     }
 
-    public bool ClearRule(ProtectionScope scope, ProtectionDetector detector)
+    public void SetPersonalRule(
+        ProtectionScope scope,
+        ProtectionDetector detector,
+        bool? enabled = null,
+        int? threshold = null,
+        int? windowSeconds = null)
     {
+        if (!PersonalProtectionSettings.Defaults().Rules.ContainsKey(detector))
+            throw new ArgumentException($"{detector} is not a personal protection rule.", nameof(detector));
+        if (scope.Kind == ProtectionScopeKind.Channel)
+            throw new ArgumentException("Personal protection does not support channel scope.", nameof(scope));
+
+        ValidateRuleChange(threshold, windowSeconds);
+
         lock (_gate)
         {
             EnsureWritable();
             if (scope.Kind == ProtectionScopeKind.Global)
             {
-                _document.Global.Rules[detector] = ProtectionSettings.Defaults().Rules[detector];
+                var current = _document.PersonalGlobal.Rules[detector];
+                _document.PersonalGlobal.Rules[detector] = new ProtectionRule(
+                    enabled ?? current.Enabled,
+                    threshold ?? current.Threshold,
+                    windowSeconds ?? current.WindowSeconds).Validate();
+                _document.PersonalGlobal.Validate();
+            }
+            else
+            {
+                var item = PersonalOverrideFor(scope, create: true)!;
+                ChangeRuleOverride(item.Rules, detector, enabled, threshold, windowSeconds);
+            }
+
+            Persist();
+        }
+    }
+
+    private static void ValidateRuleChange(int? threshold, int? windowSeconds)
+    {
+        if (threshold is not null && threshold is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(
+                nameof(threshold),
+                "Rule count must be from 1 through 1000.");
+        if (windowSeconds is not null && windowSeconds is < 1 or > 3600)
+            throw new ArgumentOutOfRangeException(
+                nameof(windowSeconds),
+                "Rule window must be from 1 through 3600 seconds.");
+    }
+
+    private static void ChangeRuleOverride(
+        Dictionary<ProtectionDetector, ProtectionRuleOverride> rules,
+        ProtectionDetector detector,
+        bool? enabled,
+        int? threshold,
+        int? windowSeconds)
+    {
+        rules.TryGetValue(detector, out var current);
+        rules[detector] = new ProtectionRuleOverride
+        {
+            Enabled = enabled ?? current?.Enabled,
+            Threshold = threshold ?? current?.Threshold,
+            WindowSeconds = windowSeconds ?? current?.WindowSeconds
+        };
+    }
+
+    public bool ClearChannelRule(ProtectionScope scope, ProtectionDetector detector)
+    {
+        if (!ChannelProtectionSettings.Defaults().Rules.ContainsKey(detector))
+            throw new ArgumentException($"{detector} is not a channel protection rule.", nameof(detector));
+
+        lock (_gate)
+        {
+            EnsureWritable();
+            if (scope.Kind == ProtectionScopeKind.Global)
+            {
+                _document.ChannelGlobal.Rules[detector] =
+                    ChannelProtectionSettings.Defaults().Rules[detector];
                 Persist();
                 return true;
             }
-            var item = OverrideFor(scope, create: false);
+
+            var item = ChannelOverrideFor(scope, create: false);
             var changed = item is not null && item.Rules.Remove(detector);
             if (changed)
             {
-                RemoveIfEmpty(scope, item!);
+                RemoveChannelIfEmpty(scope, item!);
                 Persist();
             }
+
             return changed;
         }
     }
 
-    public bool Reset(ProtectionScope scope)
+    public bool ClearPersonalRule(ProtectionScope scope, ProtectionDetector detector)
+    {
+        if (!PersonalProtectionSettings.Defaults().Rules.ContainsKey(detector))
+            throw new ArgumentException($"{detector} is not a personal protection rule.", nameof(detector));
+        if (scope.Kind == ProtectionScopeKind.Channel)
+            throw new ArgumentException("Personal protection does not support channel scope.", nameof(scope));
+
+        lock (_gate)
+        {
+            EnsureWritable();
+            if (scope.Kind == ProtectionScopeKind.Global)
+            {
+                _document.PersonalGlobal.Rules[detector] =
+                    PersonalProtectionSettings.Defaults().Rules[detector];
+                Persist();
+                return true;
+            }
+
+            var item = PersonalOverrideFor(scope, create: false);
+            var changed = item is not null && item.Rules.Remove(detector);
+            if (changed)
+            {
+                RemovePersonalIfEmpty(scope, item!);
+                Persist();
+            }
+
+            return changed;
+        }
+    }
+
+    public bool ResetChannel(ProtectionScope scope)
     {
         lock (_gate)
         {
             EnsureWritable();
             var changed = scope.Kind == ProtectionScopeKind.Global
-                ? ResetGlobal()
-                : _document.Overrides.Remove(Key(scope));
-            if (changed) Persist();
+                ? ResetChannelGlobal()
+                : _document.ChannelOverrides.Remove(Key(scope));
+            if (changed)
+                Persist();
             return changed;
         }
     }
 
-    private void Change(
+    public bool ResetPersonal(ProtectionScope scope)
+    {
+        if (scope.Kind == ProtectionScopeKind.Channel)
+            throw new ArgumentException("Personal protection does not support channel scope.", nameof(scope));
+
+        lock (_gate)
+        {
+            EnsureWritable();
+            var changed = scope.Kind == ProtectionScopeKind.Global
+                ? ResetPersonalGlobal()
+                : _document.PersonalOverrides.Remove(Key(scope));
+            if (changed)
+                Persist();
+            return changed;
+        }
+    }
+
+    private void ChangeChannel(
         ProtectionScope scope,
-        Action<ProtectionSettingsOverride> changeOverride,
-        Func<ProtectionSettings, ProtectionSettings> changeGlobal)
+        Action<ChannelProtectionSettingsOverride> changeOverride,
+        Func<ChannelProtectionSettings, ChannelProtectionSettings> changeGlobal)
     {
         lock (_gate)
         {
             EnsureWritable();
             if (scope.Kind == ProtectionScopeKind.Global)
-                _document.Global = changeGlobal(_document.Global).Validate();
+            {
+                _document.ChannelGlobal = changeGlobal(_document.ChannelGlobal).Validate();
+            }
             else
-                changeOverride(OverrideFor(scope, create: true)!);
+            {
+                changeOverride(ChannelOverrideFor(scope, create: true)!);
+            }
+
             Persist();
         }
     }
 
-    private ProtectionSettingsOverride? OverrideFor(ProtectionScope scope, bool create)
+    private void ChangePersonal(
+        ProtectionScope scope,
+        Action<PersonalProtectionSettingsOverride> changeOverride,
+        Func<PersonalProtectionSettings, PersonalProtectionSettings> changeGlobal)
+    {
+        if (scope.Kind == ProtectionScopeKind.Channel)
+            throw new ArgumentException("Personal protection does not support channel scope.", nameof(scope));
+
+        lock (_gate)
+        {
+            EnsureWritable();
+            if (scope.Kind == ProtectionScopeKind.Global)
+            {
+                _document.PersonalGlobal = changeGlobal(_document.PersonalGlobal).Validate();
+            }
+            else
+            {
+                changeOverride(PersonalOverrideFor(scope, create: true)!);
+            }
+
+            Persist();
+        }
+    }
+
+    private ChannelProtectionSettingsOverride? ChannelOverrideFor(
+        ProtectionScope scope,
+        bool create)
     {
         var key = Key(scope);
-        if (_document.Overrides.TryGetValue(key, out var item)) return item;
-        if (!create) return null;
-        item = new ProtectionSettingsOverride();
-        _document.Overrides[key] = item;
+        if (_document.ChannelOverrides.TryGetValue(key, out var item))
+            return item;
+        if (!create)
+            return null;
+
+        item = new ChannelProtectionSettingsOverride();
+        _document.ChannelOverrides[key] = item;
         return item;
     }
 
-    private void RemoveIfEmpty(ProtectionScope scope, ProtectionSettingsOverride item)
+    private PersonalProtectionSettingsOverride? PersonalOverrideFor(
+        ProtectionScope scope,
+        bool create)
     {
-        if (item.IsEmpty) _document.Overrides.Remove(Key(scope));
+        if (scope.Kind != ProtectionScopeKind.Network || scope.NetworkId is null)
+            throw new ArgumentException("Personal protection requires global or network scope.", nameof(scope));
+
+        var key = NetworkKey(scope.NetworkId);
+        if (_document.PersonalOverrides.TryGetValue(key, out var item))
+            return item;
+        if (!create)
+            return null;
+
+        item = new PersonalProtectionSettingsOverride();
+        _document.PersonalOverrides[key] = item;
+        return item;
     }
 
-    private bool ResetGlobal()
+    private void RemoveChannelIfEmpty(
+        ProtectionScope scope,
+        ChannelProtectionSettingsOverride item)
     {
-        _document.Global = ProtectionSettings.Defaults();
+        if (item.IsEmpty)
+            _document.ChannelOverrides.Remove(Key(scope));
+    }
+
+    private void RemovePersonalIfEmpty(
+        ProtectionScope scope,
+        PersonalProtectionSettingsOverride item)
+    {
+        if (item.IsEmpty)
+            _document.PersonalOverrides.Remove(Key(scope));
+    }
+
+    private bool ResetChannelGlobal()
+    {
+        _document.ChannelGlobal = ChannelProtectionSettings.Defaults();
+        return true;
+    }
+
+    private bool ResetPersonalGlobal()
+    {
+        _document.PersonalGlobal = PersonalProtectionSettings.Defaults();
         return true;
     }
 
@@ -238,36 +482,17 @@ internal sealed class ProtectionSettingsStore
         {
             var text = File.ReadAllText(_path, Encoding.UTF8);
             using var json = JsonDocument.Parse(text);
-            var version = json.RootElement.TryGetProperty("Version", out var property) ? property.GetInt32() : 1;
-            if (version == 1)
-            {
-                var legacy = JsonSerializer.Deserialize<LegacyProtectionDocument>(text, JsonOptions)
-                    ?? throw new InvalidDataException("Protection settings are empty.");
-                EnsureDetectors(legacy.Global).Validate();
-                _document = new ProtectionDocument { Global = legacy.Global.DeepCopy() with { MonitorOnly = false } };
-                foreach (var (key, settings) in legacy.Scopes)
-                {
-                    EnsureDetectors(settings).Validate();
-                    _document.Overrides[key] = ProtectionSettingsOverride.From(settings with { MonitorOnly = false });
-                }
-                Persist();
-                return;
-            }
-            if (version is not (2 or 3 or 4)) throw new InvalidDataException($"Unsupported protection settings version {version}.");
+            var version = json.RootElement.TryGetProperty("Version", out var property)
+                ? property.GetInt32()
+                : 0;
+            if (version != 6)
+                throw new InvalidDataException($"Unsupported protection settings version {version}.");
+
             var loaded = JsonSerializer.Deserialize<ProtectionDocument>(text, JsonOptions)
                 ?? throw new InvalidDataException("Protection settings are empty.");
-            EnsureDetectors(loaded.Global).Validate();
-            if (version < 4)
-            {
-                loaded.Global = loaded.Global with { MonitorOnly = false };
-                foreach (var item in loaded.Overrides.Values)
-                {
-                    item.MonitorOnly = null;
-                }
-            }
-            loaded.Version = 4;
+            loaded.ChannelGlobal.Validate();
+            loaded.PersonalGlobal.Validate();
             _document = loaded;
-            if (version < 4) Persist();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or
             InvalidDataException or ArgumentException)
@@ -318,102 +543,104 @@ internal sealed class ProtectionSettingsStore
     private static string ChannelKey(string networkId, string channel) =>
         $"channel:{networkId}:{Convert.ToBase64String(Encoding.UTF8.GetBytes(channel.ToLowerInvariant()))}";
 
-    private bool TryChannelOverride(
+    private bool TryChannelSettingsOverride(
         string networkId,
         string channel,
         string? alternateChannel,
-        out ProtectionSettingsOverride item)
+        out ChannelProtectionSettingsOverride item)
     {
-        if (_document.Overrides.TryGetValue(ChannelKey(networkId, channel), out item!)) return true;
+        if (_document.ChannelOverrides.TryGetValue(ChannelKey(networkId, channel), out item!))
+            return true;
+
         return alternateChannel is not null &&
                !alternateChannel.Equals(channel, StringComparison.Ordinal) &&
-               _document.Overrides.TryGetValue(ChannelKey(networkId, alternateChannel), out item!);
-    }
-
-    private static ProtectionSettings EnsureDetectors(ProtectionSettings settings)
-    {
-        var defaults = ProtectionSettings.Defaults().Rules;
-        foreach (var detector in Enum.GetValues<ProtectionDetector>())
-        {
-            if (!settings.Rules.ContainsKey(detector)) settings.Rules[detector] = defaults[detector];
-        }
-        return settings;
+               _document.ChannelOverrides.TryGetValue(ChannelKey(networkId, alternateChannel), out item!);
     }
 
     private sealed class ProtectionDocument
     {
-        public int Version { get; set; } = 4;
-        public ProtectionSettings Global { get; set; } = ProtectionSettings.Defaults();
-        public Dictionary<string, ProtectionSettingsOverride> Overrides { get; set; } = new(StringComparer.Ordinal);
+        public int Version { get; set; } = 6;
+
+        public ChannelProtectionSettings ChannelGlobal { get; set; } =
+            ChannelProtectionSettings.Defaults();
+
+        public PersonalProtectionSettings PersonalGlobal { get; set; } =
+            PersonalProtectionSettings.Defaults();
+
+        public Dictionary<string, ChannelProtectionSettingsOverride> ChannelOverrides { get; set; } =
+            new(StringComparer.Ordinal);
+
+        public Dictionary<string, PersonalProtectionSettingsOverride> PersonalOverrides { get; set; } =
+            new(StringComparer.Ordinal);
     }
 
-    private sealed class LegacyProtectionDocument
+    private sealed class ChannelProtectionSettingsOverride
     {
-        public ProtectionSettings Global { get; set; } = ProtectionSettings.Defaults();
-        public Dictionary<string, ProtectionSettings> Scopes { get; set; } = new(StringComparer.Ordinal);
-    }
-
-    private sealed class ProtectionSettingsOverride
-    {
-        public bool? ChannelEnabled { get; set; }
-        public bool? PersonalEnabled { get; set; }
-        public bool? MonitorOnly { get; set; }
+        public bool? Enabled { get; set; }
         public bool? ExemptOperators { get; set; }
         public bool? ExemptProtected { get; set; }
-        public bool? ExemptProtectionExempt { get; set; }
-        public ChannelProtectionAction? ChannelAction { get; set; }
+        public ChannelProtectionAction? Action { get; set; }
         public int? BanSeconds { get; set; }
-        public int? PersonalIgnoreSeconds { get; set; }
         public Dictionary<ProtectionDetector, ProtectionRuleOverride> Rules { get; set; } = [];
 
         [JsonIgnore]
         public bool IsEmpty =>
-            ChannelEnabled is null && PersonalEnabled is null && MonitorOnly is null &&
-            ExemptOperators is null && ExemptProtected is null && ExemptProtectionExempt is null &&
-            ChannelAction is null && BanSeconds is null && PersonalIgnoreSeconds is null &&
+            Enabled is null &&
+            ExemptOperators is null &&
+            ExemptProtected is null &&
+            Action is null &&
+            BanSeconds is null &&
             Rules.Count == 0;
 
-        public ProtectionSettings Apply(ProtectionSettings basis)
+        public ChannelProtectionSettings Apply(ChannelProtectionSettings basis)
         {
             var rules = basis.Rules.ToDictionary(entry => entry.Key, entry => entry.Value);
             foreach (var (detector, item) in Rules)
             {
-                var current = rules[detector];
-                rules[detector] = item.Apply(current);
+                rules[detector] = item.Apply(rules[detector]);
             }
-            return new ProtectionSettings(
-                ChannelEnabled ?? basis.ChannelEnabled,
-                PersonalEnabled ?? basis.PersonalEnabled,
-                MonitorOnly ?? basis.MonitorOnly,
+
+            return new ChannelProtectionSettings(
+                Enabled ?? basis.Enabled,
                 ExemptOperators ?? basis.ExemptOperators,
                 ExemptProtected ?? basis.ExemptProtected,
-                ExemptProtectionExempt ?? basis.ExemptProtectionExempt,
                 rules,
-                ChannelAction ?? basis.ChannelAction,
-                BanSeconds ?? basis.BanSeconds,
-                PersonalIgnoreSeconds ?? basis.PersonalIgnoreSeconds);
+                Action ?? basis.Action,
+                BanSeconds ?? basis.BanSeconds);
         }
+    }
 
-        public static ProtectionSettingsOverride From(ProtectionSettings settings) => new()
+    private sealed class PersonalProtectionSettingsOverride
+    {
+        public bool? Enabled { get; set; }
+        public bool? ExemptProtected { get; set; }
+        public PersonalProtectionAction? Action { get; set; }
+        public int? IgnoreSeconds { get; set; }
+        public Dictionary<ProtectionDetector, ProtectionRuleOverride> Rules { get; set; } = [];
+
+        [JsonIgnore]
+        public bool IsEmpty =>
+            Enabled is null &&
+            ExemptProtected is null &&
+            Action is null &&
+            IgnoreSeconds is null &&
+            Rules.Count == 0;
+
+        public PersonalProtectionSettings Apply(PersonalProtectionSettings basis)
         {
-            ChannelEnabled = settings.ChannelEnabled,
-            PersonalEnabled = settings.PersonalEnabled,
-            MonitorOnly = settings.MonitorOnly,
-            ExemptOperators = settings.ExemptOperators,
-            ExemptProtected = settings.ExemptProtected,
-            ExemptProtectionExempt = settings.ExemptProtectionExempt,
-            ChannelAction = settings.ChannelAction,
-            BanSeconds = settings.BanSeconds,
-            PersonalIgnoreSeconds = settings.PersonalIgnoreSeconds,
-            Rules = settings.Rules.ToDictionary(
-                entry => entry.Key,
-                entry => new ProtectionRuleOverride
-                {
-                    Enabled = entry.Value.Enabled,
-                    Threshold = entry.Value.Threshold,
-                    WindowSeconds = entry.Value.WindowSeconds
-                })
-        };
+            var rules = basis.Rules.ToDictionary(entry => entry.Key, entry => entry.Value);
+            foreach (var (detector, item) in Rules)
+            {
+                rules[detector] = item.Apply(rules[detector]);
+            }
+
+            return new PersonalProtectionSettings(
+                Enabled ?? basis.Enabled,
+                ExemptProtected ?? basis.ExemptProtected,
+                rules,
+                Action ?? basis.Action,
+                IgnoreSeconds ?? basis.IgnoreSeconds);
+        }
     }
 
     private sealed class ProtectionRuleOverride
