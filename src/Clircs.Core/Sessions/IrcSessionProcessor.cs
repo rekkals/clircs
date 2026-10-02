@@ -40,6 +40,7 @@ public sealed class IrcSessionProcessor
         Features.Reset();
         _identityQueries.Reset();
         _networkQueries.Reset();
+        _channelLists.Reset();
         _acceptResults.Clear();
         _pendingMessageGuard = null;
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
@@ -95,6 +96,16 @@ public sealed class IrcSessionProcessor
     public void CancelWhoisRequest(Guid requestId)
     {
         _identityQueries.CancelWhois(requestId);
+    }
+
+    public bool TryBeginChannelListRequest(string channelName, char mode, out Guid requestId)
+    {
+        return _channelLists.TryBeginRequest(channelName, mode, out requestId);
+    }
+
+    public void CancelChannelListRequest(Guid requestId)
+    {
+        _channelLists.CancelRequest(requestId);
     }
 
     public IReadOnlyList<SessionEvent> Process(

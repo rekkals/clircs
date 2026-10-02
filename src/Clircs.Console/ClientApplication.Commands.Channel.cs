@@ -476,9 +476,29 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure($"You are not on {channelName}");
         }
 
+        if (!session.TryBeginChannelListRequest(channelName, mode, out var requestId))
+        {
+            return CommandResult.Failure(
+                $"A +{mode} list request is already in progress for {channelName}");
+        }
+
+        TrackOutputRequest(session, "channel-list", requestId);
         channel!.BeginChannelListSynchronization(mode);
-        await session.SendAsync("MODE", [channelName, $"+{mode}"], cancellationToken: cancellationToken);
-        return CommandResult.Success();
+
+        try
+        {
+            await session.SendAsync(
+                "MODE",
+                [channelName, $"+{mode}"],
+                cancellationToken: cancellationToken);
+            return CommandResult.Success();
+        }
+        catch
+        {
+            session.CancelChannelListRequest(requestId);
+            CancelOutputRequest(session, "channel-list", requestId);
+            throw;
+        }
     }
 
     private async ValueTask<CommandResult> UnbanAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)

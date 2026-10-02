@@ -99,6 +99,12 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     public void CancelWhoisRequest(Guid requestId) => _processor.CancelWhoisRequest(requestId);
 
+    public bool TryBeginChannelListRequest(string channelName, char mode, out Guid requestId) =>
+        _processor.TryBeginChannelListRequest(channelName, mode, out requestId);
+
+    public void CancelChannelListRequest(Guid requestId) =>
+        _processor.CancelChannelListRequest(requestId);
+
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

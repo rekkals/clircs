@@ -101,6 +101,7 @@ internal static class SessionTests
         suite.Add("automatic VERSION probes silently collect server features", AutomaticVersionProbeCollectsFeaturesSilently);
         suite.Add("PREFIX CHANMODES and ban changes update channel policy state", ModesAndBansMaintainState);
         suite.Add("channel list numerics produce formatted b e I and q results", ChannelListsAreFormatted);
+        suite.Add("explicit channel list requests carry routing identities", ChannelListRequestsAreCorrelated);
         suite.Add("empty channel lists produce one concise result", EmptyChannelListsAreConcise);
     }
 
@@ -1899,6 +1900,26 @@ internal static class SessionTests
         }
     }
 
+    private static void ChannelListRequestsAreCorrelated()
+    {
+        var (_, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(":me!self@localhost JOIN #clirc"));
+
+        Assert.True(processor.TryBeginChannelListRequest("#CLIRC", 'I', out var requestId));
+        Assert.False(processor.TryBeginChannelListRequest("#clirc", 'I', out _));
+
+        var completed = processor.Process(IrcMessageParser.Parse(
+            ":server 347 me #clirc :End of Channel Invite List"));
+
+        Assert.Equal(1, completed.Count);
+        Assert.Equal("channel-list", completed[0].Fields!["outputFamily"]!);
+        Assert.Equal(requestId.ToString("D"), completed[0].Fields!["outputRequestId"]!);
+
+        Assert.True(processor.TryBeginChannelListRequest("#clirc", 'I', out var nextRequestId));
+        processor.CancelChannelListRequest(nextRequestId);
+        Assert.True(processor.TryBeginChannelListRequest("#clirc", 'I', out _));
+    }
+
     private static void EmptyChannelListsAreConcise()
     {
         var (_, processor) = CreateProcessor();
@@ -1910,6 +1931,8 @@ internal static class SessionTests
         Assert.Equal(1, completed.Count);
         Assert.Equal("No bans set", completed[0].Text);
         Assert.True(completed[0].Presentation is null);
+        Assert.False(completed[0].Fields!.ContainsKey("outputFamily"));
+        Assert.False(completed[0].Fields!.ContainsKey("outputRequestId"));
     }
 
     private static void SelfKickUsesPersonalWording()

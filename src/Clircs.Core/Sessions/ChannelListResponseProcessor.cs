@@ -29,6 +29,34 @@ internal sealed class ChannelListResponseProcessor(
             ["729"] = 'q'
         };
 
+    private readonly List<PendingRequest> _pendingRequests = [];
+
+    public bool TryBeginRequest(string channelName, char mode, out Guid requestId)
+    {
+        var comparer = new IrcNameComparer(state.CaseMapping);
+        if (_pendingRequests.Any(request =>
+                request.Mode == mode &&
+                comparer.Equals(request.ChannelName, channelName)))
+        {
+            requestId = default;
+            return false;
+        }
+
+        requestId = Guid.NewGuid();
+        _pendingRequests.Add(new PendingRequest(requestId, channelName, mode));
+        return true;
+    }
+
+    public void CancelRequest(Guid requestId)
+    {
+        _pendingRequests.RemoveAll(request => request.Id == requestId);
+    }
+
+    public void Reset()
+    {
+        _pendingRequests.Clear();
+    }
+
     public bool TryProcess(IrcMessage message, DateTimeOffset now, out IReadOnlyList<SessionEvent> results)
     {
         if (message.Command is "344" or "345" &&
@@ -101,6 +129,7 @@ internal sealed class ChannelListResponseProcessor(
         if (message.Parameters.Count < 2) return [];
 
         var channelName = message.Parameters[1];
+        var requestId = CompleteRequest(channelName, mode);
         var channel = state.GetOrCreateChannel(channelName);
         if (!channel.IsChannelListSynchronizing(mode))
         {
@@ -117,6 +146,8 @@ internal sealed class ChannelListResponseProcessor(
             ("numeric", message.Command),
             ("channel", channelName),
             ("listMode", mode.ToString()),
+            ("outputFamily", requestId is null ? null : "channel-list"),
+            ("outputRequestId", requestId?.ToString("D")),
             ("outputEnd", "true"));
 
         if (entries.Length == 0)
@@ -151,6 +182,23 @@ internal sealed class ChannelListResponseProcessor(
         ];
     }
 
+    private Guid? CompleteRequest(string channelName, char mode)
+    {
+        var comparer = new IrcNameComparer(state.CaseMapping);
+        var index = _pendingRequests.FindIndex(request =>
+            request.Mode == mode &&
+            comparer.Equals(request.ChannelName, channelName));
+
+        if (index < 0)
+        {
+            return null;
+        }
+
+        var requestId = _pendingRequests[index].Id;
+        _pendingRequests.RemoveAt(index);
+        return requestId;
+    }
+
     private static ListDescription Description(char mode) => mode switch
     {
         'b' => new("BANS:", "Bans", "ban", "bans"),
@@ -160,6 +208,8 @@ internal sealed class ChannelListResponseProcessor(
         'q' => new("QUIETS:", "Quiets", "quiet", "quiets"),
         _ => throw new ArgumentOutOfRangeException(nameof(mode))
     };
+
+    private sealed record PendingRequest(Guid Id, string ChannelName, char Mode);
 
     private sealed record ListDescription(
         string Title,
