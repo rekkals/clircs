@@ -64,6 +64,8 @@ internal static class ThemeTests
         suite.Add("channel status totals use compact labels", ChannelStatusTotalsUseCompactLabels);
         suite.Add("raw IRC debug lines expose direction and visible control delimiters", RawDebugLinesAreReadable);
         suite.Add("service commands redact credentials locally", ServiceCommandCredentialsAreRedacted);
+        suite.Add("NickServ commands use secure secret prompts", NickServCommandsUseSecureSecretPrompts);
+        suite.Add("other Services commands use secure password prompts", OtherServiceCommandsUseSecurePasswordPrompts);
         suite.Add("sensitive service commands are excluded from input history", SensitiveServiceCommandsAreExcludedFromHistory);
         suite.Add("buffer headers share space without losing auxiliary content", BufferHeadersCompose);
         suite.Add("plain local results use dim text without sentence punctuation", LocalResultsAreDim);
@@ -132,12 +134,54 @@ internal static class ThemeTests
             ("nickserv", "recover slakker hunter2",
                 ["recover", "slakker", "hunter2"],
                 "recover slakker <redacted>"),
+            ("nickserv", "login slakker hunter2",
+                ["login", "slakker", "hunter2"],
+                "login slakker <redacted>"),
+            ("nickserv", "setpass slakker 123456 hunter2",
+                ["setpass", "slakker", "123456", "hunter2"],
+                "setpass slakker <redacted> <redacted>"),
+            ("nickserv", "resetpass slakker 123456 hunter2",
+                ["resetpass", "slakker", "123456", "hunter2"],
+                "resetpass slakker <redacted> <redacted>"),
+            ("nickserv", "confirm 123456",
+                ["confirm", "123456"],
+                "confirm <redacted>"),
+            ("nickserv", "confirm register 123456",
+                ["confirm", "register", "123456"],
+                "confirm register <redacted>"),
+            ("nickserv", "verify slakker 123456",
+                ["verify", "slakker", "123456"],
+                "verify slakker <redacted>"),
+            ("nickserv", "verify register slakker 123456",
+                ["verify", "register", "slakker", "123456"],
+                "verify register slakker <redacted>"),
+            ("nickserv", "unregister slakker 123456",
+                ["unregister", "slakker", "123456"],
+                "unregister slakker <redacted>"),
+            ("nickserv", "erase slakker 123456",
+                ["erase", "slakker", "123456"],
+                "erase slakker <redacted>"),
+            ("nickserv", "passwd oldsecret newsecret newsecret",
+                ["passwd", "oldsecret", "newsecret", "newsecret"],
+                "passwd <redacted> <redacted> <redacted>"),
+            ("nickserv", "passwd slakker newsecret",
+                ["passwd", "slakker", "newsecret"],
+                "passwd slakker <redacted>"),
+            ("nickserv", "saset slakker password newsecret",
+                ["saset", "slakker", "password", "newsecret"],
+                "saset slakker password <redacted>"),
+            ("nickserv", "set email me@example.com hunter2",
+                ["set", "email", "me@example.com", "hunter2"],
+                "set email me@example.com <redacted>"),
+            ("nickserv", "saregister slakker hunter2",
+                ["saregister", "slakker", "hunter2"],
+                "saregister slakker <redacted>"),
             ("chanserv", "identify #clircs hunter2",
                 ["identify", "#clircs", "hunter2"],
                 "identify #clircs <redacted>"),
-            ("chanserv", "register #clircs hunter2 channel description",
-                ["register", "#clircs", "hunter2", "channel", "description"],
-                "register #clircs <redacted> channel description"),
+            ("operserv", "login hunter2",
+                ["login", "hunter2"],
+                "login <redacted>"),
             ("operserv", "identify hunter2",
                 ["identify", "hunter2"],
                 "identify <redacted>")
@@ -161,6 +205,449 @@ internal static class ThemeTests
 
         Assert.False(help.ContainsSensitiveData);
         Assert.Equal("help register", help.DisplayText);
+
+        var modernChanServRegistration = ServiceCommandPrivacy.Apply(
+            "chanserv",
+            "register #clircs channel description",
+            ["register", "#clircs", "channel", "description"]);
+
+        Assert.False(modernChanServRegistration.ContainsSensitiveData);
+        Assert.Equal(
+            "register #clircs channel description",
+            modernChanServRegistration.DisplayText);
+
+        var legacyChanServRegistration = ServiceCommandPrivacy.Apply(
+            "chanserv",
+            "register #clircs hunter2 channel description",
+            ["register", "#clircs", "hunter2", "channel", "description"],
+            additionalSensitiveIndexes: [2]);
+
+        Assert.True(legacyChanServRegistration.ContainsSensitiveData);
+        Assert.Equal(
+            "register #clircs <redacted> channel description",
+            legacyChanServRegistration.DisplayText);
+    }
+
+    private static void NickServCommandsUseSecureSecretPrompts()
+    {
+        (string[] Arguments, int[] Insertions, string? SyntaxError)[] cases =
+        [
+            (["identify"], [1], null),
+            (["identify", "slakker"], [2], null),
+            (["login", "slakker"], [2], null),
+            (["register"], [1], null),
+            (["register", "me@example.com"], [1], null),
+            (["set", "password"], [2], null),
+            (["setpass", "slakker"], [2, 3], null),
+            (["resetpass", "slakker"], [2, 3], null),
+            (["help", "identify"], [], null),
+            (["confirm"], [1], null),
+            (["confirm", "register"], [2], null),
+            (["confirm", "email"], [2], null),
+            (["confirm", "resetpass"], [2], null),
+            (["verify", "slakker"], [2], null),
+            (["verify", "register", "slakker"], [3], null),
+            (["verify", "emailchg", "slakker"], [3], null),
+            (["unregister", "slakker"], [], null),
+            (["erase", "slakker"], [], null),
+            (["passwd"], [1, 2, 3], null),
+            (["password"], [1, 2, 3], null),
+            (["passwd", "slakker"], [2], null),
+            (["saset", "slakker", "password"], [3], null),
+            (["set", "email", "me@example.com"], [], null),
+            (["saregister", "slakker"], [], null),
+
+            (["identify", "slakker", "hunter2"], [],
+                "Usage: /nickserv identify [account]"),
+            (["login"], [],
+                "Usage: /nickserv login <account>"),
+            (["login", "slakker", "hunter2"], [],
+                "Usage: /nickserv login <account>"),
+            (["register", "slakker", "me@example.com"], [],
+                "Usage: /nickserv register [email]"),
+            (["set", "password", "hunter2"], [],
+                "Usage: /nickserv set password"),
+            (["setpass", "slakker", "123456", "hunter2"], [],
+                "Usage: /nickserv setpass <account>"),
+            (["resetpass", "slakker", "123456", "hunter2"], [],
+                "Usage: /nickserv resetpass <account>"),
+            (["confirm", "123456"], [],
+                "Usage: /nickserv confirm [register|email|resetpass]"),
+            (["confirm", "register", "123456"], [],
+                "Usage: /nickserv confirm [register|email|resetpass]"),
+            (["verify"], [],
+                "Usage: /nickserv verify <account> | /nickserv verify <register|emailchg> <account>"),
+            (["verify", "slakker", "123456"], [],
+                "Usage: /nickserv verify <account> | /nickserv verify <register|emailchg> <account>"),
+            (["verify", "register", "slakker", "123456"], [],
+                "Usage: /nickserv verify <account> | /nickserv verify <register|emailchg> <account>"),
+            (["unregister", "slakker", "123456"], [],
+                "Usage: /nickserv unregister <account> [--code]"),
+            (["erase", "slakker", "123456"], [],
+                "Usage: /nickserv erase <account> [--code]"),
+            (["passwd", "oldsecret", "newsecret", "newsecret"], [],
+                "Usage: /nickserv passwd [account]"),
+            (["passwd", "slakker", "newsecret"], [],
+                "Usage: /nickserv passwd [account]"),
+            (["saset", "slakker", "password", "newsecret"], [],
+                "Usage: /nickserv saset <account> password"),
+            (["set", "email", "me@example.com", "hunter2"], [],
+                "Usage: /nickserv set email <address> [--password]"),
+            (["saregister", "slakker", "hunter2"], [],
+                "Usage: /nickserv saregister <account> [--password]")
+        ];
+
+        foreach (var test in cases)
+        {
+            var plan = ServiceCommandPrivacy.CreateSecretPlan(
+                "nickserv",
+                test.Arguments);
+
+            Assert.Equal(test.Insertions.Length, plan.Prompts.Count);
+            for (var index = 0; index < test.Insertions.Length; index++)
+            {
+                Assert.Equal(test.Insertions[index], plan.Prompts[index].InsertAt);
+            }
+
+            if (test.SyntaxError is null)
+            {
+                Assert.True(plan.SyntaxError is null);
+            }
+            else
+            {
+                Assert.Equal(test.SyntaxError, plan.SyntaxError!);
+            }
+        }
+
+        var identify = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["identify"]);
+
+        Assert.Equal("NickServ password: ", identify.Prompts[0].Prompt);
+        Assert.Equal(
+            "NickServ identification canceled",
+            identify.Prompts[0].CancellationMessage);
+
+        var reset = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["resetpass", "slakker"]);
+
+        Assert.Equal("NickServ reset code: ", reset.Prompts[0].Prompt);
+        Assert.Equal("New NickServ password: ", reset.Prompts[1].Prompt);
+
+        var passwordChange = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["passwd"]);
+
+        Assert.Equal("Current NickServ password: ", passwordChange.Prompts[0].Prompt);
+        Assert.Equal("New NickServ password: ", passwordChange.Prompts[1].Prompt);
+        Assert.Equal("Repeat new NickServ password: ", passwordChange.Prompts[2].Prompt);
+
+        foreach (var command in new[]
+        {
+            "ghost",
+            "recover",
+            "regain",
+            "release",
+            "group"
+        })
+        {
+            var withoutPassword = ServiceCommandPrivacy.CreateSecretPlan(
+                "nickserv",
+                [command, "slakker"]);
+
+            Assert.Equal(0, withoutPassword.Prompts.Count);
+            Assert.True(withoutPassword.SyntaxError is null);
+
+            var withPassword = ServiceCommandPrivacy.CreateSecretPlan(
+                "nickserv",
+                [command, "slakker"],
+                passwordRequests: 1);
+
+            Assert.Equal(1, withPassword.Prompts.Count);
+            Assert.Equal(2, withPassword.Prompts[0].InsertAt);
+            Assert.Equal("NickServ password: ", withPassword.Prompts[0].Prompt);
+            Assert.True(withPassword.SyntaxError is null);
+
+            var inlinePassword = ServiceCommandPrivacy.CreateSecretPlan(
+                "nickserv",
+                [command, "slakker", "hunter2"]);
+
+            Assert.Equal(
+                $"Usage: /nickserv {command} <target> [--password]",
+                inlinePassword.SyntaxError!);
+        }
+
+        var duplicatePasswordRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["ghost", "slakker"],
+            passwordRequests: 2);
+
+        Assert.Equal(
+            "Usage: /nickserv <command> [arguments]",
+            duplicatePasswordRequest.SyntaxError!);
+
+        var unrelatedPasswordRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["help"],
+            passwordRequests: 1);
+
+        Assert.Equal(
+            "Usage: /nickserv <command> [arguments]",
+            unrelatedPasswordRequest.SyntaxError!);
+
+        var confirmPasswordRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["confirm"],
+            passwordRequests: 1);
+
+        Assert.Equal(
+            "Usage: /nickserv confirm [register|email|resetpass]",
+            confirmPasswordRequest.SyntaxError!);
+
+        var verifyPasswordRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["verify", "slakker"],
+            passwordRequests: 1);
+
+        Assert.Equal(
+            "Usage: /nickserv verify <account> | " +
+            "/nickserv verify <register|emailchg> <account>",
+            verifyPasswordRequest.SyntaxError!);
+
+        foreach (var command in new[] { "unregister", "erase" })
+        {
+            var withCode = ServiceCommandPrivacy.CreateSecretPlan(
+                "nickserv",
+                [command, "slakker"],
+                codeRequests: 1);
+
+            Assert.Equal(1, withCode.Prompts.Count);
+            Assert.Equal(2, withCode.Prompts[0].InsertAt);
+            Assert.Equal(
+                "NickServ confirmation code: ",
+                withCode.Prompts[0].Prompt);
+            Assert.Equal(
+                "NickServ account removal canceled",
+                withCode.Prompts[0].CancellationMessage);
+            Assert.True(withCode.SyntaxError is null);
+        }
+
+        var duplicateCodeRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["unregister", "slakker"],
+            codeRequests: 2);
+
+        Assert.Equal(
+            "Usage: /nickserv <command> [arguments]",
+            duplicateCodeRequest.SyntaxError!);
+
+        var mixedSecretRequests = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["unregister", "slakker"],
+            passwordRequests: 1,
+            codeRequests: 1);
+
+        Assert.Equal(
+            "Usage: /nickserv <command> [arguments]",
+            mixedSecretRequests.SyntaxError!);
+
+        var unrelatedCodeRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["help"],
+            codeRequests: 1);
+
+        Assert.Equal(
+            "Usage: /nickserv <command> [arguments]",
+            unrelatedCodeRequest.SyntaxError!);
+
+        var confirmCodeRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["confirm"],
+            codeRequests: 1);
+
+        Assert.Equal(1, confirmCodeRequest.Prompts.Count);
+        Assert.Equal(1, confirmCodeRequest.Prompts[0].InsertAt);
+        Assert.True(confirmCodeRequest.SyntaxError is null);
+
+        var verifyCodeRequest = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["verify", "slakker"],
+            codeRequests: 1);
+
+        Assert.Equal(1, verifyCodeRequest.Prompts.Count);
+        Assert.Equal(2, verifyCodeRequest.Prompts[0].InsertAt);
+        Assert.True(verifyCodeRequest.SyntaxError is null);
+
+        var setEmailWithPassword = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["set", "email", "me@example.com"],
+            passwordRequests: 1);
+
+        Assert.Equal(1, setEmailWithPassword.Prompts.Count);
+        Assert.Equal(3, setEmailWithPassword.Prompts[0].InsertAt);
+        Assert.Equal(
+            "NickServ password: ",
+            setEmailWithPassword.Prompts[0].Prompt);
+        Assert.Equal(
+            "NickServ email change canceled",
+            setEmailWithPassword.Prompts[0].CancellationMessage);
+
+        var saRegisterWithPassword = ServiceCommandPrivacy.CreateSecretPlan(
+            "nickserv",
+            ["saregister", "slakker"],
+            passwordRequests: 1);
+
+        Assert.Equal(1, saRegisterWithPassword.Prompts.Count);
+        Assert.Equal(2, saRegisterWithPassword.Prompts[0].InsertAt);
+        Assert.Equal(
+            "New NickServ password: ",
+            saRegisterWithPassword.Prompts[0].Prompt);
+        Assert.Equal(
+            "NickServ registration canceled",
+            saRegisterWithPassword.Prompts[0].CancellationMessage);
+
+    }
+
+    private static void OtherServiceCommandsUseSecurePasswordPrompts()
+    {
+        (string Service, string[] Arguments, int[] Insertions, string? SyntaxError)[] cases =
+        [
+            ("chanserv", ["identify", "#clircs"], [2], null),
+            ("operserv", ["identify"], [1], null),
+            ("operserv", ["login"], [1], null),
+            ("chanserv", ["register", "#clircs", "channel", "description"], [], null),
+            ("chanserv", ["help", "identify"], [], null),
+
+            ("chanserv", ["identify", "#clircs", "hunter2"], [],
+                "Usage: /chanserv identify <channel>"),
+            ("operserv", ["identify", "hunter2"], [],
+                "Usage: /operserv identify"),
+            ("operserv", ["login", "hunter2"], [],
+                "Usage: /operserv login"),
+            ("chanserv", ["register"], [],
+                "Usage: /chanserv register <channel> [description] [--password]")
+        ];
+
+        foreach (var test in cases)
+        {
+            var plan = ServiceCommandPrivacy.CreateSecretPlan(
+                test.Service,
+                test.Arguments);
+
+            Assert.Equal(test.Insertions.Length, plan.Prompts.Count);
+            for (var index = 0; index < test.Insertions.Length; index++)
+            {
+                Assert.Equal(test.Insertions[index], plan.Prompts[index].InsertAt);
+            }
+
+            if (test.SyntaxError is null)
+            {
+                Assert.True(plan.SyntaxError is null);
+            }
+            else
+            {
+                Assert.Equal(test.SyntaxError, plan.SyntaxError!);
+            }
+        }
+
+        var chanServ = ServiceCommandPrivacy.CreateSecretPlan(
+            "chanserv",
+            ["identify", "#clircs"]);
+
+        Assert.Equal("ChanServ password: ", chanServ.Prompts[0].Prompt);
+        Assert.Equal(
+            "ChanServ identification canceled",
+            chanServ.Prompts[0].CancellationMessage);
+
+        var chanServRegistration = ServiceCommandPrivacy.CreateSecretPlan(
+            "chanserv",
+            ["register", "#clircs", "channel", "description"],
+            passwordRequests: 1);
+
+        Assert.Equal(2, chanServRegistration.Prompts[0].InsertAt);
+        Assert.Equal(
+            "New ChanServ password: ",
+            chanServRegistration.Prompts[0].Prompt);
+        Assert.Equal(
+            "ChanServ registration canceled",
+            chanServRegistration.Prompts[0].CancellationMessage);
+
+        var operServ = ServiceCommandPrivacy.CreateSecretPlan(
+            "operserv",
+            ["login"]);
+
+        Assert.Equal("OperServ password: ", operServ.Prompts[0].Prompt);
+        Assert.Equal(
+            "OperServ authentication canceled",
+            operServ.Prompts[0].CancellationMessage);
+
+        (
+            string Service,
+            string[] Arguments,
+            int PasswordRequests,
+            int PromptCount,
+            string? SyntaxError
+        )[] passwordOptionCases =
+        [
+            ("chanserv", ["identify", "#clircs"], 1, 1, null),
+            ("operserv", ["identify"], 1, 1, null),
+            ("operserv", ["login"], 1, 1, null),
+            ("chanserv", ["register", "#clircs", "channel", "description"], 1, 1, null),
+
+            ("chanserv", ["help"], 1, 0,
+                "Usage: /chanserv <command> [arguments]"),
+            ("operserv", ["help"], 1, 0,
+                "Usage: /operserv <command> [arguments]"),
+            ("memoserv", ["help"], 1, 0,
+                "Usage: /memoserv <command> [arguments]"),
+
+            ("chanserv", ["identify", "#clircs"], 2, 0,
+                "Usage: /chanserv <command> [arguments]"),
+            ("operserv", ["login"], 2, 0,
+                "Usage: /operserv <command> [arguments]")
+        ];
+
+        foreach (var test in passwordOptionCases)
+        {
+            var plan = ServiceCommandPrivacy.CreateSecretPlan(
+                test.Service,
+                test.Arguments,
+                test.PasswordRequests);
+
+            Assert.Equal(test.PromptCount, plan.Prompts.Count);
+
+            if (test.SyntaxError is null)
+            {
+                Assert.True(plan.SyntaxError is null);
+            }
+            else
+            {
+                Assert.Equal(test.SyntaxError, plan.SyntaxError!);
+            }
+        }
+
+        (string Service, string[] Arguments, string SyntaxError)[]
+            unsupportedCodeCases =
+        [
+            ("chanserv", ["register", "#clircs"],
+                "Usage: /chanserv <command> [arguments]"),
+            ("operserv", ["login"],
+                "Usage: /operserv <command> [arguments]"),
+            ("memoserv", ["help"],
+                "Usage: /memoserv <command> [arguments]")
+        ];
+
+        foreach (var test in unsupportedCodeCases)
+        {
+            var plan = ServiceCommandPrivacy.CreateSecretPlan(
+                test.Service,
+                test.Arguments,
+                codeRequests: 1);
+
+            Assert.Equal(0, plan.Prompts.Count);
+            Assert.Equal(test.SyntaxError, plan.SyntaxError!);
+        }
     }
 
     private static void SensitiveServiceCommandsAreExcludedFromHistory()
@@ -173,6 +660,30 @@ internal static class ThemeTests
             "/chanserv identify #clircs hunter2"));
         Assert.False(ClientApplication.ShouldStoreInputInHistory(
             "/operserv identify hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/operserv login hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv login slakker hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv setpass slakker 123456 hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv resetpass slakker 123456 hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv confirm register 123456"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv verify register slakker 123456"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv unregister slakker 123456"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv erase slakker 123456"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv passwd oldsecret newsecret newsecret"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv saset slakker password newsecret"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv set email me@example.com hunter2"));
+        Assert.False(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv saregister slakker hunter2"));
 
         Assert.True(ClientApplication.ShouldStoreInputInHistory(
             "/nickserv identify"));
@@ -183,9 +694,17 @@ internal static class ThemeTests
         Assert.True(ClientApplication.ShouldStoreInputInHistory(
             "/quote PRIVMSG NickServ :identify hunter2"));
         Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/chanserv register #clircs channel description"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/chanserv register #clircs --password channel description"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
             "ordinary chat"));
         Assert.True(ClientApplication.ShouldStoreInputInHistory(
             "/nickserv \"unfinished"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv set email me@example.com"));
+        Assert.True(ClientApplication.ShouldStoreInputInHistory(
+            "/nickserv saregister slakker"));
     }
 
     private static void DefaultStatusBarIsSubdued()

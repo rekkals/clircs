@@ -110,15 +110,47 @@ internal sealed partial class ClientApplication
         if (session is null) return failure;
 
         var text = input.RawArguments.Trim();
-        IReadOnlyList<string> arguments = input.Arguments;
-        if (input.Name.Equals("nickserv", StringComparison.OrdinalIgnoreCase) &&
-            input.Arguments.Count == 1 &&
-            input.Arguments[0].Equals("identify", StringComparison.OrdinalIgnoreCase))
+        List<string> arguments = [.. input.Arguments];
+
+        var argumentsChanged = false;
+        var promptedSecretIndexes = new List<int>();
+        var passwordRequests = arguments.RemoveAll(argument =>
+            argument.Equals("--password", StringComparison.OrdinalIgnoreCase));
+        var codeRequests = arguments.RemoveAll(argument =>
+            argument.Equals("--code", StringComparison.OrdinalIgnoreCase));
+
+        if (passwordRequests > 0 || codeRequests > 0)
         {
-            var password = _presenter.ReadSecret("NickServ password: ");
-            if (string.IsNullOrEmpty(password)) return CommandResult.Failure("NickServ identification canceled");
-            text = $"identify {password}";
-            arguments = [.. input.Arguments, password];
+            argumentsChanged = true;
+        }
+
+        var secretPlan = ServiceCommandPrivacy.CreateSecretPlan(
+            input.Name,
+            arguments,
+            passwordRequests,
+            codeRequests);
+
+        if (secretPlan.SyntaxError is not null)
+        {
+            return CommandResult.Failure(secretPlan.SyntaxError);
+        }
+
+        foreach (var secretPrompt in secretPlan.Prompts)
+        {
+            var secret = _presenter.ReadSecret(secretPrompt.Prompt);
+            if (string.IsNullOrEmpty(secret))
+            {
+                return CommandResult.Failure(secretPrompt.CancellationMessage);
+            }
+
+            arguments.Insert(secretPrompt.InsertAt, secret);
+            promptedSecretIndexes.Add(secretPrompt.InsertAt);
+            argumentsChanged = true;
+        }
+
+        if (argumentsChanged)
+        {
+            text = string.Join(' ', arguments);
         }
 
         if (text.Length == 0)
@@ -126,7 +158,11 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure($"Usage: /{input.Name} <command> [arguments]");
         }
 
-        var privacy = ServiceCommandPrivacy.Apply(input.Name, text, arguments);
+        var privacy = ServiceCommandPrivacy.Apply(
+            input.Name,
+            text,
+            arguments,
+            promptedSecretIndexes);
 
         await session.SendMessageAsync(target, text, cancellationToken, createQueryBuffer: false);
         session.State.TryGetBuffer(target, out var destination);
