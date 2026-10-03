@@ -38,7 +38,7 @@ internal static class BanmaskFormatter
     {
         if (string.IsNullOrWhiteSpace(member.Username) || string.IsNullOrWhiteSpace(member.Host))
         {
-            throw new InvalidOperationException($"No synchronized user and host are known for {member.Nickname}.");
+            throw new InvalidOperationException($"{member.Nickname}'s user and host is not known.");
         }
         return style switch
         {

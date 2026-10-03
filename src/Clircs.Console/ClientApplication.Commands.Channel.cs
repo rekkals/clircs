@@ -269,7 +269,7 @@ internal sealed partial class ClientApplication
 
         if (string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host))
         {
-            return CommandResult.Failure($"No synchronized host is known for {member.Nickname}; run /who {channel.Name} first.");
+            return CommandResult.Failure($"{member.Nickname}'s host is not known; try /who {channel.Name} first.");
         }
 
         var mask = BanmaskFormatter.Create(member, _preferences.BanmaskStyle);
@@ -302,7 +302,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            return CommandResult.Failure($"No synchronized user and host are known for {target}; supply nick!user@host explicitly.");
+            return CommandResult.Failure($"{target}'s user and host is not known; supply nick!user@host explicitly.");
         }
 
         await session!.SendAsync("MODE", [channel!.Name, "+b", mask], cancellationToken: cancellationToken);
@@ -329,7 +329,7 @@ internal sealed partial class ClientApplication
         {
             if (string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host))
             {
-                return CommandResult.Failure($"No synchronized host is known for {member.Nickname}; run /who {channel.Name} first.");
+                return CommandResult.Failure($"{member.Nickname}'s host is not known; try /who {channel.Name} first.");
             }
 
             mask = BanmaskFormatter.Create(member, _preferences.BanmaskStyle);
@@ -340,7 +340,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            return CommandResult.Failure("The target must be a synchronized channel member or nick!user@host mask.");
+            return CommandResult.Failure("The target must be a current channel member or a nick!user@host mask.");
         }
 
         var reason = input.Arguments.Count > 3 ? string.Join(' ', input.Arguments.Skip(3)) : null;
@@ -526,7 +526,7 @@ internal sealed partial class ClientApplication
 
         if (!channel!.BanListSynchronized)
         {
-            return CommandResult.Failure("The ban list is not synchronized; run /banlist first.");
+            return CommandResult.Failure("The ban list has not been loaded; try /banlist first.");
         }
 
         return await SendModeBatchesAsync(session!, channel, 'b', false, channel.Bans, cancellationToken);
@@ -585,7 +585,7 @@ internal sealed partial class ClientApplication
         var unknown = targets.FirstOrDefault(target => !channel!.TryGetMember(target, out _));
         if (unknown is not null)
         {
-            return CommandResult.Failure($"'{unknown}' is not in the synchronized member list for {channel!.Name}.");
+            return CommandResult.Failure($"'{unknown}' is not in the current member list for {channel!.Name}.");
         }
 
         return await SendModeBatchesAsync(session, channel!, mode, adding, targets, cancellationToken);
@@ -661,7 +661,7 @@ internal sealed partial class ClientApplication
 
         if (!channel!.NamesSynchronized)
         {
-            failure = CommandResult.Failure($"Member state for {channel.Name} is not synchronized yet.");
+            failure = CommandResult.Failure($"The member list for {channel.Name} is not ready yet.");
             return false;
         }
 

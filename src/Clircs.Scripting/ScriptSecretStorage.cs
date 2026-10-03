@@ -90,7 +90,7 @@ internal sealed class ScriptSecretStorage
     {
         if (string.IsNullOrWhiteSpace(key) || key.Length > 128)
         {
-            throw new InvalidOperationException("Script secret keys must contain 1-128 characters.");
+            throw new InvalidOperationException("Script secret keys must be 1-128 characters long and cannot be blank.");
         }
     }
 

@@ -25,7 +25,7 @@ public static class UserRoleParser
         {
             if (token.Length < 2 || token[0] is not ('+' or '-'))
             {
-                throw new ArgumentException("Role changes must begin with + or -.", nameof(changes));
+                throw new ArgumentException("User flag changes must begin with + or -.");
             }
 
             var roles = ParseToken(token[1..]);
@@ -78,7 +78,7 @@ public static class UserRoleParser
                 'f' => UserRole.Protected,
                 'd' => UserRole.Deop,
                 'k' => UserRole.KickOnJoin,
-                _ => throw new ArgumentException($"Unknown compact user role '{letter}'.")
+                _ => throw new ArgumentException($"Unknown user flag '{letter}'.")
             };
         }
 

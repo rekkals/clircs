@@ -133,6 +133,14 @@ internal static class UserDirectoryTests
         Assert.True(descriptive.Remove.HasFlag(UserRole.Protected));
         Assert.Throws<ArgumentException>(() =>
             UserRoleParser.ParseChanges("+protected"));
+
+        var missingSign = Assert.Throws<ArgumentException>(() =>
+            UserRoleParser.ParseChanges("friend"));
+        Assert.Equal("User flag changes must begin with + or -.", missingSign.Message);
+
+        var unknownFlag = Assert.Throws<ArgumentException>(() =>
+            UserRoleParser.ParseChanges("+p"));
+        Assert.Equal("Unknown user flag 'p'.", unknownFlag.Message);
     }
 
     private static void UserRoleOutputUsesFlags()

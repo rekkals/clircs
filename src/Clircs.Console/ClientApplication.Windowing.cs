@@ -119,7 +119,7 @@ internal sealed partial class ClientApplication
         var entries = OrderedBuffers().ToArray();
         if (entries.Length == 0)
         {
-            return CommandResult.Failure("No buffers.");
+            return CommandResult.Failure("No windows are open.");
         }
 
         var current = Array.FindIndex(entries, entry => _windowStates.IsActiveBuffer(entry.Buffer.Id));

@@ -1229,7 +1229,7 @@ internal sealed partial class ClientApplication
         }
 
         return ValueTask.FromResult(selected is null
-            ? CommandResult.Failure($"No buffer matches '{input.Arguments[0]}'.")
+            ? CommandResult.Failure($"No window matches '{input.Arguments[0]}'.")
             : SwitchTo(selected.Value.Session, selected.Value.Buffer));
     }
 

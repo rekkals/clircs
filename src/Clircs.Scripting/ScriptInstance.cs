@@ -665,7 +665,8 @@ internal sealed class ScriptInstance : IAsyncDisposable
         if (id.Length is < 1 or > 64 ||
             id.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('.' or '_' or '-')))
         {
-            throw new InvalidOperationException("Script header ids contain 1-64 letters, digits, dots, underscores, or hyphens.");
+            throw new InvalidOperationException(
+                "Script header IDs must be 1-64 characters and contain only letters, digits, dots, underscores, or hyphens.");
         }
 
         return id;

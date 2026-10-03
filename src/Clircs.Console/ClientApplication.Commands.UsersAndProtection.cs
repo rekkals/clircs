@@ -132,9 +132,15 @@ internal sealed partial class ClientApplication
         }
 
         var user = directory!.Find(input.Arguments[0]);
-        if (user is null || !user.RemoveHostmask(input.Arguments[1]))
+        if (user is null)
         {
-            return ValueTask.FromResult(CommandResult.Failure("User or hostmask not found."));
+            return ValueTask.FromResult(CommandResult.Failure($"No user named '{input.Arguments[0]}'."));
+        }
+
+        if (!user.RemoveHostmask(input.Arguments[1]))
+        {
+            return ValueTask.FromResult(CommandResult.Failure(
+                $"{user.Handle} does not have the hostmask '{input.Arguments[1]}'."));
         }
 
         SaveUserDirectory(directory);
@@ -210,7 +216,8 @@ internal sealed partial class ClientApplication
         }
         else if (!user.RemoveChannel(input.Arguments[1], session.State.CaseMapping))
         {
-            return ValueTask.FromResult(CommandResult.Failure("No matching channel policy exists."));
+            return ValueTask.FromResult(CommandResult.Failure(
+                $"{user.Handle} has no channel settings for {input.Arguments[1]}."));
         }
 
         SaveUserDirectory(directory);
@@ -1326,9 +1333,14 @@ internal sealed partial class ClientApplication
             return session is null ? failure : CommandResult.Failure("This command requires an active joined channel.");
         }
 
-        if (!channel!.NamesSynchronized || string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            return CommandResult.Failure($"Usage after NAMES synchronization: /{command} <text>");
+            return CommandResult.Failure($"Usage: /{command} <text>");
+        }
+
+        if (!channel!.NamesSynchronized)
+        {
+            return CommandResult.Failure("The channel member list is not ready yet. Try again shortly.");
         }
 
         if (!TryGetUserDirectory(out _, out var directory, out failure))
@@ -1363,9 +1375,14 @@ internal sealed partial class ClientApplication
             return session is null ? failure : CommandResult.Failure("This command requires an active joined channel.");
         }
 
-        if (!channel!.NamesSynchronized || string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            return CommandResult.Failure($"Usage after NAMES synchronization: /{(notice ? "wall" : "wallmsg")} <text>");
+            return CommandResult.Failure($"Usage: /{(notice ? "wall" : "wallmsg")} <text>");
+        }
+
+        if (!channel!.NamesSynchronized)
+        {
+            return CommandResult.Failure("The channel member list is not ready yet. Try again shortly.");
         }
 
         var comparer = new IrcNameComparer(session.State.CaseMapping);
