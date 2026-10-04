@@ -16,7 +16,7 @@ internal sealed class ClientPreferences
     public string Nickname { get; set; }
     public string AlternateNickname { get; set; }
     public string Username { get; set; }
-    public string RealName { get; set; } = "clircs user";
+    public string RealName { get; set; } = "default settings enthusiast";
     public string UserModes { get; set; } = "+i";
     public string AwayMessage { get; set; } = "away";
     public HostmaskVisibility JoinHostmasks { get; set; } = HostmaskVisibility.UserHost;
@@ -30,7 +30,7 @@ internal sealed class ClientPreferences
     public bool HighlightNickname { get; set; } = true;
     public bool CloneDetection { get; set; } = true;
     public bool NetworkReconnect { get; set; } = true;
-    public bool KillReconnect { get; set; } = true;
+    public bool KillReconnect { get; set; }
     public bool AwayLogging { get; set; }
     public string DccAddress { get; set; } = "auto";
     public DccPortRange DccPorts { get; set; } = DccPortRange.Random;

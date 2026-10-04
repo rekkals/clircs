@@ -830,7 +830,7 @@ internal static class ThemeTests
             Assert.True(application.SettingHelp("network.reconnect")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "on"));
             Assert.True(application.SettingHelp("kill.reconnect")!.Fields!
-                .Any(field => field.Label == "Currently" && field.Value == "on"));
+                .Any(field => field.Label == "Currently" && field.Value == "off"));
             application.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         finally
@@ -1043,7 +1043,7 @@ internal static class ThemeTests
         Assert.Equal("host", store.Load().DefaultBanmask);
         Assert.True(store.Load().CloneDetection);
         Assert.True(store.Load().NetworkReconnect);
-        Assert.True(store.Load().KillReconnect);
+        Assert.False(store.Load().KillReconnect);
         Assert.Equal("+i", store.Load().UserModes);
     }
 

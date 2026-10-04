@@ -53,13 +53,13 @@ internal static class ApplicationOrchestrationTests
         Assert.Equal("slakker", preferences.Nickname);
         Assert.Equal("slakker_", preferences.AlternateNickname);
         Assert.Equal("slakker", preferences.Username);
-        Assert.Equal("clircs user", preferences.RealName);
+        Assert.Equal("default settings enthusiast", preferences.RealName);
         Assert.Equal("away", preferences.AwayMessage);
         Assert.Equal(HostmaskVisibility.UserHost, preferences.JoinHostmasks);
         Assert.True(preferences.HighlightNickname);
         Assert.True(preferences.CloneDetection);
         Assert.True(preferences.NetworkReconnect);
-        Assert.True(preferences.KillReconnect);
+        Assert.False(preferences.KillReconnect);
         Assert.Equal(DccPortRange.Random, preferences.DccPorts);
         Assert.Equal(@"C:\downloads", preferences.DccDownloads);
         Assert.Equal(BanmaskStyle.Host, preferences.BanmaskStyle);

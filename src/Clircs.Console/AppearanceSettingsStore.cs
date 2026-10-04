@@ -23,7 +23,7 @@ internal sealed record AppearanceSettings(
     string? RealName = null,
     bool CloneDetection = true,
     bool NetworkReconnect = true,
-    bool KillReconnect = true,
+    bool KillReconnect = false,
     bool AwayLogging = false,
     string DccAddress = "auto",
     string DccPorts = "random",
@@ -172,7 +172,7 @@ internal sealed class AppearanceSettingsStore
         public string? UserModes { get; set; } = "+i";
         public bool CloneDetection { get; set; } = true;
         public bool NetworkReconnect { get; set; } = true;
-        public bool KillReconnect { get; set; } = true;
+        public bool KillReconnect { get; set; }
         public bool AwayLogging { get; set; }
         public string DccAddress { get; set; } = "auto";
         public string DccPorts { get; set; } = "random";
