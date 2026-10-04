@@ -137,7 +137,13 @@ internal sealed partial class ClientApplication
     private void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs eventArgs)
     {
         eventArgs.Cancel = true;
+        if (eventArgs.SpecialKey is not ConsoleSpecialKey.ControlBreak)
+        {
+            return;
+        }
+
         _exitRequested = true;
+        _presenter.CancelPendingInput();
         _lifetime.Cancel();
     }
 

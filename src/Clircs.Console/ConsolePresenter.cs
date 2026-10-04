@@ -34,6 +34,7 @@ internal sealed class ConsolePresenter
     private int _renderTop;
     private int _renderRows = 2;
     private bool _readingInput;
+    private volatile bool _inputCancellationRequested;
     private bool _chromeVisible;
     private bool _maskInput;
     private Func<string, IReadOnlyList<string>>? _nicknameMatchProvider;
@@ -701,6 +702,11 @@ internal sealed class ConsolePresenter
 
                 lock (_consoleLock)
                 {
+                    if (_inputCancellationRequested)
+                    {
+                        return null;
+                    }
+
                     receivedKey = TryReadInputKeyUnsafe(
                             specialInput: true, out var key);
 
@@ -841,6 +847,8 @@ internal sealed class ConsolePresenter
         return true;
     }
 
+    internal void CancelPendingInput() => _inputCancellationRequested = true;
+
     public string? ReadLine(
         string prompt,
         Func<string, IReadOnlyList<string>>? nicknameMatchProvider = null,
@@ -904,6 +912,15 @@ internal sealed class ConsolePresenter
 
             lock (_consoleLock)
             {
+                if (_inputCancellationRequested)
+                {
+                    ClearInputUnsafe();
+                    _readingInput = false;
+                    _chromeVisible = false;
+                    _nicknameMatchProvider = null;
+                    return null;
+                }
+
                 receivedKey = TryReadInputKeyUnsafe(
                     specialInput: false, out var key);
 
@@ -941,16 +958,6 @@ internal sealed class ConsolePresenter
                     RenderInputUnsafe();
                     SetCursorVisibleUnsafe(false);
                     return result;
-                }
-                else if (key.Key == ConsoleKey.Z &&
-                         key.Modifiers.HasFlag(ConsoleModifiers.Control) &&
-                         _input.Length == 0)
-                {
-                    ClearInputUnsafe();
-                    _readingInput = false;
-                    _chromeVisible = false;
-                    _nicknameMatchProvider = null;
-                    return null;
                 }
                 else
                 {
