@@ -6,9 +6,11 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Clircs.Identity;
 using Clircs.Networking;
 using Clircs.Protocol;
 using Clircs.Sessions;
+using Clircs.State;
 using Clircs.Transport;
 
 namespace Clircs.Core.Tests;
@@ -451,11 +453,19 @@ internal static class NetworkingIntegrationTests
         var receivedWelcome = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var receivedEchoMarker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var localEchoCount = 0;
+        BufferId? serviceBufferId = null;
+        var serviceEchoes = new List<SessionEvent>();
         var registrationCount = 0;
         var fallbackMessages = new List<string>();
         session.RegistrationCompleted += _ => registrationCount++;
         session.EventRaised += sessionEvent =>
         {
+            if (serviceBufferId is { } bufferId &&
+                sessionEvent.BufferId == bufferId &&
+                sessionEvent.Kind == SessionEventKind.Message)
+            {
+                serviceEchoes.Add(sessionEvent);
+            }
             if (sessionEvent.Fields?.GetValueOrDefault("event") == "nicknameFallback")
             {
                 fallbackMessages.Add(sessionEvent.Text);
@@ -488,8 +498,20 @@ internal static class NetworkingIntegrationTests
         await receivedEchoMarker.Task.WaitAsync(timeout.Token);
         Assert.Equal(1, localEchoCount);
 
-        await session.SendMessageAsync("NickServ", "help", timeout.Token, createQueryBuffer: false);
-        Assert.False(session.State.TryGetBuffer("NickServ", out _));
+        var serviceBuffer = session.State.GetOrCreateBuffer(BufferKind.Query, "NickServ");
+        serviceBufferId = serviceBuffer.Id;
+
+        await session.SendAtomicMessageAsync(
+            "NickServ",
+            "identify swordfish",
+            "identify <redacted>",
+            timeout.Token,
+            createQueryBuffer: false);
+
+        Assert.Equal(1, serviceEchoes.Count);
+        Assert.Equal("<TestNick_> identify <redacted>", serviceEchoes[0].Text);
+        Assert.False(serviceEchoes.Any(sessionEvent =>
+            sessionEvent.Text.Contains("swordfish", StringComparison.Ordinal)));
 
         await session.DisconnectAsync("test complete", timeout.Token);
         var transcript = await serverTask;
@@ -501,7 +523,7 @@ internal static class NetworkingIntegrationTests
         Assert.Equal("PONG cookie", transcript[3]);
         Assert.Equal($"NOTICE alice :\u0001VERSION {ProductInfo.DisplayName}\u0001", transcript[4]);
         Assert.Equal("PRIVMSG #test hello", transcript[5]);
-        Assert.Equal("PRIVMSG NickServ help", transcript[6]);
+        Assert.Equal("PRIVMSG NickServ :identify swordfish", transcript[6]);
         Assert.Equal("QUIT :test complete", transcript[7]);
     }
 

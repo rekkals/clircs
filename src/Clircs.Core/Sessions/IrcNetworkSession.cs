@@ -218,21 +218,55 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         }
     }
 
-    public async ValueTask SendMessageAsync(
+    public ValueTask SendMessageAsync(
         string target,
         string text,
         CancellationToken cancellationToken = default,
-        bool createQueryBuffer = true)
+        bool createQueryBuffer = true) =>
+        SendMessageCoreAsync(
+            target,
+            text,
+            text,
+            cancellationToken,
+            createQueryBuffer);
+
+    public ValueTask SendAtomicMessageAsync(
+        string target,
+        string wireText,
+        string? localEchoText,
+        CancellationToken cancellationToken = default,
+        bool createQueryBuffer = false) =>
+        SendMessageCoreAsync(
+            target,
+            wireText,
+            localEchoText,
+            cancellationToken,
+            createQueryBuffer);
+
+    private async ValueTask SendMessageCoreAsync(
+        string target,
+        string wireText,
+        string? localEchoText,
+        CancellationToken cancellationToken,
+        bool createQueryBuffer)
     {
-        var pendingEcho = _echoTracker.Track("PRIVMSG", target, text);
+        var pendingEcho = _echoTracker.Track("PRIVMSG", target, wireText);
         try
         {
-            await SendAsync("PRIVMSG", [target, text], cancellationToken: cancellationToken).ConfigureAwait(false);
+            await SendAsync(
+                "PRIVMSG",
+                [target, wireText],
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch
         {
             _echoTracker.Cancel(pendingEcho);
             throw;
+        }
+
+        if (localEchoText is null)
+        {
+            return;
         }
 
         var displayTarget = Features.NormalizeMessageTarget(target);
@@ -253,15 +287,25 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         {
             buffer = null;
         }
+
         string? nickPrefix = null;
-        if (Features.IsChannel(displayTarget) && State.TryGetChannel(displayTarget, out var messageChannel) &&
+        if (Features.IsChannel(displayTarget) &&
+            State.TryGetChannel(displayTarget, out var messageChannel) &&
             messageChannel!.TryGetMember(CurrentNickname, out var messageMember))
         {
             nickPrefix = Features.HighestPrefix(messageMember!.PrefixModes)?.ToString();
         }
-        if (buffer is null) return;
-        var formattedText = IrcTextFormatting.Parse(text);
-        Raise(buffer, SessionEventKind.Message, $"<{nickPrefix}{CurrentNickname}> {text}",
+
+        if (buffer is null)
+        {
+            return;
+        }
+
+        var formattedText = IrcTextFormatting.Parse(localEchoText);
+        Raise(
+            buffer,
+            SessionEventKind.Message,
+            $"<{nickPrefix}{CurrentNickname}> {localEchoText}",
             new Dictionary<string, string?>
             {
                 ["nick"] = CurrentNickname,

@@ -164,7 +164,12 @@ internal sealed partial class ClientApplication
             arguments,
             promptedSecretIndexes);
 
-        await session.SendMessageAsync(target, text, cancellationToken, createQueryBuffer: false);
+        await session.SendAtomicMessageAsync(
+            target,
+            text,
+            privacy.DisplayText,
+            cancellationToken,
+            createQueryBuffer: false);
         session.State.TryGetBuffer(target, out var destination);
         EchoInActiveBuffer(session, SessionEventKind.Message, $"-> {target}: {privacy.DisplayText}", destination?.Id);
         return CommandResult.Success();
