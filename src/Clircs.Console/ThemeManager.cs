@@ -47,12 +47,12 @@ internal sealed class ThemeManager
     }
 
     public bool TryGet(string name, out TerminalTheme? theme) =>
-        _themes.TryGetValue(NormalizeLegacyName(name), out theme);
+        _themes.TryGetValue(name, out theme);
 
     private static TerminalTheme LoadTheme(string path)
     {
         var values = Parse(path);
-        var baseName = NormalizeLegacyName(values.GetValueOrDefault("base", "clircs"));
+        var baseName = values.GetValueOrDefault("base", "clircs");
         if (!TerminalTheme.BuiltIns.TryGetValue(baseName, out var basis))
             throw new InvalidDataException($"Theme '{path}' has unknown built-in base '{baseName}'.");
         var name = values.GetValueOrDefault("name", Path.GetFileNameWithoutExtension(path));
@@ -203,7 +203,4 @@ internal sealed class ThemeManager
 
     private static InvalidDataException InvalidLine(string path, int line) =>
         new($"Invalid theme syntax in '{path}' on line {line}.");
-
-    private static string NormalizeLegacyName(string name) =>
-        name.Equals("clirc", StringComparison.OrdinalIgnoreCase) ? "clircs" : name;
 }

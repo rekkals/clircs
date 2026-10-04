@@ -30,7 +30,6 @@ internal static class ThemeTests
         suite.Add("invites default to active output and kicks default to red", InviteAndKickDefaults);
         suite.Add("quote provider copies and selects bundled quotes", QuoteProviderSelectsBundledQuotes);
         suite.Add("input history navigates without duplicates", InputHistoryNavigates);
-        suite.Add("legacy data is copied into the clircs directory", LegacyDataIsCopied);
         suite.Add("nickname completion cycles matches and preserves its prefix", NicknameCompletionCycles);
         suite.Add("named banmask styles generate consistent masks", BanmaskStylesAreConsistent);
         suite.Add("viewport measurement counts rendered NAMES rows instead of nick cells", NamesGridMeasurementUsesColumns);
@@ -821,8 +820,6 @@ internal static class ThemeTests
             Assert.Equal("/set kickrejoin", kickRejoin.TitleHighlight!);
             Assert.True(kickRejoin.Fields!.Any(field => field.Label == "Description" && field.Value.Contains("rejoins", StringComparison.Ordinal)));
             Assert.True(kickRejoin.Fields!.Any(field => field.Label == "Currently" && field.Value == "off"));
-            Assert.Equal("/set nickname", application.SettingHelp("identity.nick")!.TitleHighlight!);
-            Assert.Equal("/set whois.output", application.SettingHelp("output.whois")!.TitleHighlight!);
             Assert.Equal("/set list.output", application.SettingHelp("list.output")!.TitleHighlight!);
             Assert.True(application.SettingHelp("list.output")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "dedicated"));
@@ -908,7 +905,6 @@ internal static class ThemeTests
         var manager = new ThemeManager(temporary.Path);
 
         Assert.True(manager.TryGet("clircs", out _));
-        Assert.True(manager.TryGet("clirc", out _));
         Assert.False(manager.TryGet("midnight", out _));
         Assert.Equal(1, manager.Errors.Count);
     }
@@ -1073,13 +1069,6 @@ internal static class ThemeTests
         var selected = provider.Next();
         Assert.True(selected is "first" or "second");
         Assert.True(File.Exists(provider.Path));
-
-        File.WriteAllText(provider.Path, "kept\nWhat? Something like 36?\n");
-        _ = new QuoteProvider(data, bundled);
-        var migrated = File.ReadAllText(provider.Path);
-        Assert.True(migrated.Contains("kept", StringComparison.Ordinal));
-        Assert.True(migrated.Contains("Look at you two whipping out your Preciouses.", StringComparison.Ordinal));
-        Assert.False(migrated.Contains("What? Something like 36?", StringComparison.Ordinal));
     }
 
     private static void InputHistoryNavigates()
@@ -1107,21 +1096,6 @@ internal static class ThemeTests
         Assert.Equal("second-window", presenter.HistoryFor(second).Previous(string.Empty)!);
         presenter.ForgetInputHistory(first);
         Assert.True(presenter.HistoryFor(first).Previous(string.Empty) is null);
-    }
-
-    private static void LegacyDataIsCopied()
-    {
-        using var temporary = new TemporaryDirectory();
-        var legacy = Path.Combine(temporary.Path, "clirc");
-        Directory.CreateDirectory(Path.Combine(legacy, "scripts"));
-        File.WriteAllText(Path.Combine(legacy, "networks.toml"), "legacy");
-        File.WriteAllText(Path.Combine(legacy, "scripts", "kept.txt"), "kept");
-
-        var resolved = ClientDataDirectory.ResolveDefault(temporary.Path);
-        Assert.Equal(Path.Combine(temporary.Path, "clircs"), resolved);
-        Assert.Equal("legacy", File.ReadAllText(Path.Combine(resolved, "networks.toml")));
-        Assert.Equal("kept", File.ReadAllText(Path.Combine(resolved, "scripts", "kept.txt")));
-        Assert.True(File.Exists(Path.Combine(legacy, "networks.toml")));
     }
 
     private static void NicknameCompletionCycles()

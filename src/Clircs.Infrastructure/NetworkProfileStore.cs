@@ -264,9 +264,6 @@ public sealed class NetworkProfileStore
             else throw new InvalidDataException($"Unsupported SASL mechanism '{mechanism}'.");
         }
         var reconnectAttempts = ParseInt(values, "reconnect_max_attempts", 99);
-        // Eight was the original hard-coded default and there was no client
-        // command for changing it. Migrate those profiles to the new default.
-        if (reconnectAttempts == 8) reconnectAttempts = 99;
         var reconnect = new ReconnectPolicy(
             reconnectAttempts,
             TimeSpan.FromSeconds(ParseInt(values, "reconnect_initial_seconds", 2)),

@@ -7,6 +7,7 @@ namespace Clircs.Infrastructure;
 
 public sealed class UserDirectoryStore
 {
+    private const int CurrentSchemaVersion = 3;
     private readonly string _directory;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -46,7 +47,7 @@ public sealed class UserDirectoryStore
         {
             var envelope = JsonSerializer.Deserialize<UserDirectoryEnvelope>(File.ReadAllText(path), _jsonOptions)
                 ?? throw new InvalidDataException("User directory file is empty.");
-            if (envelope.SchemaVersion is not (1 or 2 or 3))
+            if (envelope.SchemaVersion != CurrentSchemaVersion)
             {
                 throw new InvalidDataException($"Unsupported user directory schema {envelope.SchemaVersion}.");
             }
@@ -86,7 +87,7 @@ public sealed class UserDirectoryStore
         var path = PathFor(directory.NetworkProfileId);
         var envelope = new UserDirectoryEnvelope
         {
-            SchemaVersion = 3,
+            SchemaVersion = CurrentSchemaVersion,
             NetworkProfileId = directory.NetworkProfileId.Value,
             Users = directory.Users.Select(user => new StoredUser
             {

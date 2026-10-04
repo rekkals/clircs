@@ -237,7 +237,7 @@ internal sealed partial class ClientApplication
         }
 
         var requestedSetting = input.Arguments[0];
-        var setting = CanonicalSettingName(requestedSetting);
+        var setting = requestedSetting.ToLowerInvariant();
         var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
 
         if (input.Arguments.Count < 2 && !clearingUserModes)
@@ -435,40 +435,6 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Failure(exception.Message));
         }
     }
-
-    private static string CanonicalSettingName(string setting) => setting.ToLowerInvariant() switch
-    {
-        "identity.nick" => "nickname",
-        "identity.altnick" => "altnick",
-        "identity.username" => "username",
-        "identity.realname" => "realname",
-        "away.defaultmessage" => "awaymsg",
-        "message.kick" => "kickmsg",
-        "message.quit" => "quitmsg",
-        "message.topic" => "topicmsg",
-        "ban.mask" => "banmask",
-        "clone.detect" => "clonedetect",
-        "highlight.nickname" => "highlight",
-        "userlist.infoonjoin" => "joininfo",
-        "channel.rejoinonkick" => "kickrejoin",
-        "net.reconnect" => "network.reconnect",
-        "output.hostmasks" => "hostmasks",
-        "output.hostmasks.join" => "hostmasks.join",
-        "output.hostmasks.part" => "hostmasks.part",
-        "output.hostmasks.quit" => "hostmasks.quit",
-        "output.who" => "who.output",
-        "output.whois" => "whois.output",
-        "output.whowas" => "whowas.output",
-        "output.ctcp" => "ctcp.output",
-        "output.notice" => "notice.output",
-        "output.wallops" => "wallops.output",
-        "output.invite" => "invite.output",
-        "output.links" => "links.output",
-        "output.list" => "list.output",
-        "output.dns" => "dns.output",
-        "output.messageguard" => "messageguard",
-        var canonical => canonical
-    };
 
     private ValueTask<CommandResult> ThemeAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {

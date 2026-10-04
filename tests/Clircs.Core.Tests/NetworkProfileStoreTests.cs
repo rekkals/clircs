@@ -17,7 +17,6 @@ internal static class NetworkProfileStoreTests
         suite.Add("network profiles create connection options for a selected server", SelectedEndpointCreatesConnectionOptions);
         suite.Add("network profile usernames override the global registration username", UsernameOverrideAppliesToConnectionOptions);
         suite.Add("network profile user modes override global inheritance", UserModesOverrideIsOptional);
-        suite.Add("legacy reconnect defaults migrate to 99 attempts", LegacyReconnectDefaultMigrates);
         suite.Add("changing profile identity preserves network settings", ChangingIdentityPreservesNetworkSettings);
         suite.Add("unconfigured network profiles round-trip and accept a later endpoint", UnconfiguredProfilesRoundTrip);
         suite.Add("network profile names are unique without regard to case", ProfileNamesAreUnique);
@@ -258,31 +257,6 @@ internal static class NetworkProfileStoreTests
 
         Assert.True(bouncerMatch is null);
         Assert.Equal(fxnetProfile.Id, directMatch!.Id);
-    }
-
-    private static void LegacyReconnectDefaultMigrates()
-    {
-        var directory = CreateTemporaryDirectory();
-        try
-        {
-            var path = System.IO.Path.Combine(directory, "networks.toml");
-            var profile = new NetworkProfile(
-                NetworkProfileId.New(),
-                "EFnet",
-                [new IrcEndpoint("irc.example.test", 6697, true)],
-                new IrcIdentity(["TestNick"], "test", "Test User"),
-                reconnect: new ReconnectPolicy(8, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(120)));
-            var store = new NetworkProfileStore(path);
-            store.Add(profile);
-
-            var migrated = new NetworkProfileStore(path).Find("EFnet")!;
-            Assert.Equal(99, migrated.Reconnect.MaximumAttempts);
-            Assert.Equal(99, ReconnectPolicy.Default.MaximumAttempts);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
     }
 
     private static void ProfilesRoundTrip()

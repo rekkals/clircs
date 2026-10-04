@@ -337,7 +337,7 @@ internal sealed partial class ClientApplication
 
     internal PresentationBlock? SettingHelp(string requested)
     {
-        var setting = CanonicalSettingName(requested);
+        var setting = requested.ToLowerInvariant();
         var detail = setting switch
         {
             "nickname" => ("<nickname>", "your current default", "Primary nickname for new direct connections.", "/set nickname rekkals"),
