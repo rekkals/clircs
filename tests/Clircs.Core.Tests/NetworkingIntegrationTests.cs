@@ -34,6 +34,7 @@ internal static class NetworkingIntegrationTests
         suite.Add("Lurker CAP signatures reach live session metadata", LurkerCapabilitySignatureReachesSessionMetadataAsync);
         suite.Add("excess incoming parameters are accepted with one diagnostic", ExcessIncomingParametersProduceOneDiagnosticAsync);
         suite.Add("raw IRC observers receive exact inbound and outbound wire lines", RawWireLinesAreObservableAsync);
+        suite.Add("outgoing chat splits to relay-safe lines while atomic messages stay atomic", OutgoingChatSplitsToRelaySafeLinesAsync);
         suite.Add("self-signed TLS is accepted only through an explicit certificate policy", SelfSignedTlsUsesPolicyAsync);
         suite.Add("self-signed TLS is rejected when no policy is provided", SelfSignedTlsRejectsByDefaultAsync);
     }
@@ -145,6 +146,225 @@ internal static class NetworkingIntegrationTests
         Assert.True(monitorOnline.SequenceEqual(new[] { "Alice" }));
         Assert.Equal("PRIVMSG alice :\u0001PING 123\u0001", serverLines.sent!);
         Assert.Equal("QUIT done", serverLines.quit!);
+    }
+
+    private static async ValueTask OutgoingChatSplitsToRelaySafeLinesAsync()
+    {
+        using var timeout =
+            new CancellationTokenSource(
+                TimeSpan.FromSeconds(10));
+        var listener =
+            new TcpListener(
+                IPAddress.Loopback,
+                0);
+        listener.Start();
+
+        var port =
+            ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        var serverTask = Task.Run(async () =>
+        {
+            using var client =
+                await listener.AcceptTcpClientAsync(
+                    timeout.Token);
+            await using var stream =
+                client.GetStream();
+            using var reader = new StreamReader(
+                stream,
+                new UTF8Encoding(false),
+                false,
+                leaveOpen: true);
+            await using var writer = new StreamWriter(
+                stream,
+                new UTF8Encoding(false),
+                leaveOpen: true)
+            {
+                AutoFlush = true,
+                NewLine = "\r\n"
+            };
+
+            _ = await CompleteEmptyCapabilityNegotiationAsync(
+                reader,
+                writer,
+                "TestNick",
+                timeout.Token);
+            await writer.WriteLineAsync(
+                ":server 001 TestNick :Welcome".AsMemory(),
+                timeout.Token);
+
+            var chatLines = new List<string>();
+
+            while (await reader.ReadLineAsync(
+                       timeout.Token) is { } line)
+            {
+                if (line.StartsWith(
+                        "PRIVMSG #test ",
+                        StringComparison.Ordinal) ||
+                    line.StartsWith(
+                        "NOTICE #test ",
+                        StringComparison.Ordinal))
+                {
+                    chatLines.Add(line);
+                }
+
+                if (line.StartsWith(
+                        "QUIT ",
+                        StringComparison.Ordinal))
+                {
+                    break;
+                }
+            }
+
+            return chatLines.ToArray();
+        }, timeout.Token);
+
+        var options = new IrcConnectionOptions(
+            new IrcEndpoint(
+                "127.0.0.1",
+                port,
+                useTls: false),
+            new IrcIdentity(
+                ["TestNick"],
+                "test",
+                "Test User"));
+
+        await using var session = new IrcNetworkSession(
+            "test",
+            options,
+            new TcpIrcTransportFactory());
+
+        var localEchoes = new List<SessionEvent>();
+        session.EventRaised += sessionEvent =>
+        {
+            if (sessionEvent.Kind is
+                SessionEventKind.Message or
+                SessionEventKind.Notice or
+                SessionEventKind.Action)
+            {
+                localEchoes.Add(sessionEvent);
+            }
+        };
+
+        await session.ConnectAsync(timeout.Token);
+
+        session.State.SetVisibleUsername("user");
+        session.State.SetVisibleHost("host");
+
+        var messageText = new string(
+            'm',
+            session.MaximumRelayTextBytes(
+                "PRIVMSG",
+                "#test") + 1);
+        var noticeText = new string(
+            'n',
+            session.MaximumRelayTextBytes(
+                "NOTICE",
+                "#test") + 1);
+        var actionText = new string(
+            'a',
+            session.MaximumRelayTextBytes(
+                "PRIVMSG",
+                "#test",
+                contentFramingBytes: 9) + 1);
+
+        await session.SendMessageAsync(
+            "#test",
+            messageText,
+            timeout.Token);
+        await session.SendNoticeAsync(
+            "#test",
+            noticeText,
+            timeout.Token);
+        await session.SendActionAsync(
+            "#test",
+            actionText,
+            timeout.Token);
+
+        await Assert.ThrowsAsync<IrcProtocolException>(
+            () => session.SendAtomicMessageAsync(
+                    "NickServ",
+                    new string('s', 600),
+                    localEchoText: null,
+                    timeout.Token)
+                .AsTask());
+
+        await session.DisconnectAsync(
+            "done",
+            timeout.Token);
+
+        var lines = await serverTask;
+        listener.Stop();
+
+        Assert.Equal(6, lines.Length);
+
+        var messages =
+            lines.Select(IrcMessageParser.Parse).ToArray();
+
+        Assert.Equal("PRIVMSG", messages[0].Command);
+        Assert.Equal("PRIVMSG", messages[1].Command);
+        Assert.Equal(
+            messageText,
+            messages[0].Parameters[1] +
+            messages[1].Parameters[1]);
+
+        Assert.Equal("NOTICE", messages[2].Command);
+        Assert.Equal("NOTICE", messages[3].Command);
+        Assert.Equal(
+            noticeText,
+            messages[2].Parameters[1] +
+            messages[3].Parameters[1]);
+
+        Assert.Equal("PRIVMSG", messages[4].Command);
+        Assert.Equal("PRIVMSG", messages[5].Command);
+
+        var actionSegments =
+            messages
+                .Skip(4)
+                .Select(message =>
+                {
+                    var payload = message.Parameters[1];
+
+                    Assert.True(
+                        payload.StartsWith(
+                            "\u0001ACTION ",
+                            StringComparison.Ordinal));
+                    Assert.True(payload[^1] == '\u0001');
+
+                    return payload[8..^1];
+                });
+
+        Assert.Equal(
+            actionText,
+            string.Concat(actionSegments));
+
+        foreach (var message in messages)
+        {
+            var relayed =
+                $":TestNick!user@host " +
+                $"{message.Command} " +
+                $"{message.Parameters[0]} " +
+                $":{message.Parameters[1]}";
+
+            Assert.True(
+                IrcTextEncoding.Encode(relayed).Length <=
+                IrcLineFramer.MaximumPayloadBytes);
+        }
+
+        Assert.Equal(
+            2,
+            localEchoes.Count(sessionEvent =>
+                sessionEvent.Kind ==
+                SessionEventKind.Message));
+        Assert.Equal(
+            2,
+            localEchoes.Count(sessionEvent =>
+                sessionEvent.Kind ==
+                SessionEventKind.Notice));
+        Assert.Equal(
+            2,
+            localEchoes.Count(sessionEvent =>
+                sessionEvent.Kind ==
+                SessionEventKind.Action));
     }
 
     private static async ValueTask SessionReconnectPreservesBuffersAsync()

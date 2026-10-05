@@ -82,6 +82,11 @@ internal static class SessionTests
         suite.Add("outbound echo tracking consumes only exact self echoes", OutboundEchoTrackingIsNarrow);
         suite.Add("echoed self messages use outbound conversation semantics", EchoedSelfMessagesUseOutboundSemantics);
         suite.Add("outbound notices never create conversation buffers", OutboundNoticesDoNotCreateBuffers);
+        suite.Add("relay text budgets use visible identity and conservative fallbacks", RelayTextBudgetsUseVisibleIdentityAndFallbacks);
+        suite.Add("text segmentation honors byte limits and preserves content", TextSegmentationHonorsByteLimits);
+        suite.Add("text segmentation preserves graphemes and word boundaries", TextSegmentationPreservesGraphemesAndWords);
+        suite.Add("text segmentation carries IRC formatting across segments", TextSegmentationCarriesFormatting);
+        suite.Add("text segmentation rejects impossible byte budgets", TextSegmentationRejectsImpossibleBudgets);
         suite.Add("NAMES and WHO build synchronized channel member state", NamesAndWhoBuildMemberState);
         suite.Add("NAMES completion produces a semantic information box", NamesProducesInformationBox);
         suite.Add("JOIN PART QUIT KICK and NICK maintain channel membership", MembershipEventsMaintainState);
@@ -362,6 +367,7 @@ internal static class SessionTests
 
         Assert.Equal("Logged in as slakker", login[0].Text);
         Assert.Equal("slakker", state.AccountName!);
+        Assert.Equal("~slakker", state.VisibleUsername!);
         Assert.Equal("Hidden host is now user/slakker (set by services)", hidden[0].Text);
         Assert.Equal("user/slakker", state.VisibleHost!);
         Assert.False(login[0].Text.Contains("900", StringComparison.Ordinal));
@@ -1767,11 +1773,213 @@ internal static class SessionTests
         Assert.Equal(2, session.State.Buffers.Count);
     }
 
+    private static async ValueTask RelayTextBudgetsUseVisibleIdentityAndFallbacks()
+    {
+        var options = new Clircs.Networking.IrcConnectionOptions(
+            new Clircs.Networking.IrcEndpoint(
+                "example.test",
+                6667,
+                useTls: false),
+            new Clircs.Networking.IrcIdentity(
+                ["nick"],
+                "configured",
+                "Test User"));
+
+        await using var session = new IrcNetworkSession(
+            "test",
+            options,
+            new Clircs.Transport.TcpIrcTransportFactory());
+
+        Assert.Equal(
+            412,
+            session.MaximumRelayTextBytes(
+                "PRIVMSG",
+                "#chat"));
+
+        session.Features.ApplyIsupport(
+            IrcMessageParser.Parse(
+                ":server 005 nick USERLEN=20 HOSTLEN=100 :supported"),
+            session.State);
+
+        Assert.Equal(
+            366,
+            session.MaximumRelayTextBytes(
+                "PRIVMSG",
+                "#chat"));
+
+        session.State.SetVisibleUsername("u");
+        session.State.SetVisibleHost("h");
+
+        Assert.Equal(
+            485,
+            session.MaximumRelayTextBytes(
+                "PRIVMSG",
+                "#chat"));
+
+        Assert.Equal(
+            476,
+            session.MaximumRelayTextBytes(
+                "PRIVMSG",
+                "#chat",
+                contentFramingBytes: 9));
+    }
+
+    private static void TextSegmentationHonorsByteLimits()
+    {
+        const string text = "alpha beta café gamma";
+
+        var segments = IrcTextSegmenter.Split(
+            text,
+            maximumBytes: 8);
+
+        Assert.True(segments.Count > 1);
+        Assert.Equal(text, string.Concat(segments));
+
+        foreach (var segment in segments)
+        {
+            Assert.True(
+                IrcTextEncoding.Encode(segment).Length <= 8);
+        }
+
+        var fitting = IrcTextSegmenter.Split(
+            "café",
+            maximumBytes: 5);
+
+        Assert.Equal(1, fitting.Count);
+        Assert.Equal("café", fitting[0]);
+    }
+
+    private static void TextSegmentationPreservesGraphemesAndWords()
+    {
+        var words = IrcTextSegmenter.Split(
+            "alpha beta",
+            maximumBytes: 6);
+
+        Assert.Equal(2, words.Count);
+        Assert.Equal("alpha ", words[0]);
+        Assert.Equal("beta", words[1]);
+
+        const string grapheme = "a\u0301";
+        var graphemes = IrcTextSegmenter.Split(
+            grapheme + grapheme,
+            maximumBytes: 3);
+
+        Assert.Equal(2, graphemes.Count);
+        Assert.Equal(grapheme, graphemes[0]);
+        Assert.Equal(grapheme, graphemes[1]);
+
+        var unbrokenWord = IrcTextSegmenter.Split(
+            "abcdefgh",
+            maximumBytes: 3);
+
+        Assert.Equal(3, unbrokenWord.Count);
+        Assert.Equal("abc", unbrokenWord[0]);
+        Assert.Equal("def", unbrokenWord[1]);
+        Assert.Equal("gh", unbrokenWord[2]);
+    }
+
+    private static void TextSegmentationCarriesFormatting()
+    {
+        const string controls =
+            "\u000304,02\u0002\u001d\u001f\u0016";
+        const string plainText =
+            "alpha beta gamma delta";
+
+        var segments = IrcTextSegmenter.Split(
+            controls + plainText,
+            maximumBytes: 17);
+
+        Assert.True(segments.Count > 1);
+
+        foreach (var segment in segments)
+        {
+            Assert.True(
+                IrcTextEncoding.Encode(segment).Length <= 17);
+        }
+
+        Assert.Equal(
+            plainText,
+            string.Concat(
+                segments.Select(
+                    IrcTextFormatting.ToPlainText)));
+
+        var expectedStyle = new IrcTextStyle(
+            Foreground: 4,
+            Background: 2,
+            Bold: true,
+            Italic: true,
+            Underline: true,
+            Reverse: true);
+
+        for (var index = 1; index < segments.Count; index++)
+        {
+            var formatted =
+                IrcTextFormatting.Parse(segments[index]);
+
+            Assert.True(formatted.Runs.Count > 0);
+            Assert.Equal(
+                expectedStyle,
+                formatted.Runs[0].Style);
+        }
+
+        var monospace = IrcTextSegmenter.Split(
+            "\u0011abcdef",
+            maximumBytes: 4);
+
+        Assert.Equal(2, monospace.Count);
+        Assert.Equal("\u0011abc", monospace[0]);
+        Assert.Equal("\u0011def", monospace[1]);
+
+        var colorBeforeDigits = IrcTextSegmenter.Split(
+            "\u000304abcdef 12345",
+            maximumBytes: 10);
+
+        Assert.Equal(2, colorBeforeDigits.Count);
+        Assert.True(
+            colorBeforeDigits[1].StartsWith(
+                "\u000304\u0002\u0002",
+                StringComparison.Ordinal));
+
+        var digitContinuation =
+            IrcTextFormatting.Parse(colorBeforeDigits[1]);
+
+        Assert.Equal(
+            "12345",
+            digitContinuation.PlainText);
+        Assert.Equal(
+            4,
+            digitContinuation.Runs[0].Style.Foreground!.Value);
+    }
+
+    private static void TextSegmentationRejectsImpossibleBudgets()
+    {
+        var noRoom = Assert.Throws<IrcProtocolException>(
+            () => IrcTextSegmenter.Split(
+                "hello",
+                maximumBytes: 0));
+
+        Assert.Equal(
+            "The message cannot fit within the IRC line limit.",
+            noRoom.Message);
+
+        var oversizedGrapheme =
+            Assert.Throws<IrcProtocolException>(
+                () => IrcTextSegmenter.Split(
+                    "a\u0301",
+                    maximumBytes: 2));
+
+        Assert.Equal(
+            "One character cannot fit within the IRC line limit.",
+            oversizedGrapheme.Message);
+    }
+
     private static void NamesAndWhoBuildMemberState()
     {
         var (state, processor) = CreateProcessor();
         processor.Process(IrcMessageParser.Parse(":server 005 me PREFIX=(ov)@+ :supported"));
         processor.Process(IrcMessageParser.Parse(":me!self@localhost JOIN #clirc"));
+        Assert.Equal("self", state.VisibleUsername!);
+        Assert.Equal("localhost", state.VisibleHost!);
         processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :@me @+Alice Bob"));
         processor.Process(IrcMessageParser.Parse(":server 366 me #clirc :End of NAMES"));
         processor.Process(IrcMessageParser.Parse(":server 352 me #clirc alice example.test server Alice H+ :0 Alice"));

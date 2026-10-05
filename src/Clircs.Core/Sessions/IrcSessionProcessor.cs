@@ -236,9 +236,17 @@ public sealed class IrcSessionProcessor
                 var joinBuffer = _state.GetOrCreateBuffer(BufferKind.Channel, joinedChannel);
                 var joinedState = _state.GetOrCreateChannel(joinedChannel);
                 joinedState.GetOrAddMember(sender, senderIdentity.Username, senderIdentity.Host);
-                if (IsCurrentNickname(sender) && !string.IsNullOrWhiteSpace(senderIdentity.Host))
+                if (IsCurrentNickname(sender))
                 {
-                    _state.SetVisibleHost(senderIdentity.Host);
+                    if (!string.IsNullOrWhiteSpace(senderIdentity.Username))
+                    {
+                        _state.SetVisibleUsername(senderIdentity.Username);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(senderIdentity.Host))
+                    {
+                        _state.SetVisibleHost(senderIdentity.Host);
+                    }
                 }
                 events.Add(Event(joinBuffer, SessionEventKind.Join, $"{sender} joined {joinedChannel}", now,
                     Fields(("nick", sender), ("username", senderIdentity.Username), ("host", senderIdentity.Host),
@@ -403,13 +411,30 @@ public sealed class IrcSessionProcessor
                 {
                     var equals = entry.IndexOf('=');
                     var at = entry.LastIndexOf('@');
-                    if (equals <= 0 || at <= equals || at + 1 >= entry.Length) continue;
-                    var nickname = entry[..equals].TrimEnd('*');
-                    if (IsCurrentNickname(nickname))
+                    if (equals <= 0 || at <= equals || at + 1 >= entry.Length)
                     {
-                        _state.SetVisibleHost(entry[(at + 1)..]);
-                        break;
+                        continue;
                     }
+
+                    var nickname = entry[..equals].TrimEnd('*');
+                    if (!IsCurrentNickname(nickname))
+                    {
+                        continue;
+                    }
+
+                    var usernameStart = equals + 1;
+                    if (usernameStart < at && entry[usernameStart] is '+' or '-')
+                    {
+                        usernameStart++;
+                    }
+
+                    if (usernameStart < at)
+                    {
+                        _state.SetVisibleUsername(entry[usernameStart..at]);
+                    }
+
+                    _state.SetVisibleHost(entry[(at + 1)..]);
+                    break;
                 }
                 break;
             case "900":
@@ -418,8 +443,18 @@ public sealed class IrcSessionProcessor
                     var account = message.Parameters[2];
                     _state.SetAccountName(account);
                     var identity = message.Parameters[1];
+                    var userSeparator = identity.IndexOf('!');
                     var hostSeparator = identity.LastIndexOf('@');
-                    if (hostSeparator >= 0 && hostSeparator + 1 < identity.Length)
+
+                    if (userSeparator >= 0 &&
+                        userSeparator + 1 < hostSeparator)
+                    {
+                        _state.SetVisibleUsername(
+                            identity[(userSeparator + 1)..hostSeparator]);
+                    }
+
+                    if (hostSeparator >= 0 &&
+                        hostSeparator + 1 < identity.Length)
                     {
                         _state.SetVisibleHost(identity[(hostSeparator + 1)..]);
                     }

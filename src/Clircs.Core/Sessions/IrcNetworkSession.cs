@@ -7,6 +7,9 @@ namespace Clircs.Sessions;
 
 public sealed class IrcNetworkSession : IAsyncDisposable
 {
+    private const int DefaultRelayUsernameLength = 10;
+    private const int DefaultRelayHostLength = 64;
+
     private readonly IrcClientConnection _connection;
     private readonly OutboundEchoTracker _echoTracker = new();
     private readonly AutomaticCtcpReplyLimiter _ctcpReplyLimiter = new();
@@ -218,17 +221,89 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         }
     }
 
-    public ValueTask SendMessageAsync(
+    internal int MaximumRelayTextBytes(
+        string command,
+        string target,
+        int contentFramingBytes = 0) =>
+        IrcRelayTextBudget.MaximumTextBytes(
+            command,
+            target,
+            CurrentNickname,
+            RelayUsernameBytes(),
+            RelayHostBytes(),
+            contentFramingBytes);
+
+    private int RelayUsernameBytes()
+    {
+        if (!string.IsNullOrWhiteSpace(State.VisibleUsername))
+        {
+            return IrcTextEncoding.Encode(State.VisibleUsername).Length;
+        }
+
+        var configured = Options.Identity.Username;
+        var conservativeConfigured = configured.StartsWith('~')
+            ? configured
+            : $"~{configured}";
+        var configuredBytes =
+            IrcTextEncoding.Encode(conservativeConfigured).Length;
+        var advertisedBytes =
+            AdvertisedIdentityLength(
+                "USERLEN",
+                DefaultRelayUsernameLength) + 1;
+
+        return Math.Max(configuredBytes, advertisedBytes);
+    }
+
+    private int RelayHostBytes()
+    {
+        if (!string.IsNullOrWhiteSpace(State.VisibleHost))
+        {
+            return IrcTextEncoding.Encode(State.VisibleHost).Length;
+        }
+
+        return AdvertisedIdentityLength(
+            "HOSTLEN",
+            DefaultRelayHostLength);
+    }
+
+    private int AdvertisedIdentityLength(
+        string feature,
+        int fallback)
+    {
+        if (!Features.TryGetIsupportValue(feature, out var value) ||
+            !int.TryParse(value, out var parsed) ||
+            parsed <= 0)
+        {
+            return fallback;
+        }
+
+        return Math.Min(
+            parsed,
+            IrcLineFramer.MaximumPayloadBytes);
+    }
+
+    public async ValueTask SendMessageAsync(
         string target,
         string text,
         CancellationToken cancellationToken = default,
-        bool createQueryBuffer = true) =>
-        SendMessageCoreAsync(
-            target,
+        bool createQueryBuffer = true)
+    {
+        var segments = IrcTextSegmenter.Split(
             text,
-            text,
-            cancellationToken,
-            createQueryBuffer);
+            MaximumRelayTextBytes(
+                "PRIVMSG",
+                target));
+
+        foreach (var segment in segments)
+        {
+            await SendMessageCoreAsync(
+                target,
+                segment,
+                segment,
+                cancellationToken,
+                createQueryBuffer).ConfigureAwait(false);
+        }
+    }
 
     public ValueTask SendAtomicMessageAsync(
         string target,
@@ -315,21 +390,44 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             formattedText);
     }
 
-    public async ValueTask SendNoticeAsync(string target, string text, CancellationToken cancellationToken = default)
+    public async ValueTask SendNoticeAsync(
+        string target,
+        string text,
+        CancellationToken cancellationToken = default)
     {
-        var pendingEcho = _echoTracker.Track("NOTICE", target, text);
-        try
-        {
-            await SendAsync("NOTICE", [target, text], cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            _echoTracker.Cancel(pendingEcho);
-            throw;
-        }
-
+        var segments = IrcTextSegmenter.Split(
+            text,
+            MaximumRelayTextBytes(
+                "NOTICE",
+                target));
         var buffer = ResolveNoticeBuffer(target);
-        Raise(buffer, SessionEventKind.Notice, $"->{target}<- {text}");
+
+        foreach (var segment in segments)
+        {
+            var pendingEcho =
+                _echoTracker.Track(
+                    "NOTICE",
+                    target,
+                    segment);
+
+            try
+            {
+                await SendAsync(
+                    "NOTICE",
+                    [target, segment],
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                _echoTracker.Cancel(pendingEcho);
+                throw;
+            }
+
+            Raise(
+                buffer,
+                SessionEventKind.Notice,
+                $"->{target}<- {segment}");
+        }
     }
 
     internal BufferState ResolveNoticeBuffer(string target)
@@ -341,32 +439,64 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             : State.StatusBuffer;
     }
 
-    public async ValueTask SendActionAsync(string target, string text, CancellationToken cancellationToken = default)
+    public async ValueTask SendActionAsync(
+        string target,
+        string text,
+        CancellationToken cancellationToken = default)
     {
-        var wireText = $"\u0001ACTION {text}\u0001";
-        var pendingEcho = _echoTracker.Track("PRIVMSG", target, wireText);
-        try
-        {
-            await SendAsync("PRIVMSG", [target, wireText], cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            _echoTracker.Cancel(pendingEcho);
-            throw;
-        }
+        var segments = IrcTextSegmenter.Split(
+            text,
+            MaximumRelayTextBytes(
+                "PRIVMSG",
+                target,
+                contentFramingBytes: 9));
+        var displayTarget =
+            Features.NormalizeMessageTarget(target);
 
-        var displayTarget = Features.NormalizeMessageTarget(target);
-        var buffer = Features.IsChannel(displayTarget)
-            ? State.GetOrCreateBuffer(BufferKind.Channel, displayTarget)
-            : State.GetOrCreateBuffer(BufferKind.Query, target);
-        var formattedText = IrcTextFormatting.Parse(text);
-        Raise(buffer, SessionEventKind.Action, $"* {CurrentNickname} {formattedText.PlainText}",
-            new Dictionary<string, string?>
+        foreach (var segment in segments)
+        {
+            var wireText =
+                $"\u0001ACTION {segment}\u0001";
+            var pendingEcho =
+                _echoTracker.Track(
+                    "PRIVMSG",
+                    target,
+                    wireText);
+
+            try
             {
-                ["nick"] = CurrentNickname,
-                ["message"] = formattedText.PlainText
-            },
-            formattedText);
+                await SendAsync(
+                    "PRIVMSG",
+                    [target, wireText],
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                _echoTracker.Cancel(pendingEcho);
+                throw;
+            }
+
+            var buffer = Features.IsChannel(displayTarget)
+                ? State.GetOrCreateBuffer(
+                    BufferKind.Channel,
+                    displayTarget)
+                : State.GetOrCreateBuffer(
+                    BufferKind.Query,
+                    target);
+            var formattedText =
+                IrcTextFormatting.Parse(segment);
+
+            Raise(
+                buffer,
+                SessionEventKind.Action,
+                $"* {CurrentNickname} {formattedText.PlainText}",
+                new Dictionary<string, string?>
+                {
+                    ["nick"] = CurrentNickname,
+                    ["message"] = formattedText.PlainText
+                },
+                formattedText);
+        }
     }
 
     public ValueTask DisconnectAsync(string reason = "Leaving", CancellationToken cancellationToken = default)

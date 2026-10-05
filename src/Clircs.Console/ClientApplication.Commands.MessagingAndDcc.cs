@@ -28,15 +28,11 @@ internal sealed partial class ClientApplication
             return failure;
         }
 
-        if (!await TrySendMessageAsync(
-                session,
-                target,
-                text,
-                cancellationToken,
-                createQueryBuffer: false))
-        {
-            return OversizedSendFailure("Message");
-        }
+        await session.SendMessageAsync(
+            target,
+            text,
+            cancellationToken,
+            createQueryBuffer: false);
         session.State.TryGetBuffer(target, out var destination);
         EchoInActiveBuffer(
             session,
@@ -203,31 +199,12 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Switch to a channel or query before sending text.");
         }
 
-        return await TrySendMessageAsync(session, target, text, cancellationToken)
-            ? CommandResult.Success()
-            : OversizedSendFailure("Message");
-    }
+        await session.SendMessageAsync(
+            target,
+            text,
+            cancellationToken);
 
-    private static async ValueTask<bool> TrySendMessageAsync(
-        IrcNetworkSession session,
-        string target,
-        string text,
-        CancellationToken cancellationToken,
-        bool createQueryBuffer = true)
-    {
-        try
-        {
-            await session.SendMessageAsync(
-                target,
-                text,
-                cancellationToken,
-                createQueryBuffer);
-            return true;
-        }
-        catch (IrcProtocolException)
-        {
-            return false;
-        }
+        return CommandResult.Success();
     }
 
     private static CommandResult OversizedSendFailure(string subject) =>
@@ -255,15 +232,12 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Usage in a channel/query: /me <action>");
         }
 
-        try
-        {
-            await session.SendActionAsync(target, input.RawArguments, cancellationToken);
-            return CommandResult.Success();
-        }
-        catch (IrcProtocolException)
-        {
-            return OversizedSendFailure("Action");
-        }
+        await session.SendActionAsync(
+            target,
+            input.RawArguments,
+            cancellationToken);
+
+        return CommandResult.Success();
     }
 
     private async ValueTask<CommandResult> DescribeAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)

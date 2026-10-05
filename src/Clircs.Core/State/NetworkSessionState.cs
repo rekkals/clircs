@@ -35,6 +35,8 @@ public sealed class NetworkSessionState
 
     public string? AccountName { get; private set; }
 
+    public string? VisibleUsername { get; private set; }
+
     public string? VisibleHost { get; private set; }
 
     public string? BouncerName { get; private set; }
@@ -233,6 +235,7 @@ public sealed class NetworkSessionState
             IsAway = false;
             ServerName = null;
             AccountName = null;
+            VisibleUsername = null;
             VisibleHost = null;
             BouncerName = knownBouncer;
             ClientTransportTls = clientTransportTls;
@@ -253,6 +256,16 @@ public sealed class NetworkSessionState
         lock (_gate)
         {
             AccountName = string.IsNullOrWhiteSpace(accountName) ? null : accountName;
+        }
+    }
+
+    internal void SetVisibleUsername(string? visibleUsername)
+    {
+        lock (_gate)
+        {
+            VisibleUsername = string.IsNullOrWhiteSpace(visibleUsername)
+                ? null
+                : visibleUsername;
         }
     }
 

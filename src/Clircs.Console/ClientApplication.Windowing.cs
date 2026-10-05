@@ -170,7 +170,12 @@ internal sealed partial class ClientApplication
             : null;
 
     private static bool IsExpectedCommandFailure(Exception exception) =>
-        exception is CommandLineException or IOException or UnauthorizedAccessException or SocketException;
+        exception is
+            CommandLineException or
+            IrcProtocolException or
+            IOException or
+            UnauthorizedAccessException or
+            SocketException;
 
     private void LogUnexpectedCommandFailure(string commandLine, CommandContext context, Exception exception)
     {

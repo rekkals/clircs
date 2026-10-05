@@ -686,6 +686,7 @@ internal static class DccTests
         var events = processor.Process(IrcMessageParser.Parse(
             ":irc.example 302 slakker :slakker=+~slakker@203.0.113.42"));
         Assert.Equal(0, events.Count);
+        Assert.Equal("~slakker", state.VisibleUsername!);
         Assert.Equal("203.0.113.42", state.VisibleHost!);
     }
 

@@ -23,6 +23,7 @@ internal static class ProtocolTests
         suite.Add("framer discards an oversized payload and recovers", FramerDiscardsOversizedPayloadAndRecovers);
         suite.Add("framer discards split oversized input exactly once", FramerDiscardsSplitOversizedInput);
         suite.Add("builder emits a bounded CRLF line", BuilderEmitsWireLine);
+        suite.Add("relay text budgets include server-added prefixes and content framing", RelayTextBudgetAccountsForServerPrefix);
         suite.Add("builder rejects excess parameters", BuilderRejectsExcessParameters);
         suite.Add("encoding falls back to Windows-1252", EncodingFallsBack);
         suite.Add("transcript harness ignores outbound and comments", TranscriptHarnessReplaysInbound);
@@ -212,6 +213,59 @@ internal static class ProtocolTests
     {
         var line = IrcLineBuilder.Build("privmsg", "#clirc", "hello there");
         Assert.Equal("PRIVMSG #clirc :hello there\r\n", Encoding.UTF8.GetString(line));
+    }
+
+    private static void RelayTextBudgetAccountsForServerPrefix()
+    {
+        var messageBytes = IrcRelayTextBudget.MaximumTextBytes(
+            "PRIVMSG",
+            "#chat",
+            "nick",
+            "user",
+            "host");
+
+        Assert.Equal(479, messageBytes);
+        Assert.Equal(
+            IrcLineFramer.MaximumPayloadBytes,
+            IrcTextEncoding.Encode(
+                $":nick!user@host PRIVMSG #chat :{new string('x', messageBytes)}").Length);
+
+        Assert.Equal(
+            480,
+            IrcRelayTextBudget.MaximumTextBytes(
+                "NOTICE",
+                "#chat",
+                "nick",
+                "user",
+                "host"));
+
+        Assert.Equal(
+            470,
+            IrcRelayTextBudget.MaximumTextBytes(
+                "PRIVMSG",
+                "#chat",
+                "nick",
+                "user",
+                "host",
+                contentFramingBytes: 9));
+
+        Assert.Equal(
+            477,
+            IrcRelayTextBudget.MaximumTextBytes(
+                "PRIVMSG",
+                "#café",
+                "nïck",
+                "user",
+                "host"));
+
+        Assert.Equal(
+            0,
+            IrcRelayTextBudget.MaximumTextBytes(
+                "PRIVMSG",
+                "#chat",
+                "nick",
+                "user",
+                new string('h', 600)));
     }
 
     private static void BuilderRejectsExcessParameters()
