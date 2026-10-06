@@ -13,6 +13,12 @@ namespace Clircs.ConsoleClient;
 // Owns terminal windows, buffer selection, chrome, scrollback, and input history.
 internal sealed partial class ClientApplication
 {
+    // Application-owned status surface for when we don't have an active network session
+    private readonly BufferState _localStatusBuffer = new(
+        BufferId.New(),
+        NetworkSessionId.New(),
+        BufferKind.Status,
+        "*");
     private CommandResult SwitchTo(IrcNetworkSession session, BufferState buffer)
     {
         lock (_windowTransactionGate)
@@ -30,15 +36,15 @@ internal sealed partial class ClientApplication
 
     private void RedrawActiveBuffer(SessionEvent? pendingEvent = null)
     {
-        var (session, buffer) = _windowStates.ResolveActive(_liveSessions);
-        if (session is not null && buffer is not null)
+        var (session, buffer) = ActiveDisplayWindowSnapshot();
+        if (buffer is not null)
         {
             RedrawActiveBuffer(session, buffer, pendingEvent);
         }
     }
 
     private void RedrawActiveBuffer(
-        IrcNetworkSession session,
+        IrcNetworkSession? session,
         BufferState buffer,
         SessionEvent? pendingEvent)
     {
@@ -86,8 +92,8 @@ internal sealed partial class ClientApplication
 
     private void ScrollActiveViewport(int direction)
     {
-        var (session, buffer) = _windowStates.ResolveActive(_liveSessions);
-        if (session is null || buffer is null || direction == 0) return;
+        var (_, buffer) = ActiveDisplayWindowSnapshot();
+        if (buffer is null || direction == 0) return;
         var viewport = _windowStates.ViewportSnapshot(buffer.Id);
         if (viewport.History.Length == 0) return;
 
@@ -109,6 +115,14 @@ internal sealed partial class ClientApplication
     internal static SessionEvent StartupEvent(IrcNetworkSession session, BufferState buffer) => new(
         session.State.Id,
         buffer.Id,
+        SessionEventKind.Status,
+        ProductInfo.DisplayName,
+        DateTimeOffset.Now,
+        new Dictionary<string, string?> { ["event"] = "startup" });
+
+    private SessionEvent LocalStartupEvent() => new(
+        _localStatusBuffer.NetworkSessionId,
+        _localStatusBuffer.Id,
         SessionEventKind.Status,
         ProductInfo.DisplayName,
         DateTimeOffset.Now,
@@ -275,10 +289,10 @@ internal sealed partial class ClientApplication
 
     private void RefreshWindowChrome()
     {
-        var (session, buffer) = ActiveWindowSnapshot();
+        var (session, buffer) = ActiveDisplayWindowSnapshot();
         if (!_presenter.SetChrome(BuildWindowChrome(session, buffer))) return;
 
-        if (session is not null && buffer is not null)
+        if (buffer is not null)
         {
             RedrawActiveBuffer(session, buffer, pendingEvent: null);
         }
@@ -288,8 +302,16 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private (IrcNetworkSession? Session, BufferState? Buffer) ActiveWindowSnapshot()
-        => _windowStates.ResolveActive(_liveSessions);
+    private (IrcNetworkSession? Session, BufferState? Buffer) ActiveDisplayWindowSnapshot()
+    {
+        var active = _windowStates.ActiveLocation();
+        if (active.SessionId is null && active.BufferId == _localStatusBuffer.Id)
+        {
+            return (null, _localStatusBuffer);
+        }
+
+        return _windowStates.ResolveActive(_liveSessions);
+    }
 
     private WindowChromeModel BuildWindowChrome(IrcNetworkSession? session, BufferState? buffer) =>
         new(BuildBufferHeader(session, buffer), BuildStatusBar(session, buffer), Prompt(buffer));
@@ -650,7 +672,7 @@ internal sealed partial class ClientApplication
             .OrderBy(session => session.State.DisplayName, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
         if (fallback is null)
         {
-            _windowStates.ClearActive();
+            _windowStates.ActivateLocal(_localStatusBuffer.Id);
             return;
         }
         _windowStates.Activate(fallback.State.Id, fallback.State.StatusBuffer.Id);
@@ -682,7 +704,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            _windowStates.ClearActive();
+            _windowStates.ActivateLocal(_localStatusBuffer.Id);
         }
     }
 

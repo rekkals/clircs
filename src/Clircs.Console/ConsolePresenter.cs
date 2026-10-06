@@ -38,6 +38,7 @@ internal sealed class ConsolePresenter
     private bool _chromeVisible;
     private bool _maskInput;
     private Func<string, IReadOnlyList<string>>? _nicknameMatchProvider;
+    private Action? _resizeViewport;
     private StatusBarModel _statusBar = new(["offline"], []);
     private BufferHeaderModel _bufferHeader = new(null, []);
     private string? _topicBar;
@@ -62,6 +63,12 @@ internal sealed class ConsolePresenter
     private int _renderedWidth;
     private int _renderedHeight;
     private DateTimeOffset _resizeObservedAt;
+
+    public void SetResizeHandler(Action resizeViewport)
+    {
+        ArgumentNullException.ThrowIfNull(resizeViewport);
+        _resizeViewport = resizeViewport;
+    }
 
     public TerminalTheme Theme => _theme;
 
@@ -744,6 +751,11 @@ internal sealed class ConsolePresenter
                             });
                         }
                     }
+                }
+
+                if (!receivedKey && ResizeReady())
+                {
+                    _resizeViewport?.Invoke();
                 }
 
                 if (!receivedKey)

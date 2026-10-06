@@ -28,6 +28,7 @@ internal static class ApplicationOrchestrationTests
         suite.Add("failed ISON sends do not corrupt later reply correlation", FailedIsonDoesNotRemainPending);
         suite.Add("live session registry isolates route and profile ownership", LiveSessionRegistryIsolatesMetadataAsync);
         suite.Add("live session registry owns reconnect lifecycle", LiveSessionRegistryOwnsReconnectAsync);
+        suite.Add("local status window retains history without consuming a number", LocalStatusWindowRetainsHistoryWithoutNumber);
         suite.Add("window context resolves active and explicit buffers", WindowContextResolvesBuffersAsync);
         suite.Add("client preferences own application-wide defaults", ClientPreferencesOwnDefaults);
         suite.Add("services notices identify their bracketed channel", ServicesNoticesIdentifyChannel);
@@ -404,6 +405,38 @@ internal static class ApplicationOrchestrationTests
         Assert.True(registry.CompleteReconnect(session.State.Id, reconnect));
         Assert.False(registry.IsReconnecting(session.State.Id));
         reconnect.Dispose();
+    }
+
+    private static void LocalStatusWindowRetainsHistoryWithoutNumber()
+    {
+        var windows = new WindowStateRegistry();
+        var sessionId = NetworkSessionId.New();
+        var localBuffer = BufferId.New();
+        var now = DateTimeOffset.UtcNow;
+
+        windows.ActivateLocal(localBuffer);
+        var stored = windows.StoreEvent(
+            new SessionEvent(
+                sessionId,
+                localBuffer,
+                SessionEventKind.Server,
+                "local result",
+                now),
+            incomingRows: 1,
+            measureRows: _ => 1,
+            isReplay: false,
+            trackUnread: false,
+            now,
+            assignNumber: false);
+
+        Assert.True(stored.Stored);
+        Assert.True(stored.IsActive);
+        Assert.True(windows.ActiveLocation() == (null, localBuffer));
+        Assert.False(windows.HasNumber(localBuffer));
+        Assert.Equal(1, windows.HistorySnapshot(localBuffer).Length);
+
+        var firstNetworkBuffer = BufferId.New();
+        Assert.Equal(1, windows.AssignNumber(firstNetworkBuffer));
     }
 
     private static async ValueTask WindowContextResolvesBuffersAsync()

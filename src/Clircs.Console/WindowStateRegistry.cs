@@ -130,7 +130,8 @@ internal sealed class WindowStateRegistry
         Func<SessionEvent, int> measureRows,
         bool isReplay,
         bool trackUnread,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool assignNumber = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(incomingRows);
         ArgumentNullException.ThrowIfNull(measureRows);
@@ -158,7 +159,7 @@ internal sealed class WindowStateRegistry
             var totalEmergencyLimitReached = EnforceTotalHistoryLimitUnsafe(
                 ScrollbackRetention.EmergencyMaximumTotalEntries,
                 ScrollbackRetention.MinimumEntries);
-            AssignNumberUnsafe(sessionEvent.BufferId);
+            if (assignNumber) AssignNumberUnsafe(sessionEvent.BufferId);
 
             var suppressActivity = sessionEvent.Fields?.GetValueOrDefault("suppressActivity") == "true";
             if (trackUnread && !isActive && !isReplay && !suppressActivity)
@@ -307,9 +308,14 @@ internal sealed class WindowStateRegistry
         }
     }
 
-    public void Activate(BufferId bufferId)
+    public void ActivateLocal(BufferId bufferId)
     {
-        lock (_gate) ActivateUnsafe(bufferId);
+        lock (_gate)
+        {
+            _activeSessionId = null;
+            _activeBufferId = bufferId;
+            ActivateUnsafe(bufferId, assignNumber: false);
+        }
     }
 
     public void Activate(NetworkSessionId sessionId, BufferId bufferId)
@@ -359,9 +365,9 @@ internal sealed class WindowStateRegistry
         return state.Number.Value;
     }
 
-    private void ActivateUnsafe(BufferId bufferId)
+    private void ActivateUnsafe(BufferId bufferId, bool assignNumber = true)
     {
-        AssignNumberUnsafe(bufferId);
+        if (assignNumber) AssignNumberUnsafe(bufferId);
         var state = EnsureUnsafe(bufferId);
         state.Unread.Clear();
         state.ScrollOffset = 0;

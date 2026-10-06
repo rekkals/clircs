@@ -193,6 +193,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             OnSessionEvents,
             exception => LogUnexpectedApplicationWorkFailure("inbound IRC event delivery", exception));
         _commandExecution = new CommandExecutionCoordinator(_commands);
+        _presenter.SetResizeHandler(ResizeActiveViewport);
+        _windowStates.ActivateLocal(_localStatusBuffer.Id);
         var dataDirectory = ClientDataDirectory.Resolve();
         _dataDirectory = dataDirectory;
         _preferences = new ClientPreferences(
@@ -273,34 +275,50 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     public async Task RunAsync()
     {
         _presenter.EnterFullScreen();
-        _presenter.Banner();
+        _windowStates.ReplaceHistory(_localStatusBuffer.Id, [LocalStartupEvent()]);
+        RedrawActiveBuffer();
+        var startupContext = CaptureCommandContext();
         if (_profileStore.LoadError is not null)
         {
-            _presenter.Result(_profileStore.LoadError, success: false);
+            DisplayCommandResult(
+                CommandResult.Failure(_profileStore.LoadError),
+                startupContext);
         }
         foreach (var error in _themeManager.Errors)
         {
-            _presenter.Result($"Theme not loaded: {error}", success: false);
+            DisplayCommandResult(
+                CommandResult.Failure($"Theme not loaded: {error}"),
+                startupContext);
         }
         if (_appearanceStore.LoadError is not null)
         {
-            _presenter.Result(_appearanceStore.LoadError, success: false);
+            DisplayCommandResult(
+                CommandResult.Failure(_appearanceStore.LoadError),
+                startupContext);
         }
         if (_awayMessageStore.LoadError is not null)
         {
-            _presenter.Result(_awayMessageStore.LoadError, success: false);
+            DisplayCommandResult(
+                CommandResult.Failure(_awayMessageStore.LoadError),
+                startupContext);
         }
         if (_protectionStore.LoadError is not null)
         {
-            _presenter.Result(_protectionStore.LoadError, success: false);
+            DisplayCommandResult(
+                CommandResult.Failure(_protectionStore.LoadError),
+                startupContext);
         }
         if (_loggingStore.LoadError is not null)
         {
-            _presenter.Result(_loggingStore.LoadError, success: false);
+            DisplayCommandResult(
+                CommandResult.Failure(_loggingStore.LoadError),
+                startupContext);
         }
         foreach (var error in await _scriptManager.RestoreLoadedAsync(_lifetime.Token))
         {
-            _presenter.Result(error, success: false);
+            DisplayCommandResult(
+                CommandResult.Failure(error),
+                startupContext);
         }
         Console.CancelKeyPress += OnCancelKeyPress;
 
@@ -420,10 +438,18 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         var message = result.Presentation is null
             ? FormatLocalCommandResult(result.Message ?? string.Empty)
             : result.Message ?? string.Empty;
-        var session = SessionFor(context?.NetworkSessionId);
-        var buffer = BufferFor(session, context?.BufferId);
-        if (session is not null && buffer is null) buffer = session.State.StatusBuffer;
-        if (session is null || buffer is null)
+
+        var local = context?.NetworkSessionId is null &&
+            context?.BufferId == _localStatusBuffer.Id;
+        var session = local ? null : SessionFor(context?.NetworkSessionId);
+        var buffer = local
+            ? _localStatusBuffer
+            : BufferFor(session, context?.BufferId);
+        if (!local && session is not null && buffer is null)
+        {
+            buffer = session.State.StatusBuffer;
+        }
+        if (buffer is null)
         {
             if (result.Presentation is not null) _presenter.Presentation(result.Presentation);
             else if (result.Succeeded) _presenter.LocalResult(message);
@@ -432,7 +458,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         }
 
         var sessionEvent = new SessionEvent(
-            session.State.Id,
+            buffer.NetworkSessionId,
             buffer.Id,
             result.Succeeded ? SessionEventKind.Server : SessionEventKind.Error,
             message,
@@ -444,8 +470,15 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         StoredWindowEvent stored;
         lock (_windowTransactionGate)
         {
-            stored = session.State.TryGetBuffer(buffer.Id, out _)
-                ? StoreWindowEventUnsafe(sessionEvent, buffer.Name, isReplay: false, trackUnread: false)
+            var destinationExists = local ||
+                (session is not null && session.State.TryGetBuffer(buffer.Id, out _));
+            stored = destinationExists
+                ? StoreWindowEventUnsafe(
+                    sessionEvent,
+                    buffer.Name,
+                    isReplay: false,
+                    trackUnread: false,
+                    assignNumber: !local)
                 : new StoredWindowEvent(false, false, false, false);
         }
         if (!stored.Stored) return;
@@ -470,7 +503,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         SessionEvent sessionEvent,
         string bufferName,
         bool isReplay,
-        bool trackUnread)
+        bool trackUnread,
+        bool assignNumber = true)
     {
         var incomingRows = _presenter.MeasureEventRows(sessionEvent, bufferName);
         var result = _windowStates.StoreEvent(
@@ -479,7 +513,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             previous => _presenter.MeasureEventRows(previous, bufferName),
             isReplay,
             trackUnread,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            assignNumber);
         return new StoredWindowEvent(
             result.Stored,
             result.Replaced,
