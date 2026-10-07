@@ -32,7 +32,7 @@ internal static class NetworkingIntegrationTests
         suite.Add("oversized incoming lines are discarded without disconnecting", OversizedIncomingLineDoesNotDisconnectAsync);
         suite.Add("extended Soju CAP list is accepted during registration", ExtendedSojuCapabilityListIsAcceptedAsync);
         suite.Add("Lurker CAP signatures reach live session metadata", LurkerCapabilitySignatureReachesSessionMetadataAsync);
-        suite.Add("excess incoming parameters are accepted with one diagnostic", ExcessIncomingParametersProduceOneDiagnosticAsync);
+        suite.Add("excess incoming parameters are accepted without a diagnostic", ExcessIncomingParametersAreAcceptedWithoutDiagnosticAsync);
         suite.Add("raw IRC observers receive exact inbound and outbound wire lines", RawWireLinesAreObservableAsync);
         suite.Add("outgoing chat splits to relay-safe lines while atomic messages stay atomic", OutgoingChatSplitsToRelaySafeLinesAsync);
         suite.Add("self-signed TLS is accepted only through an explicit certificate policy", SelfSignedTlsUsesPolicyAsync);
@@ -1122,11 +1122,7 @@ internal static class NetworkingIntegrationTests
             "PONG after-extended-cap",
             await pongReceived.Task.WaitAsync(timeout.Token));
         Assert.Equal(IrcConnectionState.Online, connection.State);
-        Assert.Equal(
-            1,
-            diagnostics.Count(message =>
-                message ==
-                "Accepted an IRC line with 517 bytes, exceeding the traditional 512-byte limit."));
+        Assert.Equal(0, diagnostics.Count);
 
         await connection.DisconnectAsync("done", timeout.Token);
 
@@ -1134,7 +1130,7 @@ internal static class NetworkingIntegrationTests
         listener.Stop();
     }
 
-    private static async ValueTask ExcessIncomingParametersProduceOneDiagnosticAsync()
+    private static async ValueTask ExcessIncomingParametersAreAcceptedWithoutDiagnosticAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -1221,12 +1217,7 @@ internal static class NetworkingIntegrationTests
             received.Count(message =>
                 message.Command == "TEST" &&
                 message.ExceedsTraditionalParameterLimit));
-        Assert.Equal(
-            1,
-            diagnostics.Count(message =>
-                message.StartsWith(
-                    "Accepted a nonstandard IRC message with ",
-                    StringComparison.Ordinal)));
+        Assert.Equal(0, diagnostics.Count);
 
         await connection.DisconnectAsync("done", timeout.Token);
 

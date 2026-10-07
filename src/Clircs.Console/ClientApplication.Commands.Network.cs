@@ -870,14 +870,25 @@ internal sealed partial class ClientApplication
             await session.ReconnectAsync(options, timeout.Token);
             PublishStatus(session, SessionEventKind.Status, "Reconnected.");
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested || _lifetime.IsCancellationRequested)
         {
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        catch (OperationCanceledException)
         {
             if (FindSession(session.State.Id) is not null)
             {
-                PublishStatus(session, SessionEventKind.Error, $"Reconnect failed: {exception.Message}");
+                PublishStatus(session, SessionEventKind.Error, "Reconnect failed: Connection timed out.");
+            }
+        }
+        catch (Exception exception) when (IsExpectedConnectionFailure(exception))
+        {
+            if (FindSession(session.State.Id) is not null)
+            {
+                PublishStatus(
+                    session,
+                    SessionEventKind.Error,
+                    $"Reconnect failed: {NormalizeConnectionFailure(exception)}");
             }
         }
     }

@@ -428,7 +428,7 @@ internal sealed partial class ClientApplication
                     }
                     catch (OperationCanceledException) when (!attemptToken.IsCancellationRequested)
                     {
-                        throw new TimeoutException(ReconnectTimeoutMessage(attempt, ConnectionAttemptTimeout));
+                        throw new TimeoutException(ReconnectTimeoutMessage(attempt));
                     }
                     PublishStatus(session, SessionEventKind.Status,
                         $"Reconnect socket opened to {route.Endpoint}; waiting for IRC registration.");
@@ -458,18 +458,50 @@ internal sealed partial class ClientApplication
         }
     }
 
-    internal static string ReconnectTimeoutMessage(int attempt, TimeSpan timeout) =>
-        $"Reconnect attempt {attempt} timed out after {FormatDuration(timeout)} while connecting or waiting for IRC registration.";
+    internal static string ReconnectTimeoutMessage(int attempt) =>
+        $"Reconnect attempt {attempt} failed: Connection timed out.";
 
     internal static string ReconnectFailureMessage(int attempt, Exception exception) =>
         $"Reconnect attempt {attempt} failed: {NormalizeConnectionFailure(exception)}";
 
     private static string NormalizeConnectionFailure(Exception exception)
     {
+        if (FindSocketException(exception) is { } socketException)
+        {
+            var normalized = socketException.SocketErrorCode switch
+            {
+                SocketError.TimedOut => "Connection timed out.",
+                SocketError.ConnectionRefused => "Connection refused.",
+                SocketError.HostNotFound or SocketError.NoData => "Unknown host.",
+                SocketError.TryAgain => "Host lookup failed temporarily.",
+                SocketError.NetworkUnreachable => "Network is unreachable.",
+                SocketError.HostUnreachable => "Host is unreachable.",
+                _ => null
+            };
+
+            if (normalized is not null)
+            {
+                return normalized;
+            }
+        }
+
         var message = TerminalTextSanitizer.Sanitize(exception.Message);
         return message.Contains("No such host is known", StringComparison.OrdinalIgnoreCase)
             ? "Unknown host."
             : message;
+    }
+
+    private static SocketException? FindSocketException(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SocketException socketException)
+            {
+                return socketException;
+            }
+        }
+
+        return null;
     }
 
     private IrcConnectionOptions ConnectionRouteFor(IrcNetworkSession session)

@@ -27,8 +27,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private bool _requestedCapabilityWithdrawn;
     private CapabilityNegotiationStage _capabilityStage;
     private SaslRegistrationStage _saslStage;
-    private bool _reportedExcessParameterDiagnostic;
-    private bool _reportedExtendedLengthDiagnostic;
     private bool _reportedUnnegotiatedTagsDiagnostic;
     private int _finishStarted;
     private int _disposed;
@@ -90,8 +88,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _requestedCapabilityWithdrawn = false;
         _capabilityStage = CapabilityNegotiationStage.AwaitingCapabilities;
         _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
-        _reportedExcessParameterDiagnostic = false;
-        _reportedExtendedLengthDiagnostic = false;
         _reportedUnnegotiatedTagsDiagnostic = false;
         _transport = null;
         _outbound = null;
@@ -245,15 +241,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
 
                 foreach (var framedLine in framingResult.Lines)
                 {
-                    if (framedLine.Length > IrcLineFramer.MaximumPayloadBytes && !_reportedExtendedLengthDiagnostic)
-                    {
-                        _reportedExtendedLengthDiagnostic = true;
-
-                        // TODO: Reassess whether this compatibility diagnostic should remain
-                        // user-visible after extended inbound framing has received wider testing.
-                        Diagnostic?.Invoke(
-                            $"Accepted an IRC line with {framedLine.Length + 2} bytes, exceeding the traditional 512-byte limit.");
-                    }
                     var rawLine = IrcTextEncoding.Decode(framedLine);
                     RaiseWireLine(IrcWireDirection.Received, rawLine);
                     IrcMessage message;
@@ -277,16 +264,6 @@ public sealed class IrcClientConnection : IAsyncDisposable
                         }
 
                         continue;
-                    }
-                    if (message.ExceedsTraditionalParameterLimit &&
-                        !_reportedExcessParameterDiagnostic)
-                    {
-                        _reportedExcessParameterDiagnostic = true;
-
-                        // TODO: Reassess whether this protocol-violation diagnostic should remain
-                        // user-visible. It is currently exposed to help test real-world compatibility.
-                        Diagnostic?.Invoke(
-                            $"Accepted a nonstandard IRC message with {message.Parameters.Count} parameters, exceeding the traditional 15-parameter limit.");
                     }
 
                     await HandleProtocolMessageAsync(message, cancellationToken).ConfigureAwait(false);

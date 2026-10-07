@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using Clircs.ConsoleClient;
 
 namespace Clircs.Core.Tests;
@@ -6,7 +7,7 @@ internal static class ReconnectPresentationTests
 {
     public static void Register(TestSuite suite)
     {
-        suite.Add("reconnect timeouts are distinguished from connection errors", FormatsReconnectFailures);
+        suite.Add("reconnect failures have concise descriptions", FormatsReconnectFailures);
         suite.Add("automatic reconnect stops immediately after success", StopsAfterSuccessAsync);
         suite.Add("automatic reconnect cancellation interrupts its delay", CancellationInterruptsDelayAsync);
         suite.Add("automatic reconnect exhausts the configured attempts", ExhaustsConfiguredAttemptsAsync);
@@ -88,8 +89,25 @@ internal static class ReconnectPresentationTests
     {
         Assert.Equal(TimeSpan.FromSeconds(60), ClientApplication.ConnectionAttemptTimeout);
         Assert.Equal(
-            "Reconnect attempt 9 timed out after 20s while connecting or waiting for IRC registration.",
-            ClientApplication.ReconnectTimeoutMessage(9, TimeSpan.FromSeconds(20)));
+            "Reconnect attempt 9 failed: Connection timed out.",
+            ClientApplication.ReconnectTimeoutMessage(9));
+
+        AssertSocketFailure(SocketError.TimedOut, "Connection timed out.");
+        AssertSocketFailure(SocketError.ConnectionRefused, "Connection refused.");
+        AssertSocketFailure(SocketError.HostNotFound, "Unknown host.");
+        AssertSocketFailure(SocketError.NoData, "Unknown host.");
+        AssertSocketFailure(SocketError.TryAgain, "Host lookup failed temporarily.");
+        AssertSocketFailure(SocketError.NetworkUnreachable, "Network is unreachable.");
+        AssertSocketFailure(SocketError.HostUnreachable, "Host is unreachable.");
+
+        Assert.Equal(
+            "Reconnect attempt 2 failed: Connection timed out.",
+            ClientApplication.ReconnectFailureMessage(
+                2,
+                new IOException(
+                    "The socket operation failed.",
+                    new SocketException((int)SocketError.TimedOut))));
+
         Assert.Equal(
             "Reconnect attempt 4 failed: No route to host.",
             ClientApplication.ReconnectFailureMessage(4, new IOException("No route to host.")));
@@ -97,4 +115,11 @@ internal static class ReconnectPresentationTests
             "Reconnect attempt 1 failed: Unknown host.",
             ClientApplication.ReconnectFailureMessage(1, new IOException("No such host is known.")));
     }
+
+    private static void AssertSocketFailure(SocketError error, string description) =>
+        Assert.Equal(
+            $"Reconnect attempt 1 failed: {description}",
+            ClientApplication.ReconnectFailureMessage(
+                1,
+                new SocketException((int)error)));
 }
