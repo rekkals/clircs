@@ -37,9 +37,11 @@ internal static class DccTests
         suite.Add("DCC request finalization is atomic with terminal state changes", RegistryFinalizationIsAtomicAsync);
         suite.Add("DCC coordinator isolates runtime state by request", CoordinatorIsolatesRuntimeState);
         suite.Add("DCC coordinator awaits request-owned work", CoordinatorAwaitsOwnedWorkAsync);
+        suite.Add("DCC coordinator cancels tracked pending chat connections", CoordinatorCancelsPendingChatConnectionAsync);
         suite.Add("DCC CTCP offers become structured events without query windows", SessionProducesStructuredOffer);
         suite.Add("DCC request presentation hides wire endpoint numbers", RequestPresentationIsHumanReadable);
         suite.Add("DCC request presentation warns about dangerous download types", RequestPresentationWarnsAboutDangerousDownloads);
+        suite.Add("DCC connection errors use concise socket messages", ConnectionErrorsAreConcise);
         suite.Add("DCC CHAT transport exchanges complete lines in both directions", ChatTransportExchangesLinesAsync);
         suite.Add("DCC CHAT transport listens on IPv6 when advertising IPv6", ChatTransportExchangesIpv6LinesAsync);
         suite.Add("Secure DCC CHAT negotiates TLS and exchanges complete lines", SecureChatTransportExchangesLinesAsync);
@@ -515,6 +517,36 @@ internal static class DccTests
         await waiting;
     }
 
+    private static async ValueTask CoordinatorCancelsPendingChatConnectionAsync()
+    {
+        var coordinator = new DccCoordinator();
+        using var lifetime = new CancellationTokenSource();
+        var pending = coordinator.BeginChatConnection(8, lifetime);
+        var stopped = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var work = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, pending.Lifetime.Token);
+            }
+            catch (OperationCanceledException) when (pending.Lifetime.IsCancellationRequested)
+            {
+                stopped.SetResult();
+            }
+        });
+
+        coordinator.TrackTask(8, work);
+        DccCoordinator.CancelLifetime(coordinator.ChatConnection(8)!.Lifetime);
+
+        await coordinator.AwaitTasksAsync([8]);
+        await stopped.Task;
+
+        Assert.True(pending.Lifetime.IsCancellationRequested);
+        Assert.True(coordinator.RemoveChatConnection(8, pending));
+    }
+
     private static async ValueTask RegistryFinalizationIsAtomicAsync()
     {
         var registry = new DccRequestRegistry();
@@ -643,6 +675,44 @@ internal static class DccTests
             Offer = request.Offer with { Filename = "photo.jpg" }
         });
         Assert.False(harmless.Fields!.Any(field => field.Label == "Warning"));
+    }
+
+    private static void ConnectionErrorsAreConcise()
+    {
+        Assert.Equal(
+            "Connection timed out",
+            ClientApplication.DccConnectionError(
+                new SocketException((int)SocketError.TimedOut)));
+        Assert.Equal(
+            "Connection refused",
+            ClientApplication.DccConnectionError(
+                new IOException(
+                    "The socket operation failed.",
+                    new SocketException((int)SocketError.ConnectionRefused))));
+        Assert.Equal(
+            "Unknown host",
+            ClientApplication.DccConnectionError(
+                new SocketException((int)SocketError.HostNotFound)));
+        Assert.Equal(
+            "Host lookup failed temporarily",
+            ClientApplication.DccConnectionError(
+                new SocketException((int)SocketError.TryAgain)));
+        Assert.Equal(
+            "Network is unreachable",
+            ClientApplication.DccConnectionError(
+                new SocketException((int)SocketError.NetworkUnreachable)));
+        Assert.Equal(
+            "Host is unreachable",
+            ClientApplication.DccConnectionError(
+                new SocketException((int)SocketError.HostUnreachable)));
+        Assert.Equal(
+            "The secure DCC connection received invalid TLS data",
+            ClientApplication.DccConnectionError(
+                new AuthenticationException("TLS failed.")));
+        Assert.Equal(
+            "Original detail",
+            ClientApplication.DccConnectionError(
+                new IOException("Original detail")));
     }
 
     private static async ValueTask ChatTransportExchangesLinesAsync()

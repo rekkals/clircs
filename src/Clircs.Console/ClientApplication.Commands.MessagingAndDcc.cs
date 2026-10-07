@@ -545,7 +545,7 @@ internal sealed partial class ClientApplication
                 return StartIncomingDccSend(request);
             }
             if (request.Offer.IsPassiveRequest) return await AcceptPassiveDccChatAsync(request, cancellationToken);
-            return await AcceptDccChatAsync(request, cancellationToken);
+            return StartIncomingDccChat(request, cancellationToken);
         }
 
         if (operation == "resume")
@@ -1462,7 +1462,7 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private async ValueTask<CommandResult> AcceptDccChatAsync(
+    private CommandResult StartIncomingDccChat(
         DccRequest request,
         CancellationToken cancellationToken)
     {
@@ -1474,53 +1474,91 @@ internal sealed partial class ClientApplication
         {
             return CommandResult.Failure($"DCC request #{request.Id} is no longer pending");
         }
+
         CancelDccExpiration(request.Id);
         var pendingConnection = BeginDccChatConnection(request.Id, cancellationToken);
         var protocol = DccProtocolName(request.Offer);
-        PublishDccState(connecting!, $"Connecting to DCC {protocol} request #{request.Id} from {request.Sender}");
+        PublishDccState(
+            connecting!,
+            $"Connecting to DCC {protocol} request #{request.Id} from {request.Sender}");
+        _dcc.TrackTask(
+            request.Id,
+            ConnectIncomingDccChatAsync(connecting!, pendingConnection));
+        return CommandResult.Success();
+    }
+
+    private async Task ConnectIncomingDccChatAsync(
+        DccRequest request,
+        PendingDccConnection pendingConnection)
+    {
+        var protocol = DccProtocolName(request.Offer);
 
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(pendingConnection.Lifetime.Token);
+            using var timeout =
+                CancellationTokenSource.CreateLinkedTokenSource(pendingConnection.Lifetime.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
+
             var transport = await DccChatTransport.ConnectAsync(
                 request.Offer.Address,
                 request.Offer.Port,
                 timeout.Token,
                 request.Offer.IsSecure);
-            if (!_dcc.Requests.TryTransition(request.Id, DccRequestState.Connected, null, out var connected))
+
+            if (!_dcc.Requests.TryTransition(
+                    request.Id,
+                    DccRequestState.Connected,
+                    null,
+                    out var connected))
             {
                 await transport.DisposeAsync();
-                return CommandResult.Failure($"DCC request #{request.Id} was canceled before it connected");
+                return;
             }
+
             await ActivateDccChatAsync(connected!, transport, switchToBuffer: true);
-            return CommandResult.Success();
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (pendingConnection.Lifetime.IsCancellationRequested)
         {
-            if (_dcc.Requests.TryGet(request.Id, out var current) &&
-                current!.State != DccRequestState.Connecting)
-            {
-                return CommandResult.Failure(
-                    $"DCC request #{request.Id} is {DccStateText(current.State)} and is no longer connecting");
-            }
-            return FailDccConnection(request.Id, $"The DCC {protocol} connection timed out");
+            // Cancellation, invalidation, and application shutdown already own the
+            // request's terminal state and presentation.
         }
-        catch (Exception exception) when (exception is SocketException or IOException or InvalidOperationException or
+        catch (OperationCanceledException)
+        {
+            var reason = $"The DCC {protocol} connection timed out";
+            if (_dcc.Requests.TryTransition(
+                    request.Id,
+                    DccRequestState.Failed,
+                    reason,
+                    out var failed))
+            {
+                PublishDccState(
+                    failed!,
+                    $"DCC {protocol} request #{request.Id} failed: connection timed out");
+            }
+        }
+        catch (Exception exception) when (
+            exception is SocketException or
+            IOException or
+            InvalidOperationException or
             System.Security.Authentication.AuthenticationException)
         {
-            return FailDccConnection(request.Id, $"The DCC {protocol} connection failed: {DccConnectionError(exception)}");
+            var detail = DccConnectionError(exception);
+            var reason = $"The DCC {protocol} connection failed: {detail}";
+            if (_dcc.Requests.TryTransition(
+                    request.Id,
+                    DccRequestState.Failed,
+                    reason,
+                    out var failed))
+            {
+                PublishDccState(
+                    failed!,
+                    $"DCC {protocol} request #{request.Id} failed: {detail}");
+            }
         }
         finally
         {
             RemoveDccChatConnection(request.Id, pendingConnection);
         }
-    }
-
-    private CommandResult FailDccConnection(int requestId, string message)
-    {
-        _dcc.Requests.TryTransition(requestId, DccRequestState.Failed, message, out _);
-        return CommandResult.Failure(message);
     }
 
     private async Task AwaitOutgoingDccChatAsync(
@@ -1714,14 +1752,31 @@ internal sealed partial class ClientApplication
             "; encrypted, peer identity not verified";
     }
 
-    private static string DccConnectionError(Exception exception) => exception switch
+    internal static string DccConnectionError(Exception exception)
     {
-        System.Security.Authentication.AuthenticationException =>
-            "The secure DCC connection received invalid TLS data",
-        IOException { InnerException: System.Security.Authentication.AuthenticationException } =>
-            "The secure DCC connection received invalid TLS data",
-        _ => exception.Message
-    };
+        if (exception is System.Security.Authentication.AuthenticationException ||
+            exception is IOException
+            {
+                InnerException: System.Security.Authentication.AuthenticationException
+            })
+        {
+            return "The secure DCC connection received invalid TLS data";
+        }
+
+        var socketException = exception as SocketException ??
+            exception.InnerException as SocketException;
+
+        return socketException?.SocketErrorCode switch
+        {
+            SocketError.TimedOut => "Connection timed out",
+            SocketError.ConnectionRefused => "Connection refused",
+            SocketError.HostNotFound or SocketError.NoData => "Unknown host",
+            SocketError.TryAgain => "Host lookup failed temporarily",
+            SocketError.NetworkUnreachable => "Network is unreachable",
+            SocketError.HostUnreachable => "Host is unreachable",
+            _ => exception.Message
+        };
+    }
 
     private async Task RunDccChatReadLoopAsync(DccRequest request, ActiveDccChat active)
     {
