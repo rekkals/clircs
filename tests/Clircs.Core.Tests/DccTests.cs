@@ -27,6 +27,8 @@ internal static class DccTests
         suite.Add("DCC parses passive CHAT and SEND responses", ParsesPassiveResponses);
         suite.Add("DCC passive responses match their outgoing request token", PassiveResponsesMatchRequests);
         suite.Add("DCC rejects unsafe filenames and malformed endpoints", RejectsUnsafeOffers);
+        suite.Add("DCC download filenames are normalized safely for Windows", DownloadFilenamesNormalizeForWindows);
+        suite.Add("DCC download filenames identify executable Windows types", DownloadFilenamesIdentifyExecutableTypes);
         suite.Add("DCC RESUME and ACCEPT parse active and passive wire forms", ResumeParsesWireForms);
         suite.Add("DCC resume control messages become structured events", SessionProducesStructuredResume);
         suite.Add("DCC request registry owns IDs states expiry and network invalidation", RegistryTracksLifecycle);
@@ -37,6 +39,7 @@ internal static class DccTests
         suite.Add("DCC coordinator awaits request-owned work", CoordinatorAwaitsOwnedWorkAsync);
         suite.Add("DCC CTCP offers become structured events without query windows", SessionProducesStructuredOffer);
         suite.Add("DCC request presentation hides wire endpoint numbers", RequestPresentationIsHumanReadable);
+        suite.Add("DCC request presentation warns about dangerous download types", RequestPresentationWarnsAboutDangerousDownloads);
         suite.Add("DCC CHAT transport exchanges complete lines in both directions", ChatTransportExchangesLinesAsync);
         suite.Add("DCC CHAT transport listens on IPv6 when advertising IPv6", ChatTransportExchangesIpv6LinesAsync);
         suite.Add("Secure DCC CHAT negotiates TLS and exchanges complete lines", SecureChatTransportExchangesLinesAsync);
@@ -59,6 +62,8 @@ internal static class DccTests
         suite.Add("Secure DCC SEND negotiates TLS and transfers with acknowledgements", SecureSendTransfersAsync);
         suite.Add("Secure passive DCC SEND reverses roles over TLS", SecurePassiveSendReversesTransportAsync);
         suite.Add("DCC downloads never overwrite existing files", DownloadStoreAvoidsCollisions);
+        suite.Add("DCC downloads use safe Windows filenames", DownloadStoreUsesSafeWindowsFilenames);
+        suite.Add("DCC resume distinguishes offers with colliding safe names", DownloadStoreSeparatesNormalizedResumeNames);
         suite.Add("DCC partial downloads survive and can be resumed", DownloadStoreFindsPartialResume);
         suite.Add("DCC partial downloads are scoped to their network and sender", DownloadStoreScopesPartialResume);
         suite.Add("DCC resume rejects a partial file changed after selection", DownloadStoreRejectsChangedPartial);
@@ -219,6 +224,56 @@ internal static class DccTests
         Assert.False(DccOfferParser.TryParse("DCC SEND file.txt 2130706433 70000 1", out _, out _));
         Assert.False(DccOfferParser.TryParse("DCC CHAT chat 2130706433 0", out _, out _));
         Assert.False(DccOfferParser.TryParse("DCC EXEC nope", out _, out _));
+    }
+
+    private static void DownloadFilenamesNormalizeForWindows()
+    {
+        AssertDccFilename("notes.txt", "notes.txt");
+        AssertDccFilename("résumé.txt", "résumé.txt");
+        AssertDccFilename("NUL.txt", "_NUL.txt");
+        AssertDccFilename("con", "_con");
+        AssertDccFilename("COM9.zip", "_COM9.zip");
+        AssertDccFilename("LPT².log", "_LPT².log");
+        AssertDccFilename("report.txt. ", "report.txt");
+        AssertDccFilename("photo\u202Egpj.exe", "photogpj.exe", executable: true);
+        AssertDccFilename("report\u200B.txt", "report.txt");
+        AssertDccFilename("N\u200BUL.txt", "_NUL.txt");
+        AssertDccFilename("tool.e\u200Bxe", "tool.exe", executable: true);
+
+        Assert.False(DccFilenamePolicy.TryAssess(string.Empty, out _));
+        Assert.False(DccFilenamePolicy.TryAssess(".", out _));
+        Assert.False(DccFilenamePolicy.TryAssess("..", out _));
+        Assert.False(DccFilenamePolicy.TryAssess("../secret.txt", out _));
+        Assert.False(DccFilenamePolicy.TryAssess(@"folder\secret.txt", out _));
+        Assert.False(DccFilenamePolicy.TryAssess(@"C:\secret.txt", out _));
+        Assert.False(DccFilenamePolicy.TryAssess("bad\u0001.txt", out _));
+        Assert.False(DccFilenamePolicy.TryAssess("bad?.txt", out _));
+        Assert.False(DccFilenamePolicy.TryAssess("\u202E", out _));
+    }
+
+    private static void DownloadFilenamesIdentifyExecutableTypes()
+    {
+        AssertDccFilename("tool.EXE", "tool.EXE", executable: true);
+        AssertDccFilename("setup.msi", "setup.msi", executable: true);
+        AssertDccFilename("script.cmd", "script.cmd", executable: true);
+        AssertDccFilename("shortcut.lnk", "shortcut.lnk", executable: true);
+        AssertDccFilename("archive.zip", "archive.zip");
+        AssertDccFilename("document.txt", "document.txt");
+        AssertDccFilename("image.exe.", "image.exe", executable: true);
+        AssertDccFilename("legacy.pif", "legacy.pif", executable: true);
+        AssertDccFilename("deploy.application", "deploy.application", executable: true);
+        AssertDccFilename("shortcut.appref-ms", "shortcut.appref-ms", executable: true);
+        AssertDccFilename("handler.sct", "handler.sct", executable: true);
+    }
+
+    private static void AssertDccFilename(
+        string offeredFilename,
+        string expectedLocalFilename,
+        bool executable = false)
+    {
+        Assert.True(DccFilenamePolicy.TryAssess(offeredFilename, out var assessment));
+        Assert.Equal(expectedLocalFilename, assessment!.LocalFilename);
+        Assert.Equal(executable, assessment.RequiresExecutableWarning);
     }
 
     private static void RegistryTracksLifecycle()
@@ -425,8 +480,10 @@ internal static class DccTests
         var coordinator = new DccCoordinator();
         var firstBuffer = BufferId.New();
         var secondBuffer = BufferId.New();
-        var firstTarget = new DccDownloadTarget("one.bin", "one.part", "one.bin", 10);
-        var secondTarget = new DccDownloadTarget("two.bin", "two.part", "two.bin", 20);
+        var firstTarget = new DccDownloadTarget(
+            "one.bin", "one.bin", "one.part", "one.bin", 10);
+        var secondTarget = new DccDownloadTarget(
+            "two.bin", "two.bin", "two.part", "two.bin", 20);
         var firstResume = new PendingDccResume(firstTarget, 10);
         var secondResume = new PendingDccResume(secondTarget, 20);
 
@@ -548,6 +605,44 @@ internal static class DccTests
         Assert.True(secureFields.Any(field => field.Label == "Secure" && field.Value == "yes"));
         Assert.True(secureFields.Any(field => field.Label == "Use" &&
             field.Value == "/dcc accept 4, /dcc resume 4, or /dcc reject 4"));
+    }
+
+    private static void RequestPresentationWarnsAboutDangerousDownloads()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var request = new DccRequest(
+            5,
+            NetworkSessionId.New(),
+            "EFNet",
+            "alice",
+            new DccOffer(
+                DccRequestType.Send,
+                "photo\u202Egpj.exe",
+                "203.0.113.42",
+                1024,
+                12_345L,
+                null,
+                "DCC SEND photo\u202Egpj.exe 3405803818 1024 12345"),
+            now,
+            now.AddMinutes(2),
+            DccRequestState.Pending);
+
+        var incoming = ClientApplication.DccRequestPresentation(request);
+        Assert.True(incoming.Fields!.Any(field =>
+            field.Label == "Warning" &&
+            field.Value == "This file type may be dangerous. Only accept it if you trust the sender."));
+
+        var outgoing = ClientApplication.DccRequestPresentation(request with
+        {
+            Direction = DccRequestDirection.Outgoing
+        });
+        Assert.False(outgoing.Fields!.Any(field => field.Label == "Warning"));
+
+        var harmless = ClientApplication.DccRequestPresentation(request with
+        {
+            Offer = request.Offer with { Filename = "photo.jpg" }
+        });
+        Assert.False(harmless.Fields!.Any(field => field.Label == "Warning"));
     }
 
     private static async ValueTask ChatTransportExchangesLinesAsync()
@@ -1102,6 +1197,132 @@ internal static class DccTests
             Assert.Equal("existing", File.ReadAllText(Path.Combine(root, "test file.txt")));
             Assert.Equal("received", File.ReadAllText(completed));
             Assert.Throws<ArgumentException>(() => store.CreatePartial("..\\bad.txt"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void DownloadStoreUsesSafeWindowsFilenames()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "clircs-dcc-safe-name-test-" + Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var store = new DccDownloadStore(root);
+            const string offeredFilename = "photo\u202Egpj.exe";
+
+            var target = store.CreatePartial(
+                offeredFilename,
+                new DccDownloadIdentity("EFNet", "slak", 8));
+
+            Assert.Equal(offeredFilename, target.OfferedFilename);
+            Assert.Equal("photogpj.exe", target.NormalizedFilename);
+            Assert.Equal(
+                "photogpj.exe.clircs-part",
+                Path.GetFileName(target.PartialPath));
+
+            using (var stream = store.OpenPartial(target))
+            {
+                stream.Write(Encoding.UTF8.GetBytes("received"));
+            }
+
+            var completed = store.Complete(target);
+
+            Assert.Equal("photogpj.exe", Path.GetFileName(completed));
+            Assert.Equal("received", File.ReadAllText(completed));
+
+            var reserved = store.CreatePartial("NUL.txt");
+
+            Assert.Equal("NUL.txt", reserved.OfferedFilename);
+            Assert.Equal("_NUL.txt", reserved.NormalizedFilename);
+            Assert.Equal(
+                "_NUL.txt.clircs-part",
+                Path.GetFileName(reserved.PartialPath));
+
+            DccDownloadStore.Discard(reserved);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void DownloadStoreSeparatesNormalizedResumeNames()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "clircs-dcc-resume-name-test-" + Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var store = new DccDownloadStore(root);
+            const string disguisedFilename = "photo\u202Egpj.exe";
+            const string plainFilename = "photogpj.exe";
+            var identity = new DccDownloadIdentity("EFNet", "slak", 10_000);
+
+            var disguised = store.CreatePartial(disguisedFilename, identity);
+            using (var stream = store.OpenPartial(disguised))
+            {
+                stream.Write(new byte[1_000]);
+            }
+
+            var plain = store.CreatePartial(plainFilename, identity);
+            using (var stream = store.OpenPartial(plain))
+            {
+                stream.Write(new byte[2_000]);
+            }
+
+            var resumedDisguised = store.FindResumeTarget(
+                disguisedFilename,
+                10_000,
+                "EFNet",
+                "slak");
+
+            var resumedPlain = store.FindResumeTarget(
+                plainFilename,
+                10_000,
+                "EFNet",
+                "slak");
+
+            Assert.True(resumedDisguised is not null);
+            Assert.True(resumedPlain is not null);
+
+            Assert.Equal(disguisedFilename, resumedDisguised!.OfferedFilename);
+            Assert.Equal("photogpj.exe", resumedDisguised.NormalizedFilename);
+            Assert.Equal(1_000L, resumedDisguised.InitialOffset);
+
+            Assert.Equal(plainFilename, resumedPlain!.OfferedFilename);
+            Assert.Equal("photogpj.exe", resumedPlain.NormalizedFilename);
+            Assert.Equal(
+                "photogpj (1).exe",
+                Path.GetFileName(resumedPlain.FinalPath));
+            Assert.Equal(2_000L, resumedPlain.InitialOffset);
+
+            File.WriteAllText(resumedDisguised.FinalPath, "occupied");
+            File.WriteAllText(resumedPlain.FinalPath, "occupied");
+
+            var completedPlain = store.Complete(resumedPlain);
+
+            Assert.Equal(
+                "photogpj (2).exe",
+                Path.GetFileName(completedPlain));
+            Assert.Equal(2_000L, new FileInfo(completedPlain).Length);
+            Assert.Equal(
+                "occupied",
+                File.ReadAllText(resumedDisguised.FinalPath));
+            Assert.Equal(
+                "occupied",
+                File.ReadAllText(resumedPlain.FinalPath));
+
+            DccDownloadStore.Discard(resumedDisguised);
         }
         finally
         {

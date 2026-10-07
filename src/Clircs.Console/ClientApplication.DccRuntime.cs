@@ -111,6 +111,28 @@ internal sealed partial class ClientApplication
             };
         }
 
+        if (offer is { Type: DccRequestType.Send, Filename: { } incomingFilename } &&
+            !DccFilenamePolicy.TryAssess(incomingFilename, out _))
+        {
+            var invalidDestination = DccBuffer(session);
+            var invalidMessage =
+                $"Invalid DCC {DccProtocolName(offer)} request from {sender}: " +
+                "the filename cannot be saved safely";
+
+            return sessionEvent with
+            {
+                BufferId = invalidDestination.Id,
+                Kind = SessionEventKind.Error,
+                Text = invalidMessage,
+                Presentation = null,
+                Fields = WithFields(
+                    protocolFields,
+                    ("event", "dcc.invalid"),
+                    ("message", invalidMessage),
+                    ("dcc.state", "invalid"))
+            };
+        }
+
         var network = ProfileFor(session)?.DisplayName ?? session.Features.NetworkName ?? session.State.DisplayName;
         if (!_dcc.Requests.TryAddIncoming(
                 session.State.Id,

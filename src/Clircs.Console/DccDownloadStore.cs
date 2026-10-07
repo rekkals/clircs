@@ -4,8 +4,15 @@ namespace Clircs.ConsoleClient;
 
 internal sealed record DccDownloadIdentity(string Network, string Sender, long ExpectedBytes);
 
+internal sealed record DccDownloadMetadata(
+    string Network,
+    string Sender,
+    long ExpectedBytes,
+    string OfferedFilename);
+
 internal sealed record DccDownloadTarget(
-    string Filename,
+    string OfferedFilename,
+    string NormalizedFilename,
     string PartialPath,
     string FinalPath,
     long InitialOffset = 0)
@@ -25,19 +32,44 @@ internal sealed class DccDownloadStore
 
     public string Root => _root;
 
-    public DccDownloadTarget CreatePartial(string filename, DccDownloadIdentity? identity = null)
+    public DccDownloadTarget CreatePartial(
+        string offeredFilename,
+        DccDownloadIdentity? identity = null)
     {
-        ValidateFilename(filename);
+        if (!DccFilenamePolicy.TryAssess(offeredFilename, out var assessment))
+        {
+            throw new ArgumentException(
+                "The DCC filename is unsafe.",
+                nameof(offeredFilename));
+        }
+
+        var normalizedFilename = assessment.LocalFilename;
         Directory.CreateDirectory(_root);
+
         for (var suffix = 0; suffix < 10_000; suffix++)
         {
-            var final = CandidatePath(filename, suffix);
+            var final = CandidatePath(normalizedFilename, suffix);
             var partial = final + ".clircs-part";
-            if (File.Exists(final)) continue;
+
+            if (File.Exists(final))
+            {
+                continue;
+            }
+
             try
             {
-                using var stream = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                var target = new DccDownloadTarget(filename, partial, final);
+                using var stream = new FileStream(
+                    partial,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None);
+
+                var target = new DccDownloadTarget(
+                    offeredFilename,
+                    normalizedFilename,
+                    partial,
+                    final);
+
                 if (identity is not null)
                 {
                     try
@@ -50,34 +82,53 @@ internal sealed class DccDownloadStore
                         throw;
                     }
                 }
+
                 return target;
             }
             catch (IOException) when (File.Exists(partial))
             {
             }
         }
+
         throw new IOException("Unable to allocate a temporary DCC download file.");
     }
 
     public DccDownloadTarget? FindResumeTarget(
-        string filename,
+        string offeredFilename,
         long expectedBytes,
         string network,
         string sender)
     {
-        ValidateFilename(filename);
-        if (expectedBytes <= 0) return null;
+        if (!DccFilenamePolicy.TryAssess(offeredFilename, out var assessment))
+        {
+            throw new ArgumentException(
+                "The DCC filename is unsafe.",
+                nameof(offeredFilename));
+        }
+
+        if (expectedBytes <= 0)
+        {
+            return null;
+        }
+
         Directory.CreateDirectory(_root);
 
-        var candidates = Directory.EnumerateFiles(_root, "*.clircs-part", SearchOption.TopDirectoryOnly)
-            .Select(path => ResumeCandidate(path, expectedBytes, network, sender))
+        return Directory.EnumerateFiles(
+                _root,
+                "*.clircs-part",
+                SearchOption.TopDirectoryOnly)
+            .Select(path => ResumeCandidate(
+                path,
+                offeredFilename,
+                assessment.LocalFilename,
+                expectedBytes,
+                network,
+                sender))
             .Where(target => target is not null)
             .Cast<DccDownloadTarget>()
-            .Where(target => ResumeNameMatches(filename, Path.GetFileName(target.FinalPath)))
             .OrderByDescending(target => target.InitialOffset)
             .ThenByDescending(target => File.GetLastWriteTimeUtc(target.PartialPath))
-            .ToList();
-        return candidates.FirstOrDefault();
+            .FirstOrDefault();
     }
 
     public FileStream OpenPartial(DccDownloadTarget target)
@@ -111,7 +162,7 @@ internal sealed class DccDownloadStore
         }
         for (var suffix = 0; suffix < 10_000; suffix++)
         {
-            var candidate = CandidatePath(target.Filename, suffix);
+            var candidate = CandidatePath(target.NormalizedFilename, suffix);
             try
             {
                 File.Move(target.PartialPath, candidate, overwrite: false);
@@ -162,45 +213,82 @@ internal sealed class DccDownloadStore
 
     private static DccDownloadTarget? ResumeCandidate(
         string path,
+        string offeredFilename,
+        string normalizedFilename,
         long expectedBytes,
         string network,
         string sender)
     {
         var length = new FileInfo(path).Length;
-        if (length <= 0 || length >= expectedBytes) return null;
-        if (!TryReadMetadata(path, out var identity) || identity is null ||
-            identity.ExpectedBytes != expectedBytes ||
-            !identity.Network.Equals(network, StringComparison.OrdinalIgnoreCase) ||
-            !identity.Sender.Equals(sender, StringComparison.OrdinalIgnoreCase))
+
+        if (length <= 0 || length >= expectedBytes)
+        {
             return null;
+        }
+
+        if (!TryReadMetadata(path, out var metadata) ||
+            metadata is null ||
+            metadata.ExpectedBytes != expectedBytes ||
+            !metadata.Network.Equals(network, StringComparison.OrdinalIgnoreCase) ||
+            !metadata.Sender.Equals(sender, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                metadata.OfferedFilename,
+                offeredFilename,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         var final = path[..^".clircs-part".Length];
-        return new DccDownloadTarget(Path.GetFileName(final), path, final, length);
+
+        return new DccDownloadTarget(
+            offeredFilename,
+            normalizedFilename,
+            path,
+            final,
+            length);
     }
 
     private static string MetadataPath(DccDownloadTarget target) => target.PartialPath + ".json";
 
-    private static void WriteMetadata(DccDownloadTarget target, DccDownloadIdentity identity)
+    private static void WriteMetadata(
+        DccDownloadTarget target,
+        DccDownloadIdentity identity)
     {
-        var json = JsonSerializer.Serialize(identity);
-        File.WriteAllText(MetadataPath(target), json);
+        var metadata = new DccDownloadMetadata(
+            identity.Network,
+            identity.Sender,
+            identity.ExpectedBytes,
+            target.OfferedFilename);
+
+        File.WriteAllText(
+            MetadataPath(target),
+            JsonSerializer.Serialize(metadata));
     }
 
-    private static bool TryReadMetadata(string partialPath, out DccDownloadIdentity? identity)
+    private static bool TryReadMetadata(string partialPath, out DccDownloadMetadata? metadata)
     {
         try
         {
             var metadataPath = partialPath + ".json";
+
             if (!File.Exists(metadataPath))
             {
-                identity = null;
+                metadata = null;
                 return false;
             }
-            identity = JsonSerializer.Deserialize<DccDownloadIdentity>(File.ReadAllText(metadataPath));
-            return identity is not null;
+
+            metadata = JsonSerializer.Deserialize<DccDownloadMetadata>(
+                File.ReadAllText(metadataPath));
+
+            return metadata is not null;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception exception) when (
+            exception is IOException or
+            UnauthorizedAccessException or
+            JsonException)
         {
-            identity = null;
+            metadata = null;
             return false;
         }
     }
@@ -217,24 +305,4 @@ internal sealed class DccDownloadStore
         }
     }
 
-    private static bool ResumeNameMatches(string offeredFilename, string candidateFilename)
-    {
-        if (candidateFilename.Equals(offeredFilename, StringComparison.OrdinalIgnoreCase)) return true;
-        var extension = Path.GetExtension(offeredFilename);
-        var name = Path.GetFileNameWithoutExtension(offeredFilename);
-        if (!candidateFilename.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) return false;
-        var candidateName = Path.GetFileNameWithoutExtension(candidateFilename);
-        return candidateName.StartsWith(name + " (", StringComparison.OrdinalIgnoreCase) &&
-            candidateName.EndsWith(')');
-    }
-
-    private static void ValidateFilename(string filename)
-    {
-        if (string.IsNullOrWhiteSpace(filename) || filename is "." or ".." ||
-            Path.GetFileName(filename) != filename || Path.IsPathRooted(filename) ||
-            filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            throw new ArgumentException("The DCC filename is unsafe.", nameof(filename));
-        }
-    }
 }

@@ -663,6 +663,16 @@ internal sealed partial class ClientApplication
         var peerLabel = request.Direction == DccRequestDirection.Incoming ? "From" : "To";
         var fields = new List<PresentationField> { new(peerLabel, request.Sender) };
         if (request.Offer.Filename is { } filename) fields.Add(new PresentationField("File", filename));
+        if (request.Direction == DccRequestDirection.Incoming &&
+            request.Offer.Type == DccRequestType.Send &&
+            request.Offer.Filename is { } offeredFilename &&
+            DccFilenamePolicy.TryAssess(offeredFilename, out var assessment) &&
+            assessment.RequiresExecutableWarning)
+        {
+            fields.Add(new PresentationField(
+                "Warning",
+                "This file type may be dangerous. Only accept it if you trust the sender."));
+        }
         if (request.Offer.Size is { } size) fields.Add(new PresentationField("Size", FormatFileSize(size)));
         fields.Add(new PresentationField("Address", request.Offer.Address));
         fields.Add(request.Offer.IsPassive
