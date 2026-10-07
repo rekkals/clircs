@@ -108,7 +108,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public void CancelChannelListRequest(Guid requestId) =>
         _processor.CancelChannelListRequest(requestId);
 
-    public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
+    public async ValueTask ConnectAsync(
+        CancellationToken cancellationToken = default,
+        bool tolerateTaggedCapabilityMessages = false)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         _pendingDisconnect = null;
@@ -123,7 +125,10 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _connectionAttemptInProgress = true;
         try
         {
-            await _connection.ConnectAsync(Options, cancellationToken).ConfigureAwait(false);
+            await _connection.ConnectAsync(
+                Options,
+                cancellationToken,
+                tolerateTaggedCapabilityMessages).ConfigureAwait(false);
             Raise(State.StatusBuffer, SessionEventKind.Status, $"Connected to {Options.Endpoint}; registering as {_connection.CurrentNickname}.");
             await registrationCompletion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -144,7 +149,8 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     public async ValueTask ReconnectAsync(
         IrcConnectionOptions? options = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool tolerateTaggedCapabilityMessages = false)
     {
         if (_connection.State is not (IrcConnectionState.Disconnected or IrcConnectionState.Failed))
         {
@@ -155,7 +161,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _processor.ResetForReconnect(Options.Identity.Nicknames[0]);
         ReindexChannelsToRestore();
         _pendingJoinKeys.Clear();
-        await ConnectAsync(cancellationToken).ConfigureAwait(false);
+        await ConnectAsync(
+            cancellationToken,
+            tolerateTaggedCapabilityMessages).ConfigureAwait(false);
     }
 
     public void PrepareJoin(string channel, string? key = null)
@@ -858,21 +866,29 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _healthPingToken = null;
         _healthPingSentAt = null;
         CaptureJoinedChannels();
-        var info = _pendingDisconnect ?? (exception is IrcSaslException saslFailure
-            ? new SessionDisconnectInfo(
+        var info = _pendingDisconnect ?? (exception switch
+        {
+            IrcSaslException saslFailure => new SessionDisconnectInfo(
                 SessionDisconnectKind.Accidental,
                 saslFailure.Message,
                 saslFailure,
-                RetryRecommended: false)
-            : new SessionDisconnectInfo(
+                RetryRecommended: false),
+            IrcCapabilityException capabilityFailure => new SessionDisconnectInfo(
+                SessionDisconnectKind.Accidental,
+                capabilityFailure.Message,
+                capabilityFailure,
+                RetryRecommended: false),
+            _ => new SessionDisconnectInfo(
                 SessionDisconnectKind.Accidental,
                 NormalizeDisconnectMessage(exception),
-                exception));
+                exception)
+        });
         info = info with { AnnounceToBuffers = !_connectionAttemptInProgress };
         _pendingDisconnect = null;
         _registrationCompletion?.TrySetException(
             exception ?? new IOException(info.Message));
         if (!_connectionAttemptInProgress &&
+            info.Exception is not IrcCapabilityException &&
             !info.Message.StartsWith("Authentication failed:", StringComparison.OrdinalIgnoreCase))
         {
             Raise(

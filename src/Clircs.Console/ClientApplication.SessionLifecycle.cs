@@ -22,7 +22,8 @@ internal sealed partial class ClientApplication
         CancellationToken cancellationToken,
         string? requestedDisplayName = null,
         NetworkProfileId? profileId = null,
-        int? preferredStatusNumber = null)
+        int? preferredStatusNumber = null,
+        bool tolerateTaggedCapabilityMessages = false)
     {
         var displayName = UniqueDisplayName(requestedDisplayName ?? options.Endpoint.Host);
         var session = new IrcNetworkSession(
@@ -62,17 +63,25 @@ internal sealed partial class ClientApplication
         StartSessionWork(
             session,
             "initial connection",
-            () => ConnectInitialSessionAsync(session, cancellationToken));
+            () => ConnectInitialSessionAsync(
+                session,
+                cancellationToken,
+                tolerateTaggedCapabilityMessages));
         return Task.CompletedTask;
     }
 
-    private async Task ConnectInitialSessionAsync(IrcNetworkSession session, CancellationToken cancellationToken)
+    private async Task ConnectInitialSessionAsync(
+        IrcNetworkSession session,
+        CancellationToken cancellationToken,
+        bool tolerateTaggedCapabilityMessages)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         timeout.CancelAfter(ConnectionAttemptTimeout);
         try
         {
-            await session.ConnectAsync(timeout.Token);
+            await session.ConnectAsync(
+                timeout.Token,
+                tolerateTaggedCapabilityMessages);
         }
         catch (OperationCanceledException) when (
             cancellationToken.IsCancellationRequested || _lifetime.IsCancellationRequested)
@@ -347,6 +356,15 @@ internal sealed partial class ClientApplication
             PublishDisconnectedToSessionBuffers(session);
         }
 
+        if (info.Exception is IrcCapabilityException capabilityFailure)
+        {
+            CancelReconnect(session.State.Id);
+            var messages = CapabilityFailureMessages(capabilityFailure);
+            PublishStatus(session, SessionEventKind.Error, messages.Detail);
+            PublishStatus(session, SessionEventKind.Error, messages.Result);
+            return;
+        }
+
         if (info.Kind == SessionDisconnectKind.Intentional || !info.RetryRecommended)
         {
             CancelReconnect(session.State.Id);
@@ -371,6 +389,15 @@ internal sealed partial class ClientApplication
 
         ScheduleReconnect(session, info.Kind);
     }
+
+    internal static (string Detail, string Result) CapabilityFailureMessages(
+        IrcCapabilityException failure) =>
+        (
+            $"CAP ERROR: {failure.Message}",
+            failure.DuringRegistration
+                ? "CAP ERROR: Automatic reconnect was not started. To reconnect anyway, use /reconnect tolerate"
+                : "CAP ERROR: Connection closed"
+        );
 
     private void PublishDisconnectedToSessionBuffers(IrcNetworkSession session)
     {

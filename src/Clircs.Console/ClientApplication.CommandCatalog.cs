@@ -19,7 +19,7 @@ internal sealed partial class ClientApplication
         Register("server", ["connect"], "Connect to an IRC server or saved network profile.", ServerAsync);
         Register("network", [], "List live connections or manage saved network profiles.", NetworkAsync);
         Register("disconnect", [], "Disconnect, but leave clircs running.", DisconnectAsync);
-        Register("reconnect", [], "Reconnect the active offline session or cancel an automatic retry.", ReconnectAsync);
+        Register("reconnect", [], "Reconnect the active offline session, cancel an automatic retry, or tolerate improperly tagged CAP messages once.", ReconnectAsync);
         Register("quit", ["exit"], "Disconnect and exit clircs.", QuitAsync);
         Register("nick", [], "Change your nickname, or set it before connecting.", NickAsync);
         Register("away", [], "Set yourself as away.", AwayAsync);

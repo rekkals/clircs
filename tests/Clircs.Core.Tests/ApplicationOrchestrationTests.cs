@@ -31,6 +31,7 @@ internal static class ApplicationOrchestrationTests
         suite.Add("local status window retains history without consuming a number", LocalStatusWindowRetainsHistoryWithoutNumber);
         suite.Add("window context resolves active and explicit buffers", WindowContextResolvesBuffersAsync);
         suite.Add("client preferences own application-wide defaults", ClientPreferencesOwnDefaults);
+        suite.Add("CAP failures distinguish registration from live-session errors", CapabilityFailuresHaveDistinctMessages);
         suite.Add("services notices identify their bracketed channel", ServicesNoticesIdentifyChannel);
     }
 
@@ -64,6 +65,31 @@ internal static class ApplicationOrchestrationTests
         Assert.Equal(DccPortRange.Random, preferences.DccPorts);
         Assert.Equal(@"C:\downloads", preferences.DccDownloads);
         Assert.Equal(BanmaskStyle.Host, preferences.BanmaskStyle);
+    }
+
+    private static void CapabilityFailuresHaveDistinctMessages()
+    {
+        var registration = ClientApplication.CapabilityFailureMessages(
+            new IrcCapabilityException(
+                duringRegistration: true,
+                command: "CAP"));
+        Assert.Equal(
+            "CAP ERROR: Received message tags before tag support was negotiated",
+            registration.Detail);
+        Assert.Equal(
+            "CAP ERROR: Automatic reconnect was not started. To reconnect anyway, use /reconnect tolerate",
+            registration.Result);
+
+        var live = ClientApplication.CapabilityFailureMessages(
+            new IrcCapabilityException(
+                duringRegistration: false,
+                command: "PRIVMSG"));
+        Assert.Equal(
+            "CAP ERROR: Received unnegotiated message tags on PRIVMSG",
+            live.Detail);
+        Assert.Equal(
+            "CAP ERROR: Connection closed",
+            live.Result);
     }
 
     private static void ServicesNoticesIdentifyChannel()

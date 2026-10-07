@@ -27,7 +27,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private bool _requestedCapabilityWithdrawn;
     private CapabilityNegotiationStage _capabilityStage;
     private SaslRegistrationStage _saslStage;
-    private bool _reportedUnnegotiatedTagsDiagnostic;
+    private bool _tolerateTaggedCapabilityMessages;
     private int _finishStarted;
     private int _disposed;
     private TaskCompletionSource<bool>? _finishCompletion;
@@ -64,7 +64,10 @@ public sealed class IrcClientConnection : IAsyncDisposable
         return _enabledCapabilities.Contains(capability);
     }
 
-    public async ValueTask ConnectAsync(IrcConnectionOptions options, CancellationToken cancellationToken = default)
+    public async ValueTask ConnectAsync(
+        IrcConnectionOptions options,
+        CancellationToken cancellationToken = default,
+        bool tolerateTaggedCapabilityMessages = false)
     {
         if (_state is not (IrcConnectionState.Disconnected or IrcConnectionState.Failed))
         {
@@ -88,7 +91,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _requestedCapabilityWithdrawn = false;
         _capabilityStage = CapabilityNegotiationStage.AwaitingCapabilities;
         _saslStage = options.Sasl is null ? SaslRegistrationStage.Disabled : SaslRegistrationStage.Pending;
-        _reportedUnnegotiatedTagsDiagnostic = false;
+        _tolerateTaggedCapabilityMessages = tolerateTaggedCapabilityMessages;
         _transport = null;
         _outbound = null;
         _receiveTask = null;
@@ -255,15 +258,16 @@ public sealed class IrcClientConnection : IAsyncDisposable
                     }
                     if (message.HasTags && !CanReceiveTaggedMessages())
                     {
-                        if (!_reportedUnnegotiatedTagsDiagnostic)
-                        {
-                            _reportedUnnegotiatedTagsDiagnostic = true;
-                            Diagnostic?.Invoke(
-                                "Ignored an IRC message with tags because no tag-bearing capability was negotiated. " +
-                                "Further occurrences will be ignored silently.");
-                        }
+                        var duringRegistration = _state == IrcConnectionState.Registering;
+                        var toleratedCapabilityMessage =
+                            _tolerateTaggedCapabilityMessages &&
+                            duringRegistration &&
+                            message.Command == "CAP";
 
-                        continue;
+                        if (!toleratedCapabilityMessage)
+                        {
+                            throw new IrcCapabilityException(duringRegistration, message.Command);
+                        }
                     }
 
                     await HandleProtocolMessageAsync(message, cancellationToken).ConfigureAwait(false);

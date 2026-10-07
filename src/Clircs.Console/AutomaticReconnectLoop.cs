@@ -61,6 +61,11 @@ internal sealed class AutomaticReconnectLoop
             }
             catch (Exception exception)
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return AutomaticReconnectOutcome.Canceled;
+                }
+
                 attemptFailed(attempt, exception);
             }
         }

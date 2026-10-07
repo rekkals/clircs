@@ -812,9 +812,13 @@ internal sealed partial class ClientApplication
                 ? CommandResult.Success("Automatic reconnect canceled. The network session remains offline.")
                 : CommandResult.Failure("This network is not waiting to reconnect.");
         }
-        if (input.Arguments.Count != 0)
+        var tolerateTaggedCapabilityMessages =
+            input.Arguments.Count == 1 &&
+            input.Arguments[0].Equals("tolerate", StringComparison.OrdinalIgnoreCase);
+
+        if (input.Arguments.Count != 0 && !tolerateTaggedCapabilityMessages)
         {
-            return CommandResult.Failure("Usage: /reconnect [cancel]");
+            return CommandResult.Failure("Usage: /reconnect [cancel|tolerate]");
         }
         var recent = RecentConnectionSnapshot();
         var profileId = active is not null ? ProfileIdFor(active) : recent?.ProfileId;
@@ -850,24 +854,37 @@ internal sealed partial class ClientApplication
             StartSessionWork(
                 active,
                 "manual reconnect",
-                () => ReconnectSessionManuallyAsync(active, reconnectOptions, cancellationToken));
+                () => ReconnectSessionManuallyAsync(
+                    active,
+                    reconnectOptions,
+                    cancellationToken,
+                    tolerateTaggedCapabilityMessages));
             return CommandResult.Success("Reconnecting.");
         }
 
-        await StartSessionAsync(options, cancellationToken, profile?.DisplayName, profile?.Id);
+        await StartSessionAsync(
+            options,
+            cancellationToken,
+            profile?.DisplayName,
+            profile?.Id,
+            tolerateTaggedCapabilityMessages: tolerateTaggedCapabilityMessages);
         return CommandResult.Success();
     }
 
     private async Task ReconnectSessionManuallyAsync(
         IrcNetworkSession session,
         IrcConnectionOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool tolerateTaggedCapabilityMessages)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         timeout.CancelAfter(ConnectionAttemptTimeout);
         try
         {
-            await session.ReconnectAsync(options, timeout.Token);
+            await session.ReconnectAsync(
+                options,
+                timeout.Token,
+                tolerateTaggedCapabilityMessages);
             PublishStatus(session, SessionEventKind.Status, "Reconnected.");
         }
         catch (OperationCanceledException) when (
@@ -880,6 +897,10 @@ internal sealed partial class ClientApplication
             {
                 PublishStatus(session, SessionEventKind.Error, "Reconnect failed: Connection timed out.");
             }
+        }
+        catch (IrcCapabilityException)
+        {
+            // The disconnect path already rendered the complete CAP error.
         }
         catch (Exception exception) when (IsExpectedConnectionFailure(exception))
         {

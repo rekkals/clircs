@@ -109,7 +109,23 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
+            Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("NICK TestNick", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal(
+                "USER test 0 * :Test User",
+                (await reader.ReadLineAsync(timeout.Token))!);
+            await writer.WriteLineAsync(
+                ":server CAP * LS :message-tags".AsMemory(),
+                timeout.Token);
+            Assert.Equal(
+                "CAP REQ message-tags",
+                (await reader.ReadLineAsync(timeout.Token))!);
+            await writer.WriteLineAsync(
+                ":server CAP TestNick ACK :message-tags".AsMemory(),
+                timeout.Token);
+            Assert.Equal(
+                "CAP END",
+                (await reader.ReadLineAsync(timeout.Token))!);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":server 005 TestNick MONITOR=100 :supported".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":server 730 TestNick :Alice!user@example".AsMemory(), timeout.Token);

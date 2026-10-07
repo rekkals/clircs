@@ -10,6 +10,7 @@ internal static class ReconnectPresentationTests
         suite.Add("reconnect failures have concise descriptions", FormatsReconnectFailures);
         suite.Add("automatic reconnect stops immediately after success", StopsAfterSuccessAsync);
         suite.Add("automatic reconnect cancellation interrupts its delay", CancellationInterruptsDelayAsync);
+        suite.Add("automatic reconnect cancellation during an attempt suppresses its failure", CancellationDuringAttemptIsQuietAsync);
         suite.Add("automatic reconnect exhausts the configured attempts", ExhaustsConfiguredAttemptsAsync);
     }
 
@@ -59,6 +60,35 @@ internal static class ReconnectPresentationTests
 
         Assert.Equal(AutomaticReconnectOutcome.Canceled, outcome);
         Assert.Equal(0, attempts);
+    }
+
+    private static async ValueTask CancellationDuringAttemptIsQuietAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var attempts = 0;
+        var failures = 0;
+        var loop = new AutomaticReconnectLoop(
+            new Clircs.Networking.ReconnectPolicy(
+                5,
+                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(60)),
+            (_, _) =>
+            {
+                attempts++;
+                cancellation.Cancel();
+                throw new IOException("The attempt stopped the reconnect loop.");
+            },
+            (_, _) => Task.CompletedTask,
+            () => 0d);
+
+        var outcome = await loop.RunAsync(
+            (_, _, _) => { },
+            (_, _) => failures++,
+            cancellation.Token);
+
+        Assert.Equal(AutomaticReconnectOutcome.Canceled, outcome);
+        Assert.Equal(1, attempts);
+        Assert.Equal(0, failures);
     }
 
     private static async ValueTask ExhaustsConfiguredAttemptsAsync()
