@@ -452,7 +452,6 @@ internal static class ApplicationOrchestrationTests
             measureRows: _ => 1,
             isReplay: false,
             trackUnread: false,
-            now,
             assignNumber: false);
 
         Assert.True(stored.Stored);

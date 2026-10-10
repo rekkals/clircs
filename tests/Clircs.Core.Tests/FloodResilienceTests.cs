@@ -16,11 +16,8 @@ internal static class FloodResilienceTests
         suite.Add("interactive IRC output is not paced", InteractiveOutputIsNotPacedAsync);
         suite.Add("IRC output queue rejects excess pending work", OutboundQueueIsBoundedAsync);
         suite.Add("automatic CTCP replies have sender and network limits", AutomaticCtcpRepliesAreLimited);
-        suite.Add("recent flood traffic remains available in scrollback", RecentFloodTrafficRemainsInScrollback);
-        suite.Add("scrollback ages old traffic while retaining a useful minimum", OldScrollbackIsAged);
-        suite.Add("server-time timestamps do not age fresh scrollback", ServerTimeDoesNotAgeFreshScrollback);
         suite.Add("scrollback reports and enforces its emergency resource boundary", EmergencyScrollbackLimitIsExplicit);
-        suite.Add("window scrollback enforces its ordinary retention limit", WindowScrollbackEnforcesOrdinaryRetention);
+        suite.Add("old window scrollback remains available until the ordinary limit", OldWindowScrollbackIsRetainedUntilOrdinaryLimit);
         suite.Add("all window scrollback shares an application emergency boundary", TotalWindowScrollbackIsBounded);
         suite.Add("bottom viewport selection measures only visible history", BottomViewportSelectionIsLocal);
         suite.Add("automatic query creation has a hard resource limit", AutomaticQueriesAreBounded);
@@ -90,60 +87,6 @@ internal static class FloodResilienceTests
         Assert.True(limiter.TryAcquire("nick!user@host", now.AddSeconds(10), out _));
     }
 
-    private static void RecentFloodTrafficRemainsInScrollback()
-    {
-        var session = NetworkSessionId.New();
-        var buffer = BufferId.New();
-        var now = DateTimeOffset.UtcNow;
-        var history = Enumerable.Range(0, 5_000)
-            .Select(index => Message(session, buffer, $"bot{index}", now))
-            .ToList();
-
-        Assert.Equal(0, ScrollbackRetention.Trim(history, now));
-        Assert.Equal(5_000, history.Count);
-    }
-
-    private static void OldScrollbackIsAged()
-    {
-        var session = NetworkSessionId.New();
-        var buffer = BufferId.New();
-        var now = DateTimeOffset.UtcNow;
-        var history = Enumerable.Range(0, 1_000)
-            .Select(index => Message(session, buffer, $"old{index}", now.AddDays(-2)))
-            .Concat(Enumerable.Range(0, 400)
-                .Select(index => Message(session, buffer, $"recent{index}", now)))
-            .ToList();
-
-        Assert.Equal(900, ScrollbackRetention.Trim(history, now));
-        Assert.Equal(ScrollbackRetention.MinimumEntries, history.Count);
-        Assert.True(history[0].Text.Contains("old900", StringComparison.Ordinal));
-        Assert.True(history[^1].Text.Contains("recent399", StringComparison.Ordinal));
-    }
-
-    private static void ServerTimeDoesNotAgeFreshScrollback()
-    {
-        var session = NetworkSessionId.New();
-        var buffer = BufferId.New();
-        var now = DateTimeOffset.UtcNow;
-        var historical = now.AddDays(-30);
-
-        var history = Enumerable.Range(0, 600)
-            .Select(index => Message(
-                session,
-                buffer,
-                $"replay{index}",
-                historical) with
-            {
-                ReceivedAt = now
-            })
-            .ToList();
-
-        Assert.Equal(0, ScrollbackRetention.Trim(history, now));
-        Assert.Equal(600, history.Count);
-        Assert.Equal(historical, history[0].Timestamp);
-        Assert.Equal(now, history[0].ReceivedAt);
-    }
-
     private static void EmergencyScrollbackLimitIsExplicit()
     {
         var session = NetworkSessionId.New();
@@ -159,29 +102,28 @@ internal static class FloodResilienceTests
         Assert.False(ScrollbackRetention.EnforceEmergencyLimit(history, maximumEntries: 5));
     }
 
-    private static void WindowScrollbackEnforcesOrdinaryRetention()
+    private static void OldWindowScrollbackIsRetainedUntilOrdinaryLimit()
     {
         var states = new WindowStateRegistry();
         var session = NetworkSessionId.New();
         var buffer = BufferId.New();
-        var now = DateTimeOffset.UtcNow;
+        var historical = DateTimeOffset.UtcNow.AddDays(-30);
         WindowStateRegistry.WindowEventStoreResult result = default;
 
         for (var index = 0; index <= ScrollbackRetention.MaximumEntries; index++)
         {
             result = states.StoreEvent(
-                Message(session, buffer, $"bot{index}", now),
+                Message(session, buffer, $"bot{index}", historical),
                 1,
                 _ => 1,
                 false,
-                false,
-                now);
+                false);
         }
 
         var history = states.HistorySnapshot(buffer);
         Assert.Equal(ScrollbackRetention.MaximumEntries, history.Length);
         Assert.True(history[0].Text.Contains("bot1", StringComparison.Ordinal));
-        Assert.True(history[^1].Text.Contains("bot5000", StringComparison.Ordinal));
+        Assert.True(history[^1].Text.Contains($"bot{ScrollbackRetention.MaximumEntries}", StringComparison.Ordinal));
         Assert.False(result.EmergencyLimitReached);
         Assert.False(result.TotalEmergencyLimitReached);
     }

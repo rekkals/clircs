@@ -513,7 +513,6 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             previous => _presenter.MeasureEventRows(previous, bufferName),
             isReplay,
             trackUnread,
-            DateTimeOffset.UtcNow,
             assignNumber);
         return new StoredWindowEvent(
             result.Stored,

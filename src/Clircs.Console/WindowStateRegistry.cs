@@ -130,7 +130,6 @@ internal sealed class WindowStateRegistry
         Func<SessionEvent, int> measureRows,
         bool isReplay,
         bool trackUnread,
-        DateTimeOffset now,
         bool assignNumber = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(incomingRows);
@@ -149,7 +148,6 @@ internal sealed class WindowStateRegistry
                     (historyUpdate.Replaced ? incomingRows - replacedRows : incomingRows));
             }
 
-            ScrollbackRetention.Trim(state.History, now);
             ScrollbackRetention.EnforceRetentionLimit(state.History);
             EnforceTotalHistoryLimitUnsafe(
                 ScrollbackRetention.MaximumTotalEntries,

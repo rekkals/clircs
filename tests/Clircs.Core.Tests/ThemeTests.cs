@@ -1194,8 +1194,7 @@ internal static class ThemeTests
                 incomingRows: 1,
                 measureRows: _ => 1,
                 isReplay: false,
-                trackUnread: true,
-                now);
+                trackUnread: true);
         }
 
         var activity = states.UnreadActivities(buffer);

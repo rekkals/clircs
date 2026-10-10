@@ -60,7 +60,7 @@ internal static class WindowSynchronizationTests
                     SessionEventKind.Message,
                     index.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     DateTimeOffset.UtcNow);
-                windows.StoreEvent(sessionEvent, 1, _ => 1, false, true, DateTimeOffset.UtcNow);
+                windows.StoreEvent(sessionEvent, 1, _ => 1, false, true);
             }
         });
         var reader = Task.Run(() =>
