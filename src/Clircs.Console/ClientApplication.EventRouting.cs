@@ -596,6 +596,8 @@ internal sealed partial class ClientApplication
 
     private SessionEvent? RouteOutputEvent(SessionEvent sessionEvent)
     {
+        _outputRouting.ExpireUnmatchedFollowUps(sessionEvent);
+
         if (sessionEvent.Fields is null ||
             !sessionEvent.Fields.TryGetValue("outputFamily", out var family) ||
             string.IsNullOrWhiteSpace(family))

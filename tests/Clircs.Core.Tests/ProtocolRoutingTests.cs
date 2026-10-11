@@ -8,7 +8,7 @@ internal static class ProtocolRoutingTests
 {
     public static void Register(TestSuite suite)
     {
-        suite.Add("overlapping protocol requests keep independent output routes", OverlappingRequestsKeepRoutes);
+        suite.Add("overlapping protocol requests and immediate follow-ups keep their routes", OverlappingRequestsKeepRoutes);
         suite.Add("uncorrelatable protocol reply families are serialized", UncorrelatableFamiliesAreSerialized);
         suite.Add("closing a network clears all pending output routes", ClosingNetworkClearsRoutes);
         suite.Add("output policy and pending routes share one owner", OutputPolicyAndRoutesShareOwner);
@@ -25,13 +25,68 @@ internal static class ProtocolRoutingTests
         routes.SetRequest(session, aliceRequest, aliceBuffer);
         routes.SetRequest(session, bobRequest, bobBuffer);
 
-        Assert.True(routes.TryResolve(Result(session, aliceRequest, complete: true), out var aliceDestination));
+        var aliceComplete = Result(
+            session,
+            aliceRequest,
+            complete: true,
+            followUp: true);
+        routes.ExpireUnmatchedFollowUps(aliceComplete);
+
+        Assert.True(routes.TryResolve(
+            aliceComplete,
+            out var aliceDestination));
         Assert.Equal(aliceBuffer, aliceDestination);
-        Assert.True(routes.TryResolve(Result(session, bobRequest, complete: false), out var bobDestination));
+
+        var aliceFollowUp = Result(
+            session,
+            aliceRequest,
+            complete: true);
+        routes.ExpireUnmatchedFollowUps(aliceFollowUp);
+
+        Assert.True(routes.TryResolve(
+            aliceFollowUp,
+            out aliceDestination));
+        Assert.Equal(aliceBuffer, aliceDestination);
+        Assert.False(routes.TryResolve(aliceFollowUp, out _));
+
+        var bobPartial = Result(
+            session,
+            bobRequest,
+            complete: false);
+        routes.ExpireUnmatchedFollowUps(bobPartial);
+
+        Assert.True(routes.TryResolve(
+            bobPartial,
+            out var bobDestination));
         Assert.Equal(bobBuffer, bobDestination);
-        Assert.False(routes.TryResolve(Result(session, aliceRequest, complete: true), out _));
-        Assert.True(routes.TryResolve(Result(session, bobRequest, complete: true), out bobDestination));
+
+        var bobComplete = Result(
+            session,
+            bobRequest,
+            complete: true,
+            followUp: true);
+        routes.ExpireUnmatchedFollowUps(bobComplete);
+
+        Assert.True(routes.TryResolve(
+            bobComplete,
+            out bobDestination));
         Assert.Equal(bobBuffer, bobDestination);
+
+        var unrelated = new SessionEvent(
+            session,
+            BufferId.New(),
+            SessionEventKind.Server,
+            "unrelated",
+            DateTimeOffset.Now);
+        routes.ExpireUnmatchedFollowUps(unrelated);
+
+        var lateBobFollowUp = Result(
+            session,
+            bobRequest,
+            complete: true);
+        routes.ExpireUnmatchedFollowUps(lateBobFollowUp);
+
+        Assert.False(routes.TryResolve(lateBobFollowUp, out _));
     }
 
     private static void UncorrelatableFamiliesAreSerialized()
@@ -82,12 +137,17 @@ internal static class ProtocolRoutingTests
         Assert.False(snapshot.ContainsKey("made-up-family"));
     }
 
-    private static SessionEvent Result(NetworkSessionId session, Guid requestId, bool complete) =>
-        new(session, BufferId.New(), SessionEventKind.Server, "WHOIS", DateTimeOffset.Now,
+    private static SessionEvent Result(
+        NetworkSessionId session,
+        Guid requestId,
+        bool complete,
+        bool followUp = false) =>
+            new(session, BufferId.New(), SessionEventKind.Server, "WHOIS", DateTimeOffset.Now,
             new Dictionary<string, string?>
             {
                 ["outputFamily"] = "whois",
                 ["outputRequestId"] = requestId.ToString("D"),
-                ["outputEnd"] = complete ? "true" : null
+                ["outputEnd"] = complete ? "true" : null,
+                ["outputFollowUp"] = followUp ? "true" : null
             });
 }

@@ -15,8 +15,17 @@ namespace Clircs.ConsoleClient;
 // Owns IRC queries, settings, themes, scripts, and debug commands.
 internal sealed partial class ClientApplication
 {
-    private ValueTask<CommandResult> NamesAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
-        SendSimpleAsync("NAMES", input.Arguments.Count == 0 && ActiveChannel() is { } channel ? [channel] : input.Arguments, "Usage: /names <channel>", cancellationToken);
+    private ValueTask<CommandResult> NamesAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        var arguments = input.Arguments.Count == 0 && ActiveChannel() is { } channel
+            ? [channel]
+            : input.Arguments;
+
+        return SendNamesAsync(arguments, cancellationToken);
+    }
 
     private ValueTask<CommandResult> WhoAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
         SendWhoAsync(input.Arguments.Count == 0 && ActiveChannel() is { } channel ? [channel] : input.Arguments, cancellationToken);
@@ -830,6 +839,45 @@ internal sealed partial class ClientApplication
 
         await session.SendAsync(command, arguments, cancellationToken: cancellationToken);
         return CommandResult.Success();
+    }
+
+    private async ValueTask<CommandResult> SendNamesAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var session = RequireSession(out var failure);
+        if (session is null)
+        {
+            return failure;
+        }
+
+        if (arguments.Count != 1)
+        {
+            return CommandResult.Failure("Usage: /names [channel]");
+        }
+
+        var channelName = arguments[0];
+        if (!session.TryBeginNamesRequest(channelName, out var requestId))
+        {
+            return CommandResult.Failure(
+                $"A NAMES request is already in progress for {channelName}");
+        }
+
+        TrackOutputRequest(session, "names", requestId);
+        try
+        {
+            await session.SendAsync(
+                "NAMES",
+                [channelName],
+                cancellationToken: cancellationToken);
+            return CommandResult.Success();
+        }
+        catch
+        {
+            session.CancelChannelQueryRequest(requestId);
+            CancelOutputRequest(session, "names", requestId);
+            throw;
+        }
     }
 
     private async ValueTask<CommandResult> SendWhoAsync(

@@ -12,6 +12,7 @@ public sealed class IrcSessionProcessor
     private readonly IdentityQueryResponseProcessor _identityQueries;
     private readonly NetworkQueryResponseProcessor _networkQueries;
     private readonly ChannelListResponseProcessor _channelLists;
+    private readonly ChannelQueryRequestTracker _channelQueries;
     private readonly List<string> _acceptResults = [];
     private PendingMessageGuard? _pendingMessageGuard;
     private AutomaticVersionProbeState _automaticVersionProbeState;
@@ -27,6 +28,7 @@ public sealed class IrcSessionProcessor
         _identityQueries = new IdentityQueryResponseProcessor(_state, Features, _eventBuilder);
         _networkQueries = new NetworkQueryResponseProcessor(Features, _eventBuilder);
         _channelLists = new ChannelListResponseProcessor(_state, Features, _eventBuilder);
+        _channelQueries = new ChannelQueryRequestTracker(_state);
     }
 
     public string CurrentNickname { get; private set; }
@@ -41,6 +43,7 @@ public sealed class IrcSessionProcessor
         _identityQueries.Reset();
         _networkQueries.Reset();
         _channelLists.Reset();
+        _channelQueries.Reset();
         _acceptResults.Clear();
         _pendingMessageGuard = null;
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
@@ -108,6 +111,18 @@ public sealed class IrcSessionProcessor
         _channelLists.CancelRequest(requestId);
     }
 
+    public bool TryBeginNamesRequest(string channelName, out Guid requestId) =>
+        _channelQueries.TryBegin(channelName, ChannelQueryKind.Names, out requestId);
+
+    public bool TryBeginTopicRequest(string channelName, out Guid requestId) =>
+        _channelQueries.TryBegin(channelName, ChannelQueryKind.Topic, out requestId);
+
+    public bool TryBeginModeRequest(string channelName, out Guid requestId) =>
+        _channelQueries.TryBegin(channelName, ChannelQueryKind.Mode, out requestId);
+
+    public void CancelChannelQueryRequest(Guid requestId) =>
+        _channelQueries.Cancel(requestId);
+
     public IReadOnlyList<SessionEvent> Process(
         IrcMessage message,
         DateTimeOffset? occurredAt = null)
@@ -119,6 +134,9 @@ public sealed class IrcSessionProcessor
         var senderIdentity = ParsePrefix(message.Prefix);
         var suppressAutomaticVersionOutput =
             ObserveAutomaticVersionProbe(message);
+        var followUpRequestId = _channelQueries.TakeFollowUp(
+            message.Command,
+            message.Parameters.Count >= 2 ? message.Parameters[1] : null);
         ObserveConnectionMetadata(message);
 
         if (_pendingMessageGuard is { } pending && message.Command != "717")
@@ -578,34 +596,65 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 2)
                 {
                     var topicChannel = message.Parameters[1];
-                    var topicState = _state.GetOrCreateChannel(topicChannel);
-                    topicState.Topic = null;
-                    topicState.TopicSetBy = null;
-                    topicState.TopicSetAt = null;
+                    var topicRequestId = _channelQueries.Complete(
+                        topicChannel,
+                        ChannelQueryKind.Topic);
+
+                    if (_state.TryGetChannel(topicChannel, out var noTopicState))
+                    {
+                        noTopicState!.Topic = null;
+                        noTopicState.TopicSetBy = null;
+                        noTopicState.TopicSetAt = null;
+                    }
+
+                    var noTopicBuffer = _state.TryGetBuffer(topicChannel, out var existingNoTopicBuffer)
+                        ? existingNoTopicBuffer!
+                        : _state.StatusBuffer;
 
                     events.Add(Event(
-                        _state.GetOrCreateBuffer(BufferKind.Channel, topicChannel),
+                        noTopicBuffer,
                         SessionEventKind.Topic,
                         Last(message),
                         now,
                         Fields(
                             ("numeric", "331"),
-                            ("channel", topicChannel))));
+                            ("channel", topicChannel),
+                            ("outputFamily", topicRequestId is null ? null : "topic"),
+                            ("outputRequestId", topicRequestId?.ToString("D")),
+                            ("outputEnd", topicRequestId is null ? null : "true"))));
                 }
 
                 break;
             case "332":
                 if (message.Parameters.Count >= 3)
                 {
-                    var topicBuffer = _state.GetOrCreateBuffer(BufferKind.Channel, message.Parameters[1]);
+                    var topicChannel = message.Parameters[1];
+                    var topicRequestId = _channelQueries.CompleteWithFollowUp(
+                        topicChannel,
+                        ChannelQueryKind.Topic,
+                        "333");
+                    var topicBuffer = _state.TryGetBuffer(topicChannel, out var existingTopicBuffer)
+                        ? existingTopicBuffer!
+                        : _state.StatusBuffer;
                     var formattedTopic = IrcTextFormatting.Parse(message.Parameters[2]);
-                    _state.GetOrCreateChannel(message.Parameters[1]).Topic = message.Parameters[2];
+
+                    if (_state.TryGetChannel(topicChannel, out var receivedTopicState))
+                    {
+                        receivedTopicState!.Topic = message.Parameters[2];
+                    }
+
                     events.Add(Event(
                         topicBuffer,
                         SessionEventKind.Topic,
                         $"Topic: {formattedTopic.PlainText}",
                         now,
-                        Fields(("channel", message.Parameters[1]), ("topic", formattedTopic.PlainText)),
+                        Fields(
+                            ("channel", topicChannel),
+                            ("topic", formattedTopic.PlainText),
+                            ("outputFamily", topicRequestId is null ? null : "topic"),
+                            ("outputRequestId", topicRequestId?.ToString("D")),
+                            ("outputEnd", topicRequestId is null ? null : "true"),
+                            ("outputFollowUp", topicRequestId is null ? null : "true")),
                         formattedContent: formattedTopic));
                 }
 
@@ -618,19 +667,34 @@ public sealed class IrcSessionProcessor
                     DateTimeOffset? topicSetAt = long.TryParse(message.Parameters[3], out var topicTimestamp)
                         ? DateTimeOffset.FromUnixTimeSeconds(topicTimestamp).ToLocalTime()
                         : null;
-                    var topicState = _state.GetOrCreateChannel(topicChannel);
-                    topicState.TopicSetBy = topicSetter;
-                    topicState.TopicSetAt = topicSetAt;
+
+                    if (_state.TryGetChannel(topicChannel, out var topicInfoState))
+                    {
+                        topicInfoState!.TopicSetBy = topicSetter;
+                        topicInfoState.TopicSetAt = topicSetAt;
+                    }
+
+                    var topicInfoBuffer = _state.TryGetBuffer(topicChannel, out var existingTopicInfoBuffer)
+                        ? existingTopicInfoBuffer!
+                        : _state.StatusBuffer;
                     var setAtText = topicSetAt is null
                         ? string.Empty
                         : $" on {topicSetAt:yyyy-MM-dd 'at' HH:mm:ss}";
+
                     events.Add(Event(
-                        _state.GetOrCreateBuffer(BufferKind.Channel, topicChannel),
+                        topicInfoBuffer,
                         SessionEventKind.Topic,
                         $"Set by: {topicSetter}{setAtText}",
                         now,
-                        Fields(("setter", topicSetter), ("timestamp", message.Parameters[3]), ("channel", topicChannel))));
+                        Fields(
+                            ("setter", topicSetter),
+                            ("timestamp", message.Parameters[3]),
+                            ("channel", topicChannel),
+                            ("outputFamily", followUpRequestId is null ? null : "topic"),
+                            ("outputRequestId", followUpRequestId?.ToString("D")),
+                            ("outputEnd", followUpRequestId is null ? null : "true"))));
                 }
+
                 break;
             case "341":
                 if (message.Parameters.Count >= 2)
@@ -651,17 +715,39 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 3)
                 {
                     var createdChannel = message.Parameters[1];
-                    DateTimeOffset? createdAt = long.TryParse(message.Parameters[2], out var createdTimestamp)
-                        ? DateTimeOffset.FromUnixTimeSeconds(createdTimestamp).ToLocalTime()
+                    DateTimeOffset? createdAt = long.TryParse(
+                        message.Parameters[2],
+                        out var createdTimestamp)
+                        ? DateTimeOffset.FromUnixTimeSeconds(createdTimestamp)
+                            .ToLocalTime()
                         : null;
-                    _state.GetOrCreateChannel(createdChannel).CreatedAt = createdAt;
+
+                    if (_state.TryGetChannel(createdChannel, out var createdState))
+                    {
+                        createdState!.CreatedAt = createdAt;
+                    }
+
+                    var createdBuffer = _state.TryGetBuffer(
+                        createdChannel,
+                        out var existingCreatedBuffer)
+                        ? existingCreatedBuffer!
+                        : _state.StatusBuffer;
+
                     events.Add(Event(
-                        _state.GetOrCreateBuffer(BufferKind.Channel, createdChannel),
+                        createdBuffer,
                         SessionEventKind.ChannelInfo,
-                        createdAt is null ? "Created: unknown" : $"Created: {createdAt:yyyy-MM-dd 'at' HH:mm:ss}",
+                        createdAt is null
+                            ? "Created: unknown"
+                            : $"Created: {createdAt:yyyy-MM-dd 'at' HH:mm:ss}",
                         now,
-                        Fields(("timestamp", message.Parameters[2]), ("channel", createdChannel))));
+                        Fields(
+                            ("timestamp", message.Parameters[2]),
+                            ("channel", createdChannel),
+                            ("outputFamily", followUpRequestId is null ? null : "mode"),
+                            ("outputRequestId", followUpRequestId?.ToString("D")),
+                            ("outputEnd", followUpRequestId is null ? null : "true"))));
                 }
+
                 break;
             case "328":
                 if (message.Parameters.Count >= 3)
@@ -678,7 +764,45 @@ public sealed class IrcSessionProcessor
             case "324":
                 if (message.Parameters.Count >= 3)
                 {
-                    ApplyModes(_state.GetOrCreateChannel(message.Parameters[1]), message.Parameters.Skip(2).ToArray(), reset: true);
+                    var modeChannel = message.Parameters[1];
+                    var modeRequestId = _channelQueries.CompleteWithFollowUp(
+                        modeChannel,
+                        ChannelQueryKind.Mode,
+                        "329");
+                    var modeText = string.Join(
+                        ' ',
+                        message.Parameters.Skip(2));
+
+                    if (_state.TryGetChannel(modeChannel, out var modeState))
+                    {
+                        ApplyModes(
+                            modeState!,
+                            message.Parameters.Skip(2).ToArray(),
+                            reset: true);
+                    }
+
+                    if (modeRequestId is { } requestId)
+                    {
+                        var modeBuffer = _state.TryGetBuffer(
+                            modeChannel,
+                            out var existingModeBuffer)
+                            ? existingModeBuffer!
+                            : _state.StatusBuffer;
+
+                        events.Add(Event(
+                            modeBuffer,
+                            SessionEventKind.ChannelInfo,
+                            $"Channel modes for {modeChannel}: {modeText}",
+                            now,
+                            Fields(
+                                ("numeric", "324"),
+                                ("channel", modeChannel),
+                                ("modes", modeText),
+                                ("outputFamily", "mode"),
+                                ("outputRequestId", requestId.ToString("D")),
+                                ("outputEnd", "true"),
+                                ("outputFollowUp", "true"))));
+                    }
                 }
 
                 break;
@@ -862,12 +986,19 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 4)
                 {
                     var namesChannel = message.Parameters[2];
-                    var namesBuffer = _state.GetOrCreateBuffer(BufferKind.Channel, namesChannel);
-                    var namesState = _state.GetOrCreateChannel(namesChannel);
-                    namesState.BeginNames();
-                    foreach (var token in message.Parameters[3].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    var namesState = _state.TryGetChannel(namesChannel, out var joinedNamesState)
+                        ? joinedNamesState
+                        : _channelQueries.FindNamesState(namesChannel);
+
+                    if (namesState is not null)
                     {
-                        AddName(namesState, token);
+                        namesState.BeginNames();
+                        foreach (var token in message.Parameters[3].Split(
+                                     ' ',
+                                     StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            AddName(namesState, token);
+                        }
                     }
                 }
 
@@ -876,25 +1007,51 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 2)
                 {
                     var channelName = message.Parameters[1];
-                    var channel = _state.GetOrCreateChannel(channelName);
+                    var channel = _state.TryGetChannel(channelName, out var joinedNamesChannel)
+                        ? joinedNamesChannel
+                        : _channelQueries.FindNamesState(channelName);
+                    var requestId = _channelQueries.Complete(
+                        channelName,
+                        ChannelQueryKind.Names);
+
+                    if (channel is null)
+                    {
+                        break;
+                    }
+
                     channel.NamesSynchronized = true;
                     var names = channel.Members
                         .OrderBy(member => member.Nickname, StringComparer.OrdinalIgnoreCase)
-                        .Select(member => $"{Features.HighestPrefix(member.PrefixModes)}{member.Nickname}")
+                        .Select(member =>
+                            $"{Features.HighestPrefix(member.PrefixModes)}{member.Nickname}")
                         .ToArray();
-                    var ops = channel.Members.Count(member => member.PrefixModes.Contains('o'));
-                    var voices = channel.Members.Count(member => member.PrefixModes.Contains('v') && !member.PrefixModes.Contains('o'));
+                    var ops = channel.Members.Count(member =>
+                        member.PrefixModes.Contains('o'));
+                    var voices = channel.Members.Count(member =>
+                        member.PrefixModes.Contains('v') &&
+                        !member.PrefixModes.Contains('o'));
+                    var buffer = _state.TryGetBuffer(channelName, out var channelBuffer)
+                        ? channelBuffer!
+                        : _state.StatusBuffer;
+
                     events.Add(Event(
-                        _state.GetOrCreateBuffer(BufferKind.Channel, channelName),
+                        buffer,
                         SessionEventKind.Server,
                         $"NAMES {channelName}",
                         now,
+                        Fields(
+                            ("numeric", "366"),
+                            ("channel", channelName),
+                            ("outputFamily", requestId is null ? null : "names"),
+                            ("outputRequestId", requestId?.ToString("D")),
+                            ("outputEnd", requestId is null ? null : "true")),
                         presentation: new PresentationBlock(
                             $"Users ({channelName}): {channel.Members.Count}, Ops: {ops}, Voice: {voices}, Normal: {channel.Members.Count - ops - voices}",
                             Grid: names,
                             BracketGridCells: true,
                             TitleHighlight: channelName)));
                 }
+
                 break;
             case "403":
             case "405":

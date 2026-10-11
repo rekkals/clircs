@@ -178,8 +178,36 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Usage outside a channel: /topic <channel> [topic]");
         }
 
-        await session.SendAsync("TOPIC", text.Length == 0 ? [channel] : [channel, text], cancellationToken: cancellationToken);
-        return CommandResult.Success();
+        if (text.Length != 0)
+        {
+            await session.SendAsync(
+                "TOPIC",
+                [channel, text],
+                cancellationToken: cancellationToken);
+            return CommandResult.Success();
+        }
+
+        if (!session.TryBeginTopicRequest(channel, out var requestId))
+        {
+            return CommandResult.Failure(
+                $"A TOPIC request is already in progress for {channel}");
+        }
+
+        TrackOutputRequest(session, "topic", requestId);
+        try
+        {
+            await session.SendAsync(
+                "TOPIC",
+                [channel],
+                cancellationToken: cancellationToken);
+            return CommandResult.Success();
+        }
+        catch
+        {
+            session.CancelChannelQueryRequest(requestId);
+            CancelOutputRequest(session, "topic", requestId);
+            throw;
+        }
     }
 
     private async ValueTask<CommandResult> RandomTopicAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
@@ -222,8 +250,38 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Usage: /mode <target> [modes] [parameters]");
         }
 
-        await session.SendAsync("MODE", parameters, cancellationToken: cancellationToken);
-        return CommandResult.Success();
+        if (parameters.Length != 1 ||
+            !session.Features.IsChannel(parameters[0]))
+        {
+            await session.SendAsync(
+                "MODE",
+                parameters,
+                cancellationToken: cancellationToken);
+            return CommandResult.Success();
+        }
+
+        var channelName = parameters[0];
+        if (!session.TryBeginModeRequest(channelName, out var requestId))
+        {
+            return CommandResult.Failure(
+                $"A MODE request is already in progress for {channelName}");
+        }
+
+        TrackOutputRequest(session, "mode", requestId);
+        try
+        {
+            await session.SendAsync(
+                "MODE",
+                [channelName],
+                cancellationToken: cancellationToken);
+            return CommandResult.Success();
+        }
+        catch
+        {
+            session.CancelChannelQueryRequest(requestId);
+            CancelOutputRequest(session, "mode", requestId);
+            throw;
+        }
     }
 
     private ValueTask<CommandResult> OpAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>

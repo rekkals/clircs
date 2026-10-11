@@ -108,6 +108,18 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public void CancelChannelListRequest(Guid requestId) =>
         _processor.CancelChannelListRequest(requestId);
 
+    public bool TryBeginNamesRequest(string channelName, out Guid requestId) =>
+        _processor.TryBeginNamesRequest(channelName, out requestId);
+
+    public bool TryBeginTopicRequest(string channelName, out Guid requestId) =>
+        _processor.TryBeginTopicRequest(channelName, out requestId);
+
+    public bool TryBeginModeRequest(string channelName, out Guid requestId) =>
+        _processor.TryBeginModeRequest(channelName, out requestId);
+
+    public void CancelChannelQueryRequest(Guid requestId) =>
+        _processor.CancelChannelQueryRequest(requestId);
+
     public async ValueTask ConnectAsync(
         CancellationToken cancellationToken = default,
         bool tolerateTaggedCapabilityMessages = false)

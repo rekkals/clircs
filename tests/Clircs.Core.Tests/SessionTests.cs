@@ -40,7 +40,7 @@ internal static class SessionTests
         suite.Add("nickname failures are formatted without raw numerics", NicknameFailuresAreFormatted);
         suite.Add("channel chat carries the speaker's highest privilege prefix", ChannelChatCarriesPrivilegePrefix);
         suite.Add("MODE events render in the affected channel", ModeEventsRouteToChannel);
-        suite.Add("numeric 324 silently synchronizes current channel modes", ModeNumericSynchronizesSilently);
+        suite.Add("numeric 324 silently syncs joins and correlates manual MODE queries", ModeNumericSynchronizesSilently);
         suite.Add("numeric 325 identifies a channel's unique operator", UniqueChannelOperatorIsFormatted);
         suite.Add("server-confirmed user modes remain synchronized", UserModesRemainSynchronized);
         suite.Add("JOIN failures are formatted without raw numerics", JoinFailuresAreFormatted);
@@ -51,7 +51,7 @@ internal static class SessionTests
         suite.Add("incoming caller-ID blocks are formatted and routed", IncomingCallerIdBlockIsFormatted);
         suite.Add("channel permission errors are formatted without raw numerics", PermissionErrorsAreFormatted);
         suite.Add("numeric 421 becomes a readable unknown-command error", UnknownCommandIsFormatted);
-        suite.Add("numeric 333 renders topic setter metadata in the channel", TopicSetterRoutesToChannel);
+        suite.Add("manual TOPIC replies are correlated without creating joined-channel state", TopicSetterRoutesToChannel);
         suite.Add("numeric 331 clears stale topic state and routes to the channel", NoTopicClearsChannelState);
         suite.Add("numeric 329 renders channel creation time in the channel", ChannelCreationRoutesToChannel);
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
@@ -88,7 +88,7 @@ internal static class SessionTests
         suite.Add("text segmentation carries IRC formatting across segments", TextSegmentationCarriesFormatting);
         suite.Add("text segmentation rejects impossible byte budgets", TextSegmentationRejectsImpossibleBudgets);
         suite.Add("NAMES and WHO build synchronized channel member state", NamesAndWhoBuildMemberState);
-        suite.Add("NAMES completion produces a semantic information box", NamesProducesInformationBox);
+        suite.Add("manual NAMES replies are correlated without creating joined-channel state", NamesProducesInformationBox);
         suite.Add("JOIN PART QUIT KICK and NICK maintain channel membership", MembershipEventsMaintainState);
         suite.Add("self kicks use personal wording and semantic fields", SelfKickUsesPersonalWording);
         suite.Add("self KILL messages are formatted and classified", SelfKillIsFormatted);
@@ -948,6 +948,8 @@ internal static class SessionTests
     private static void TopicColorsArePreserved()
     {
         var (state, processor) = CreateProcessor();
+        state.GetOrCreateChannel("#clircs");
+        state.GetOrCreateBuffer(BufferKind.Channel, "#clircs");
         var events = processor.Process(IrcMessageParser.Parse(
             ":server 332 me #clircs :\u000304Red\u0003 and plain"));
 
@@ -1012,6 +1014,7 @@ internal static class SessionTests
     {
         var (_, processor) = CreateProcessor();
         processor.Process(IrcMessageParser.Parse(":server 005 me PREFIX=(ov)@+ :supported"));
+        processor.Process(IrcMessageParser.Parse(":me!self@localhost JOIN #clirc"));
         processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :@Alice"));
         processor.Process(IrcMessageParser.Parse(":server 366 me #clirc :End of NAMES"));
         var events = processor.Process(IrcMessageParser.Parse(":Alice!u@h PRIVMSG #clirc :hello"));
@@ -1035,11 +1038,14 @@ internal static class SessionTests
     private static void ModeNumericSynchronizesSilently()
     {
         var (state, processor) = CreateProcessor();
-        var events = processor.Process(IrcMessageParser.Parse(":server 324 me #clirc +nt"));
+        var channel = state.GetOrCreateChannel("#clirc");
+        state.GetOrCreateBuffer(BufferKind.Channel, "#clirc");
 
-        Assert.Equal(0, events.Count);
-        Assert.True(state.TryGetChannel("#clirc", out var channel));
-        Assert.True(channel!.Modes.ContainsKey('n'));
+        var synchronized = processor.Process(IrcMessageParser.Parse(
+            ":server 324 me #clirc +nt"));
+
+        Assert.Equal(0, synchronized.Count);
+        Assert.True(channel.Modes.ContainsKey('n'));
         Assert.True(channel.Modes.ContainsKey('t'));
 
         var empty = processor.Process(IrcMessageParser.Parse(
@@ -1047,6 +1053,51 @@ internal static class SessionTests
 
         Assert.Equal(0, empty.Count);
         Assert.Equal(0, channel.Modes.Count);
+
+        Assert.True(processor.TryBeginModeRequest(
+            "#OTHER",
+            out var requestId));
+        Assert.False(processor.TryBeginModeRequest("#other", out _));
+
+        var queried = processor.Process(IrcMessageParser.Parse(
+            ":server 324 me #other +kl secret 50"));
+
+        var created = processor.Process(IrcMessageParser.Parse(
+            ":server 329 me #other 1700000000"));
+
+        Assert.Equal(1, queried.Count);
+        Assert.Equal(
+            "Channel modes for #other: +kl secret 50",
+            queried[0].Text);
+        Assert.Equal(SessionEventKind.ChannelInfo, queried[0].Kind);
+        Assert.Equal(state.StatusBuffer.Id, queried[0].BufferId);
+        Assert.Equal("324", queried[0].Fields!["numeric"]!);
+        Assert.Equal("#other", queried[0].Fields!["channel"]!);
+        Assert.Equal("+kl secret 50", queried[0].Fields!["modes"]!);
+        Assert.Equal("mode", queried[0].Fields!["outputFamily"]!);
+        Assert.Equal(
+            requestId.ToString("D"),
+            queried[0].Fields!["outputRequestId"]!);
+        Assert.Equal("true", queried[0].Fields!["outputEnd"]!);
+
+        Assert.Equal("true", queried[0].Fields!["outputFollowUp"]!);
+
+        Assert.Equal(1, created.Count);
+        Assert.True(created[0].Text.StartsWith(
+            "Created: ",
+            StringComparison.Ordinal));
+        Assert.Equal(SessionEventKind.ChannelInfo, created[0].Kind);
+        Assert.Equal(state.StatusBuffer.Id, created[0].BufferId);
+        Assert.Equal("#other", created[0].Fields!["channel"]!);
+        Assert.Equal("mode", created[0].Fields!["outputFamily"]!);
+        Assert.Equal(
+            requestId.ToString("D"),
+            created[0].Fields!["outputRequestId"]!);
+        Assert.Equal("true", created[0].Fields!["outputEnd"]!);
+
+        Assert.False(state.TryGetChannel("#other", out _));
+        Assert.False(state.TryGetBuffer("#other", out _));
+        Assert.True(processor.TryBeginModeRequest("#other", out _));
     }
 
     private static void UniqueChannelOperatorIsFormatted()
@@ -1208,23 +1259,67 @@ internal static class SessionTests
     private static void TopicSetterRoutesToChannel()
     {
         var (state, processor) = CreateProcessor();
-        var events = processor.Process(IrcMessageParser.Parse(":server 333 me #clirc Alice!user@host 1700000000"));
 
-        Assert.True(state.TryGetChannel("#clirc", out var channel));
-        Assert.Equal("Alice", channel!.TopicSetBy!);
-        Assert.True(channel.TopicSetAt is not null);
-        Assert.True(events[0].Text.StartsWith("Set by: Alice on ", StringComparison.Ordinal));
-        Assert.False(events[0].Text.Contains("333", StringComparison.Ordinal));
-        Assert.Equal(state.GetOrCreateBuffer(BufferKind.Channel, "#clirc").Id, events[0].BufferId);
+        Assert.True(processor.TryBeginTopicRequest("#CLIRC", out var requestId));
+        Assert.False(processor.TryBeginTopicRequest("#clirc", out _));
+
+        var topicEvents = processor.Process(IrcMessageParser.Parse(
+            ":server 332 me #clirc :A test topic"));
+        var setterEvents = processor.Process(IrcMessageParser.Parse(
+            ":server 333 me #clirc Alice!user@host 1700000000"));
+
+        Assert.Equal(1, topicEvents.Count);
+        Assert.Equal(state.StatusBuffer.Id, topicEvents[0].BufferId);
+        Assert.Equal("topic", topicEvents[0].Fields!["outputFamily"]!);
+        Assert.Equal(
+            requestId.ToString("D"),
+            topicEvents[0].Fields!["outputRequestId"]!);
+        Assert.Equal("true", topicEvents[0].Fields!["outputEnd"]!);
+        Assert.Equal("true", topicEvents[0].Fields!["outputFollowUp"]!);
+
+        Assert.Equal(1, setterEvents.Count);
+        Assert.True(setterEvents[0].Text.StartsWith(
+            "Set by: Alice on ",
+            StringComparison.Ordinal));
+        Assert.False(setterEvents[0].Text.Contains(
+            "333",
+            StringComparison.Ordinal));
+        Assert.Equal(state.StatusBuffer.Id, setterEvents[0].BufferId);
+        Assert.Equal("topic", setterEvents[0].Fields!["outputFamily"]!);
+        Assert.Equal(
+            requestId.ToString("D"),
+            setterEvents[0].Fields!["outputRequestId"]!);
+        Assert.Equal("true", setterEvents[0].Fields!["outputEnd"]!);
+
+        Assert.False(state.TryGetChannel("#clirc", out _));
+        Assert.False(state.TryGetBuffer("#clirc", out _));
+        Assert.True(processor.TryBeginTopicRequest("#clirc", out _));
+
+        processor.Process(IrcMessageParser.Parse(
+            ":server 332 me #clirc :Another topic"));
+        processor.Process(IrcMessageParser.Parse(
+            ":server NOTICE me :An intervening message"));
+        var lateSetterEvents = processor.Process(IrcMessageParser.Parse(
+            ":server 333 me #clirc Bob!user@host 1700000001"));
+
+        Assert.Equal(1, lateSetterEvents.Count);
+        Assert.True(lateSetterEvents[0].Fields!["outputFamily"] is null);
+        Assert.True(lateSetterEvents[0].Fields!["outputRequestId"] is null);
     }
 
     private static void NoTopicClearsChannelState()
     {
         var (state, processor) = CreateProcessor();
-        processor.Process(IrcMessageParser.Parse(
-            ":server 332 me #clirc :An old topic"));
-        processor.Process(IrcMessageParser.Parse(
-            ":server 333 me #clirc Alice!user@host 1700000000"));
+        var channel = state.GetOrCreateChannel("#clirc");
+        var channelBuffer = state.GetOrCreateBuffer(
+            BufferKind.Channel,
+            "#clirc");
+
+        channel.Topic = "An old topic";
+        channel.TopicSetBy = "Alice";
+        channel.TopicSetAt = DateTimeOffset.FromUnixTimeSeconds(1700000000);
+
+        Assert.True(processor.TryBeginTopicRequest("#clirc", out var requestId));
 
         var events = processor.Process(IrcMessageParser.Parse(
             ":server 331 me #clirc :No topic is set"));
@@ -1233,12 +1328,14 @@ internal static class SessionTests
         Assert.Equal("No topic is set", events[0].Text);
         Assert.Equal("331", events[0].Fields!["numeric"]!);
         Assert.Equal("#clirc", events[0].Fields!["channel"]!);
+        Assert.Equal("topic", events[0].Fields!["outputFamily"]!);
         Assert.Equal(
-            state.GetOrCreateBuffer(BufferKind.Channel, "#clirc").Id,
-            events[0].BufferId);
+            requestId.ToString("D"),
+            events[0].Fields!["outputRequestId"]!);
+        Assert.Equal("true", events[0].Fields!["outputEnd"]!);
+        Assert.Equal(channelBuffer.Id, events[0].BufferId);
 
-        Assert.True(state.TryGetChannel("#clirc", out var channel));
-        Assert.True(channel!.Topic is null);
+        Assert.True(channel.Topic is null);
         Assert.True(channel.TopicSetBy is null);
         Assert.True(channel.TopicSetAt is null);
     }
@@ -1246,14 +1343,23 @@ internal static class SessionTests
     private static void ChannelCreationRoutesToChannel()
     {
         var (state, processor) = CreateProcessor();
-        var events = processor.Process(IrcMessageParser.Parse(":server 329 me #clirc 1700000000"));
+        var channel = state.GetOrCreateChannel("#clirc");
+        var channelBuffer = state.GetOrCreateBuffer(
+            BufferKind.Channel,
+            "#clirc");
 
-        Assert.True(state.TryGetChannel("#clirc", out var channel));
-        Assert.True(channel!.CreatedAt is not null);
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":server 329 me #clirc 1700000000"));
+
+        Assert.True(channel.CreatedAt is not null);
         Assert.Equal(SessionEventKind.ChannelInfo, events[0].Kind);
-        Assert.True(events[0].Text.StartsWith("Created: ", StringComparison.Ordinal));
-        Assert.False(events[0].Text.Contains("329", StringComparison.Ordinal));
-        Assert.Equal(state.GetOrCreateBuffer(BufferKind.Channel, "#clirc").Id, events[0].BufferId);
+        Assert.True(events[0].Text.StartsWith(
+            "Created: ",
+            StringComparison.Ordinal));
+        Assert.False(events[0].Text.Contains(
+            "329",
+            StringComparison.Ordinal));
+        Assert.Equal(channelBuffer.Id, events[0].BufferId);
     }
 
     private static void LinksProducesInformationBox()
@@ -1482,12 +1588,18 @@ internal static class SessionTests
     private static void QueryResponseStateResetsOnReconnect()
     {
         var (_, processor) = CreateProcessor();
+        Assert.True(processor.TryBeginNamesRequest("#channel", out _));
+        Assert.True(processor.TryBeginTopicRequest("#channel", out _));
+        Assert.True(processor.TryBeginModeRequest("#channel", out _));
         processor.BeginWhoisRequest("Alice", includeIdle: false);
         processor.Process(IrcMessageParser.Parse(":server 311 me Alice old old.example * :Old Identity"));
         processor.Process(IrcMessageParser.Parse(":server 321 me Channel :Users Name"));
         processor.Process(IrcMessageParser.Parse(":server 322 me #old 10 :Old channel"));
 
         processor.ResetForReconnect("me");
+        Assert.True(processor.TryBeginNamesRequest("#channel", out _));
+        Assert.True(processor.TryBeginTopicRequest("#channel", out _));
+        Assert.True(processor.TryBeginModeRequest("#channel", out _));
         processor.BeginWhoisRequest("Alice", includeIdle: false);
         processor.Process(IrcMessageParser.Parse(":server 311 me Alice new new.example * :New Identity"));
         var whois = processor.Process(IrcMessageParser.Parse(":server 318 me Alice :End of WHOIS")).Single();
@@ -2004,11 +2116,20 @@ internal static class SessionTests
 
     private static void NamesProducesInformationBox()
     {
-        var (_, processor) = CreateProcessor();
-        processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :@me +Alice Bob"));
-        var events = processor.Process(IrcMessageParser.Parse(":server 366 me #clirc :End of NAMES"));
+        var (state, processor) = CreateProcessor();
 
-        Assert.Equal("Users (#clirc): 3, Ops: 1, Voice: 1, Normal: 1", events[0].Presentation!.Title);
+        Assert.True(processor.TryBeginNamesRequest("#CLIRC", out var requestId));
+        Assert.False(processor.TryBeginNamesRequest("#clirc", out _));
+
+        processor.Process(IrcMessageParser.Parse(
+            ":server 353 me = #clirc :@me +Alice Bob"));
+        var events = processor.Process(IrcMessageParser.Parse(
+            ":server 366 me #clirc :End of NAMES"));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal(
+            "Users (#clirc): 3, Ops: 1, Voice: 1, Normal: 1",
+            events[0].Presentation!.Title);
         Assert.Equal("#clirc", events[0].Presentation!.TitleHighlight!);
         Assert.Equal(3, events[0].Presentation!.Grid!.Count);
         Assert.True(events[0].Presentation!.Grid!.Contains("@me"));
@@ -2016,6 +2137,16 @@ internal static class SessionTests
         Assert.True(events[0].Presentation!.BracketGridCells);
         Assert.True(events[0].Presentation!.Table is null);
         Assert.True(events[0].Presentation!.Summary is null);
+        Assert.Equal(state.StatusBuffer.Id, events[0].BufferId);
+        Assert.Equal("names", events[0].Fields!["outputFamily"]!);
+        Assert.Equal(
+            requestId.ToString("D"),
+            events[0].Fields!["outputRequestId"]!);
+        Assert.Equal("true", events[0].Fields!["outputEnd"]!);
+
+        Assert.False(state.TryGetChannel("#clirc", out _));
+        Assert.False(state.TryGetBuffer("#clirc", out _));
+        Assert.True(processor.TryBeginNamesRequest("#clirc", out _));
     }
 
     private static void MembershipEventsMaintainState()

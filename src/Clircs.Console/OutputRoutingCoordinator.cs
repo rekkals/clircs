@@ -35,6 +35,7 @@ internal sealed class OutputRoutingCoordinator
         new(DefaultDestinations, StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(NetworkSessionId SessionId, string Family), BufferId> _familyRoutes = [];
     private readonly Dictionary<(NetworkSessionId SessionId, Guid RequestId), BufferId> _requestRoutes = [];
+    private readonly Dictionary<(NetworkSessionId SessionId, Guid RequestId), BufferId> _followUpRoutes = [];
 
     public bool Supports(string family)
     {
@@ -91,7 +92,33 @@ internal sealed class OutputRoutingCoordinator
 
     public void RemoveRequest(NetworkSessionId sessionId, Guid requestId)
     {
-        lock (_gate) _requestRoutes.Remove((sessionId, requestId));
+        lock (_gate)
+        {
+            _requestRoutes.Remove((sessionId, requestId));
+            _followUpRoutes.Remove((sessionId, requestId));
+        }
+    }
+
+    public void ExpireUnmatchedFollowUps(SessionEvent sessionEvent)
+    {
+        lock (_gate)
+        {
+            Guid? matchingRequestId = null;
+            if (sessionEvent.Fields?.TryGetValue("outputRequestId", out var requestText) == true &&
+                Guid.TryParse(requestText, out var requestId))
+            {
+                matchingRequestId = requestId;
+            }
+
+            foreach (var key in _followUpRoutes.Keys
+                         .Where(key =>
+                             key.SessionId == sessionEvent.NetworkSessionId &&
+                             key.RequestId != matchingRequestId)
+                         .ToArray())
+            {
+                _followUpRoutes.Remove(key);
+            }
+        }
     }
 
     public bool TryResolve(SessionEvent sessionEvent, out BufferId destination)
@@ -104,9 +131,22 @@ internal sealed class OutputRoutingCoordinator
             if (sessionEvent.Fields.TryGetValue("outputRequestId", out var requestText) &&
                 Guid.TryParse(requestText, out var requestId))
             {
-                if (!_requestRoutes.TryGetValue((sessionEvent.NetworkSessionId, requestId), out destination)) return false;
-                if (IsComplete(sessionEvent)) _requestRoutes.Remove((sessionEvent.NetworkSessionId, requestId));
-                return true;
+                var key = (sessionEvent.NetworkSessionId, requestId);
+                if (_requestRoutes.TryGetValue(key, out destination))
+                {
+                    if (IsComplete(sessionEvent))
+                    {
+                        _requestRoutes.Remove(key);
+                        if (AllowsFollowUp(sessionEvent))
+                        {
+                            _followUpRoutes[key] = destination;
+                        }
+                    }
+
+                    return true;
+                }
+
+                return _followUpRoutes.Remove(key, out destination);
             }
 
             if (!sessionEvent.Fields.TryGetValue("outputFamily", out var family) ||
@@ -126,8 +166,14 @@ internal sealed class OutputRoutingCoordinator
                 _familyRoutes.Remove(key);
             foreach (var key in _requestRoutes.Keys.Where(key => key.SessionId == sessionId).ToArray())
                 _requestRoutes.Remove(key);
+            foreach (var key in _followUpRoutes.Keys.Where(key => key.SessionId == sessionId).ToArray())
+                _followUpRoutes.Remove(key);
         }
     }
+
+    private static bool AllowsFollowUp(SessionEvent sessionEvent) =>
+        sessionEvent.Fields?.GetValueOrDefault("outputFollowUp")
+            ?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
 
     private static bool IsComplete(SessionEvent sessionEvent) =>
         sessionEvent.Fields?.GetValueOrDefault("outputEnd")
