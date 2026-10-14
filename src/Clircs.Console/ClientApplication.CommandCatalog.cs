@@ -52,7 +52,7 @@ internal sealed partial class ClientApplication
         Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
         Register("join", ["j"], "Join one or more channels; separate multiple channels and keys with commas.", JoinAsync);
         Register("part", ["p"], "Part a channel.", PartAsync);
-        Register("cycle", [], "Part and rejoin the active channel.", CycleAsync);
+        Register("cycle", [], "Part and rejoin a channel.", CycleAsync);
         Register("invite", ["i"], "Invite a nickname to a channel; defaults to the active channel.", InviteAsync);
         Register("topic", ["t"], "Show or set a channel topic.", TopicAsync);
         Register("rt", [], "Set a configured default topic or a random quote.", RandomTopicAsync);
@@ -75,7 +75,7 @@ internal sealed partial class ClientApplication
         Register("invitelist", [], "Display channel invite exceptions.", InviteListAsync);
         Register("quietlist", [], "Display channel quiet masks.", QuietListAsync);
         Register("unban", [], "Remove a channel ban mask.", UnbanAsync);
-        Register("clearbans", [], "Remove all channel bans.", ClearBansAsync);
+        Register("clearbans", [], "Remove all bans from the active channel.", ClearBansAsync);
         Register("appendtopic", ["at"], "Append text to the active channel topic.", AppendTopicAsync);
         Register("cleartopic", ["ct"], "Clear the active channel topic.", ClearTopicAsync);
         Register("adduser", [], "Add a user to the active network's user directory.", AddUserAsync);
@@ -101,11 +101,11 @@ internal sealed partial class ClientApplication
         Register("addban", [], "Save a network policy ban and apply it in eligible joined channels.", AddPolicyBanAsync);
         Register("remban", [], "Remove a saved policy ban; existing channel bans stay in place.", RemovePolicyBanAsync);
         Register("bans", [], "List saved network policy bans.", PolicyBansAsync);
-        Register("umop", [], "Op eligible user-directory members in the active channel.", UserMassOpAsync);
-        Register("umdop", [], "Deop members who are not operator-eligible in the user directory.", UserMassDeopAsync);
-        Register("umv", [], "Voice eligible user-directory members in the active channel.", UserMassVoiceAsync);
-        Register("umdv", [], "Devoice members who are not voice-eligible in the user directory.", UserMassDevoiceAsync);
-        Register("filterkick", ["fk"], "Kick members matching a hostmask, except friends.", FilterKickAsync);
+        Register("umop", [], "Op eligible users in the active channel.", UserMassOpAsync);
+        Register("umdop", [], "Deop non-eligible users in the active channel.", UserMassDeopAsync);
+        Register("umv", [], "Voice eligible users in the active channel.", UserMassVoiceAsync);
+        Register("umdv", [], "Devoice non-eligible users in the active channel.", UserMassDevoiceAsync);
+        Register("filterkick", ["fk"], "Kick active-channel members matching a hostmask, except friends.", FilterKickAsync);
         Register("filterkickban", ["fkb"], "Ban a hostmask and kick matching non-friends from the active channel.", FilterKickBanAsync);
         Register("findnickkick", ["fnk"], "Kick active-channel members whose nicknames match a wildcard, except friends.", FindNickKickAsync);
         Register("kicknonops", ["knop"], "Kick non-operators from the active channel, except friends.", KickNonOperatorsAsync);
@@ -119,7 +119,7 @@ internal sealed partial class ClientApplication
         Register("wallmsg", ["wmsg"], "Message operators in the active channel.", OperatorWallMessageAsync);
         Register("voicenotice", ["vnotice"], "Notice voiced users and operators in the active channel.", VoiceNoticeAsync);
         Register("voicemsg", ["vmsg"], "Message voiced users and operators in the active channel.", VoiceMessageAsync);
-        Register("nonopnotice", ["nnotice"], "Notice non-operators.", NonOperatorNoticeAsync);
+        Register("nonopnotice", ["nnotice"], "Notice non-operators in the active channel.", NonOperatorNoticeAsync);
         Register("nonopmsg", ["nmsg"], "Message non-operators in the active channel.", NonOperatorMessageAsync);
         Register("userwall", ["uwall"], "Notice active-channel operators who are not marked as bots.", UserWallAsync);
         Register("names", [], "Request a channel's nickname list; defaults to the active channel.", NamesAsync);

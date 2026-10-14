@@ -120,20 +120,49 @@ internal sealed partial class ClientApplication
             return failure;
         }
 
-        if (active?.Kind != BufferKind.Channel)
+        string channel;
+        string reason;
+
+        if (input.Arguments.Count > 0 && session.Features.IsChannel(input.Arguments[0]))
         {
-            return CommandResult.Failure("/cycle requires an active channel.");
+            channel = input.Arguments[0];
+            reason = TrySplitFirst(input.RawArguments, out _, out var suppliedReason)
+                ? suppliedReason
+                : "Cycling";
+        }
+        else if (active?.Kind == BufferKind.Channel)
+        {
+            channel = active.Name;
+            reason = input.RawArguments.Length == 0
+                ? "Cycling"
+                : input.RawArguments;
+        }
+        else
+        {
+            return CommandResult.Failure("Usage outside a channel: /cycle <channel> [reason]");
         }
 
-        MarkCyclePending(session, active.Name);
+        if (!session.State.TryGetChannel(channel, out _))
+        {
+            return CommandResult.Failure($"You are not on {channel}");
+        }
+
+        MarkCyclePending(session, channel);
         try
         {
-            await session.SendAsync("PART", [active.Name, input.RawArguments.Length == 0 ? "Cycling" : input.RawArguments], cancellationToken: cancellationToken);
-            await SendJoinAsync(session, [active.Name], IrcOutboundPriority.Interactive, cancellationToken);
+            await session.SendAsync(
+                "PART",
+                [channel, reason],
+                cancellationToken: cancellationToken);
+            await SendJoinAsync(
+                session,
+                [channel],
+                IrcOutboundPriority.Interactive,
+                cancellationToken);
         }
         catch
         {
-            ClearCyclePending(session.State.Id, active.Name);
+            ClearCyclePending(session.State.Id, channel);
             throw;
         }
         return CommandResult.Success();
