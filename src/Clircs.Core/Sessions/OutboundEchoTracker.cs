@@ -5,15 +5,8 @@ namespace Clircs.Sessions;
 internal sealed class OutboundEchoTracker
 {
     private const int MaximumPending = 128;
-    private static readonly TimeSpan MaximumAge = TimeSpan.FromSeconds(30);
     private readonly object _gate = new();
     private readonly List<PendingEcho> _pending = [];
-    private readonly TimeProvider _timeProvider;
-
-    public OutboundEchoTracker(TimeProvider? timeProvider = null)
-    {
-        _timeProvider = timeProvider ?? TimeProvider.System;
-    }
 
     public Guid Track(string command, string target, string text)
     {
@@ -24,13 +17,11 @@ internal sealed class OutboundEchoTracker
 
         lock (_gate)
         {
-            RemoveExpiredUnsafe();
             _pending.Add(new PendingEcho(
                 id,
                 command.ToUpperInvariant(),
                 target,
-                text,
-                _timeProvider.GetUtcNow()));
+                text));
             if (_pending.Count > MaximumPending)
             {
                 _pending.RemoveRange(0, _pending.Count - MaximumPending);
@@ -45,6 +36,14 @@ internal sealed class OutboundEchoTracker
         lock (_gate)
         {
             _pending.RemoveAll(candidate => candidate.Id == id);
+        }
+    }
+
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            _pending.Clear();
         }
     }
 
@@ -65,7 +64,6 @@ internal sealed class OutboundEchoTracker
 
         lock (_gate)
         {
-            RemoveExpiredUnsafe();
             var index = _pending.FindIndex(candidate =>
                 candidate.Command == message.Command &&
                 comparer.Equals(candidate.Target, message.Parameters[0]) &&
@@ -80,16 +78,9 @@ internal sealed class OutboundEchoTracker
         }
     }
 
-    private void RemoveExpiredUnsafe()
-    {
-        var cutoff = _timeProvider.GetUtcNow() - MaximumAge;
-        _pending.RemoveAll(candidate => candidate.SentAt < cutoff);
-    }
-
     private sealed record PendingEcho(
         Guid Id,
         string Command,
         string Target,
-        string Text,
-        DateTimeOffset SentAt);
+        string Text);
 }

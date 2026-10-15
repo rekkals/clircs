@@ -15,6 +15,8 @@ internal static class CapabilityNegotiationTests
         suite.Add("CAP negotiation continues when multi-prefix is rejected", RejectedMultiPrefixIsNonfatalAsync);
         suite.Add("split CAP ACK applies capabilities only after the final line", SplitAckWaitsForCompleteReplyAsync);
         suite.Add("CAP DEL prevents a pending ACK from restoring withdrawn capabilities", DelCancelsPendingRequestAsync);
+        suite.Add("echo tracking follows the negotiated capability lifetime", EchoTrackingFollowsCapabilityLifetimeAsync);
+        suite.Add("outbound echo tracking resets before reconnect", OutboundEchoTrackingResetsBeforeReconnectAsync);
         suite.Add("CAP NEW waits for an outstanding capability request", NewWaitsForOutstandingRequestAsync);
         suite.Add("CAP NAK discards partial ACK and later stray ACK", NakDiscardsPartialAckAsync);
         suite.Add("CAP NAK listing one capability rejects the entire request", NakSubsetRejectsWholeRequestAsync);
@@ -505,6 +507,130 @@ internal static class CapabilityNegotiationTests
 
         Assert.Equal(IrcConnectionState.Online, session.ConnectionState);
         await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask EchoTrackingFollowsCapabilityLifetimeAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var transport = new ScriptedTransport();
+        await using var session = Session(transport);
+        var connecting = session.ConnectAsync(timeout.Token).AsTask();
+
+        await AssertRegistrationStartAsync(transport, timeout.Token);
+        transport.Receive(":server CAP * LS :echo-message");
+        Assert.Equal(
+            "CAP REQ echo-message",
+            await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server CAP TestNick ACK :echo-message");
+        Assert.Equal("CAP END", await transport.NextSentAsync(timeout.Token));
+        transport.Receive(":server 001 TestNick :Welcome");
+        await connecting;
+
+        await session.SendMessageAsync(
+            "#clirc",
+            "before-del",
+            timeout.Token);
+        Assert.Equal(
+            "PRIVMSG #clirc before-del",
+            await transport.NextSentAsync(timeout.Token));
+
+        var capDelProcessed = NextMessageAsync(
+            session,
+            "cap-del-processed",
+            timeout.Token);
+        transport.Receive(":server CAP TestNick DEL :echo-message");
+        transport.Receive(
+            ":Other!user@example PRIVMSG TestNick :cap-del-processed");
+        await capDelProcessed;
+
+        var clearedEcho = NextMessageAsync(
+            session,
+            "before-del",
+            timeout.Token);
+        transport.Receive(
+            ":TestNick!test@example PRIVMSG #clirc :before-del");
+        await clearedEcho;
+
+        await session.SendMessageAsync(
+            "#clirc",
+            "after-del",
+            timeout.Token);
+        Assert.Equal(
+            "PRIVMSG #clirc after-del",
+            await transport.NextSentAsync(timeout.Token));
+
+        var untrackedSelfMessage = NextMessageAsync(
+            session,
+            "after-del",
+            timeout.Token);
+        transport.Receive(
+            ":TestNick!test@example PRIVMSG #clirc :after-del");
+        await untrackedSelfMessage;
+
+        await DisconnectAsync(session, transport, timeout.Token);
+    }
+
+    private static async ValueTask OutboundEchoTrackingResetsBeforeReconnectAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var firstTransport = new ScriptedTransport();
+        var secondTransport = new ScriptedTransport();
+        await using var session = new IrcNetworkSession(
+            "test",
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example.test", 6667, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "TestUser")),
+            new ScriptedTransportFactory(firstTransport, secondTransport));
+
+        var firstConnection = session.ConnectAsync(timeout.Token).AsTask();
+
+        await AssertRegistrationStartAsync(firstTransport, timeout.Token);
+        firstTransport.Receive(":server CAP * LS :echo-message");
+        Assert.Equal(
+            "CAP REQ echo-message",
+            await firstTransport.NextSentAsync(timeout.Token));
+        firstTransport.Receive(":server CAP TestNick ACK :echo-message");
+        Assert.Equal(
+            "CAP END",
+            await firstTransport.NextSentAsync(timeout.Token));
+        firstTransport.Receive(":server 001 TestNick :Welcome");
+        await firstConnection;
+
+        await session.SendMessageAsync(
+            "#clirc",
+            "from-old-connection",
+            timeout.Token);
+        Assert.Equal(
+            "PRIVMSG #clirc from-old-connection",
+            await firstTransport.NextSentAsync(timeout.Token));
+
+        var reconnecting = session.ReconnectAsync(
+            cancellationToken: timeout.Token).AsTask();
+        Assert.Equal(
+            "QUIT Reconnecting",
+            await firstTransport.NextSentAsync(timeout.Token));
+
+        await AssertRegistrationStartAsync(secondTransport, timeout.Token);
+        secondTransport.Receive(":server CAP * LS :echo-message");
+        Assert.Equal(
+            "CAP REQ echo-message",
+            await secondTransport.NextSentAsync(timeout.Token));
+        secondTransport.Receive(":server CAP TestNick ACK :echo-message");
+        Assert.Equal(
+            "CAP END",
+            await secondTransport.NextSentAsync(timeout.Token));
+        secondTransport.Receive(":server 001 TestNick :Welcome");
+        await reconnecting;
+
+        var selfMessage = NextMessageAsync(
+            session,
+            "from-old-connection",
+            timeout.Token);
+        secondTransport.Receive(
+            ":TestNick!test@example PRIVMSG #clirc :from-old-connection");
+        await selfMessage;
+
+        await DisconnectAsync(session, secondTransport, timeout.Token);
     }
 
     private static async ValueTask TaggedCapabilityToleranceIsOneShotAsync()

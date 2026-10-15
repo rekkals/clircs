@@ -345,7 +345,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         CancellationToken cancellationToken,
         bool createQueryBuffer)
     {
-        var pendingEcho = _echoTracker.Track("PRIVMSG", target, wireText);
+        Guid? pendingEcho = _connection.IsCapabilityEnabled("echo-message")
+            ? _echoTracker.Track("PRIVMSG", target, wireText)
+            : null;
         try
         {
             await SendAsync(
@@ -355,7 +357,10 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         }
         catch
         {
-            _echoTracker.Cancel(pendingEcho);
+            if (pendingEcho is { } echoId)
+            {
+                _echoTracker.Cancel(echoId);
+            }
             throw;
         }
 
@@ -424,11 +429,12 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
         foreach (var segment in segments)
         {
-            var pendingEcho =
-                _echoTracker.Track(
+            Guid? pendingEcho = _connection.IsCapabilityEnabled("echo-message")
+                ? _echoTracker.Track(
                     "NOTICE",
                     target,
-                    segment);
+                    segment)
+                : null;
 
             try
             {
@@ -439,7 +445,10 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             }
             catch
             {
-                _echoTracker.Cancel(pendingEcho);
+                if (pendingEcho is { } echoId)
+                {
+                    _echoTracker.Cancel(echoId);
+                }
                 throw;
             }
 
@@ -477,11 +486,12 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         {
             var wireText =
                 $"\u0001ACTION {segment}\u0001";
-            var pendingEcho =
-                _echoTracker.Track(
+            Guid? pendingEcho = _connection.IsCapabilityEnabled("echo-message")
+                ? _echoTracker.Track(
                     "PRIVMSG",
                     target,
-                    wireText);
+                    wireText)
+                : null;
 
             try
             {
@@ -492,7 +502,10 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             }
             catch
             {
-                _echoTracker.Cancel(pendingEcho);
+                if (pendingEcho is { } echoId)
+                {
+                    _echoTracker.Cancel(echoId);
+                }
                 throw;
             }
 
@@ -580,6 +593,12 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 SessionDisconnectKind.Killed,
                 reason,
                 Reason: reason);
+        }
+
+        if (message.Command == "CAP" &&
+            !_connection.IsCapabilityEnabled("echo-message"))
+        {
+            _echoTracker.Clear();
         }
 
         if (_echoTracker.TryConsume(message, _processor.CurrentNickname, State.CaseMapping))
@@ -875,6 +894,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     private void OnConnectionClosed(Exception? exception)
     {
         StopHealthMonitor();
+        _echoTracker.Clear();
         _healthPingToken = null;
         _healthPingSentAt = null;
         CaptureJoinedChannels();

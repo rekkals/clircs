@@ -868,7 +868,27 @@ internal static class NetworkingIntegrationTests
             NewLine = "\r\n"
         };
 
-        var registration = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", cancellationToken);
+        Assert.Equal(
+            "CAP LS 302",
+            (await reader.ReadLineAsync(cancellationToken))!);
+        var nick = (await reader.ReadLineAsync(cancellationToken))!;
+        var user = (await reader.ReadLineAsync(cancellationToken))!;
+        Assert.Equal("NICK TestNick", nick);
+
+        await writer.WriteLineAsync(
+            ":server CAP * LS :echo-message".AsMemory(),
+            cancellationToken);
+        Assert.Equal(
+            "CAP REQ echo-message",
+            (await reader.ReadLineAsync(cancellationToken))!);
+        await writer.WriteLineAsync(
+            ":server CAP TestNick ACK :echo-message".AsMemory(),
+            cancellationToken);
+        Assert.Equal(
+            "CAP END",
+            (await reader.ReadLineAsync(cancellationToken))!);
+
+        var registration = (Nick: nick, User: user);
         var transcript = new List<string> { registration.Nick, registration.User };
 
         await writer.WriteLineAsync(":server 433 * TestNick :Nickname is already in use".AsMemory(), cancellationToken);

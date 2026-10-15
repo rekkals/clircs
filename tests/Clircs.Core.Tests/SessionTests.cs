@@ -80,6 +80,7 @@ internal static class SessionTests
         suite.Add("channel topics retain IRC formatting for history and the topic bar", TopicColorsArePreserved);
         suite.Add("structured IRC output preserves colors while measuring plain text", StructuredOutputPreservesIrcColors);
         suite.Add("outbound echo tracking consumes only exact self echoes", OutboundEchoTrackingIsNarrow);
+        suite.Add("outbound echo tracking is clearable and count bounded", OutboundEchoTrackingIsClearableAndBounded);
         suite.Add("echoed self messages use outbound conversation semantics", EchoedSelfMessagesUseOutboundSemantics);
         suite.Add("outbound notices never create conversation buffers", OutboundNoticesDoNotCreateBuffers);
         suite.Add("relay text budgets use visible identity and conservative fallbacks", RelayTextBudgetsUseVisibleIdentityAndFallbacks);
@@ -1853,6 +1854,33 @@ internal static class SessionTests
             IrcCaseMapping.Rfc1459));
         Assert.True(tracker.TryConsume(
             IrcMessageParser.Parse(":me!u@h PRIVMSG #clirc :another"),
+            "me",
+            IrcCaseMapping.Rfc1459));
+    }
+
+    private static void OutboundEchoTrackingIsClearableAndBounded()
+    {
+        var tracker = new OutboundEchoTracker();
+        tracker.Track("PRIVMSG", "#clirc", "clear me");
+        tracker.Clear();
+
+        Assert.False(tracker.TryConsume(
+            IrcMessageParser.Parse(":me!u@h PRIVMSG #clirc :clear me"),
+            "me",
+            IrcCaseMapping.Rfc1459));
+
+        tracker.Track("PRIVMSG", "#clirc", "oldest");
+        for (var index = 0; index < 128; index++)
+        {
+            tracker.Track("PRIVMSG", "#clirc", $"new-{index}");
+        }
+
+        Assert.False(tracker.TryConsume(
+            IrcMessageParser.Parse(":me!u@h PRIVMSG #clirc :oldest"),
+            "me",
+            IrcCaseMapping.Rfc1459));
+        Assert.True(tracker.TryConsume(
+            IrcMessageParser.Parse(":me!u@h PRIVMSG #clirc :new-127"),
             "me",
             IrcCaseMapping.Rfc1459));
     }
