@@ -10,6 +10,17 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     private const int DefaultRelayUsernameLength = 10;
     private const int DefaultRelayHostLength = 64;
 
+    private static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan HealthIdleThreshold = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan HealthPongTimeout = TimeSpan.FromSeconds(120);
+
+    internal enum ConnectionHealthAction
+    {
+        Wait,
+        SendPing,
+        Abort
+    }
+
     private readonly IrcClientConnection _connection;
     private readonly OutboundEchoTracker _echoTracker = new();
     private readonly AutomaticCtcpReplyLimiter _ctcpReplyLimiter = new();
@@ -1127,33 +1138,56 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _ = MonitorConnectionHealthAsync(cancellationToken);
     }
 
+    internal static ConnectionHealthAction EvaluateConnectionHealth(
+        DateTimeOffset now,
+        DateTimeOffset lastReceivedAt,
+        DateTimeOffset? pingSentAt)
+    {
+        if (pingSentAt is { } sentAt)
+        {
+            return now - sentAt >= HealthPongTimeout
+                ? ConnectionHealthAction.Abort
+                : ConnectionHealthAction.Wait;
+        }
+
+        return now - lastReceivedAt >= HealthIdleThreshold
+            ? ConnectionHealthAction.SendPing
+            : ConnectionHealthAction.Wait;
+    }
+
     private async Task MonitorConnectionHealthAsync(CancellationToken cancellationToken)
     {
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(HealthCheckInterval, cancellationToken).ConfigureAwait(false);
                 if (_connection.State != IrcConnectionState.Online)
                 {
                     continue;
                 }
-                if (_healthPingSentAt is { } sentAt)
+
+                var now = DateTimeOffset.UtcNow;
+                switch (EvaluateConnectionHealth(now, _connection.LastReceivedAt, _healthPingSentAt))
                 {
-                    if (DateTimeOffset.UtcNow - sentAt >= TimeSpan.FromSeconds(30))
-                    {
-                        await _connection.AbortAsync(new TimeoutException("No PONG was received for the connection health check."))
+                    case ConnectionHealthAction.Wait:
+                        continue;
+
+                    case ConnectionHealthAction.Abort:
+                        await _connection.AbortAsync(
+                            new TimeoutException("No PONG was received for the connection health check."))
                             .ConfigureAwait(false);
                         return;
-                    }
-                    continue;
-                }
-                if (DateTimeOffset.UtcNow - _connection.LastReceivedAt >= TimeSpan.FromSeconds(90))
-                {
-                    _healthPingToken = $"clircs-{Guid.NewGuid():N}";
-                    _healthPingSentAt = DateTimeOffset.UtcNow;
-                    await SendAsync("PING", [_healthPingToken], IrcOutboundPriority.Critical, cancellationToken)
-                        .ConfigureAwait(false);
+
+                    case ConnectionHealthAction.SendPing:
+                        _healthPingToken = $"clircs-{Guid.NewGuid():N}";
+                        _healthPingSentAt = now;
+                        await SendAsync(
+                            "PING",
+                            [_healthPingToken],
+                            IrcOutboundPriority.Critical,
+                            cancellationToken).ConfigureAwait(false);
+                        break;
                 }
             }
         }

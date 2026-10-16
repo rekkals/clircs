@@ -67,6 +67,7 @@ internal static class SessionTests
         suite.Add("unknown WHOIS numerics retain all significant parameters", UnknownWhoisNumericsAreLossless);
         suite.Add("known numerics take precedence over WHOIS extension collection", KnownNumericPrecedesWhoisExtension);
         suite.Add("query response state is discarded on reconnect", QueryResponseStateResetsOnReconnect);
+        suite.Add("connection health probes after 90 seconds and waits 120 seconds", ConnectionHealthUsesConservativeDeadlines);
         suite.Add("Solanum connecting-from WHOIS is normalized as an actual host", SolanumWhoisActualHostIsNormalized);
         suite.Add("Plexus WHOIS host and modes are normalized", PlexusWhoisFieldsAreNormalized);
         suite.Add("failed WHOIS does not produce an empty trailing box", FailedWhoisHasNoTrailingBox);
@@ -1830,6 +1831,39 @@ internal static class SessionTests
         Assert.Equal(0, ctcpRequest.Count);
         Assert.Equal(0, ctcpReply.Count);
         Assert.False(state.TryGetBuffer("Bob", out _));
+    }
+
+    private static void ConnectionHealthUsesConservativeDeadlines()
+    {
+        var now = new DateTimeOffset(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.Equal(
+            IrcNetworkSession.ConnectionHealthAction.Wait,
+            IrcNetworkSession.EvaluateConnectionHealth(
+                now,
+                now - TimeSpan.FromSeconds(89),
+                pingSentAt: null));
+
+        Assert.Equal(
+            IrcNetworkSession.ConnectionHealthAction.SendPing,
+            IrcNetworkSession.EvaluateConnectionHealth(
+                now,
+                now - TimeSpan.FromSeconds(90),
+                pingSentAt: null));
+
+        Assert.Equal(
+            IrcNetworkSession.ConnectionHealthAction.Wait,
+            IrcNetworkSession.EvaluateConnectionHealth(
+                now,
+                now - TimeSpan.FromHours(1),
+                now - TimeSpan.FromSeconds(119)));
+
+        Assert.Equal(
+            IrcNetworkSession.ConnectionHealthAction.Abort,
+            IrcNetworkSession.EvaluateConnectionHealth(
+                now,
+                lastReceivedAt: now,
+                pingSentAt: now - TimeSpan.FromSeconds(120)));
     }
 
     private static void OutboundEchoTrackingIsNarrow()
