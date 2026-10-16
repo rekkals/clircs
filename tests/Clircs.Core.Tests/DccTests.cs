@@ -69,11 +69,18 @@ internal static class DccTests
         suite.Add("DCC partial downloads survive and can be resumed", DownloadStoreFindsPartialResume);
         suite.Add("DCC partial downloads are scoped to their network and sender", DownloadStoreScopesPartialResume);
         suite.Add("DCC resume rejects a partial file changed after selection", DownloadStoreRejectsChangedPartial);
-        suite.Add("XDCC requests normalize packs and distinguish SEND from SSEND", XdccRequestsAreValidated);
+        suite.Add("XDCC requests build LIST, SEND, and SSEND commands", XdccRequestsAreValidated);
     }
 
     private static void XdccRequestsAreValidated()
     {
+        Assert.True(ClientApplication.TryBuildXdccRequest("LIST", null, out var list, out var listPack));
+        Assert.Equal("XDCC LIST", list);
+        Assert.Equal(string.Empty, listPack);
+
+        Assert.False(ClientApplication.TryBuildXdccRequest("list", "12", out _, out _));
+        Assert.False(ClientApplication.TryBuildXdccRequest("get", null, out _, out _));
+
         Assert.True(ClientApplication.TryBuildXdccRequest("get", "123", out var ordinary, out var ordinaryPack));
         Assert.Equal("XDCC SEND #123", ordinary);
         Assert.Equal("#123", ordinaryPack);

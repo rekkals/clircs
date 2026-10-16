@@ -44,7 +44,7 @@ internal sealed partial class ClientApplication
         Register("query", ["q"], "Open a private query window, optionally sending a message.", QueryAsync);
         Register("ctcp", [], "Send a CTCP request to a nickname.", CtcpAsync);
         Register("dcc", [], "Start and manage DCC chats, file transfers, and requests.", DccAsync);
-        Register("xdcc", [], "Request file packs from XDCC bots.", XdccAsync);
+        Register("xdcc", [], "List and request file packs from XDCC bots.", XdccAsync);
         Register("ping", [], "Send a CTCP PING request.", PingAsync);
         Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
         Register("time", [], "Show local time or query a [nickname].", TimeAsync);
@@ -235,10 +235,10 @@ internal sealed partial class ClientApplication
         ],
         "xdcc" =>
         [
+            new("List", "/xdcc list <bot>"),
             new("Download", "/xdcc get <bot> <pack>"),
             new("Secure download", "/xdcc sget <bot> <pack>"),
-            new("Incoming", "Use /dcc accept <id> or /dcc reject <id> when the bot offers the file"),
-            new("Security", "Secure requests never fall back to plaintext")
+            new("Incoming", "Use /dcc accept <id> or /dcc reject <id> when the bot offers the file")
         ],
         "set" =>
         [

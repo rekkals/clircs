@@ -368,9 +368,14 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        const string usage = "Usage: /xdcc <get|sget> <bot> <pack>";
-        if (input.Arguments.Count != 3 ||
-            !TryBuildXdccRequest(input.Arguments[0], input.Arguments[2], out var request, out var pack))
+        const string usage = "Usage: /xdcc list <bot> or /xdcc <get|sget> <bot> <pack>";
+        var operation = input.Arguments.Count > 0 ? input.Arguments[0] : string.Empty;
+        var isList = operation.Equals("list", StringComparison.OrdinalIgnoreCase);
+        var expectedCount = isList ? 2 : 3;
+        var packArgument = input.Arguments.Count == 3 ? input.Arguments[2] : null;
+
+        if (input.Arguments.Count != expectedCount ||
+            !TryBuildXdccRequest(operation, packArgument, out var request, out var pack))
         {
             return CommandResult.Failure(usage);
         }
@@ -383,7 +388,13 @@ internal sealed partial class ClientApplication
 
         var bot = input.Arguments[1];
         await session.SendMessageAsync(bot, request, cancellationToken, createQueryBuffer: false);
-        var transferCommand = input.Arguments[0].Equals("sget", StringComparison.OrdinalIgnoreCase)
+
+        if (isList)
+        {
+            return CommandResult.Success($"XDCC LIST request sent to {bot}");
+        }
+
+        var transferCommand = operation.Equals("sget", StringComparison.OrdinalIgnoreCase)
             ? "SSEND"
             : "SEND";
         return CommandResult.Success($"XDCC {transferCommand} request sent to {bot} for pack {pack}");
@@ -391,12 +402,23 @@ internal sealed partial class ClientApplication
 
     internal static bool TryBuildXdccRequest(
         string operation,
-        string packArgument,
+        string? packArgument,
         out string request,
         out string normalizedPack)
     {
         request = string.Empty;
         normalizedPack = string.Empty;
+
+        if (operation.Equals("list", StringComparison.OrdinalIgnoreCase))
+        {
+            if (packArgument is not null)
+            {
+                return false;
+            }
+
+            request = "XDCC LIST";
+            return true;
+        }
 
         var transferCommand = operation.ToLowerInvariant() switch
         {
@@ -404,7 +426,7 @@ internal sealed partial class ClientApplication
             "sget" => "SSEND",
             _ => null
         };
-        if (transferCommand is null)
+        if (transferCommand is null || packArgument is null)
         {
             return false;
         }
