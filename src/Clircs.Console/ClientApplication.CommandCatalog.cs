@@ -30,7 +30,7 @@ internal sealed partial class ClientApplication
         Register("next", ["wn"], "Switch to the next window.", NextBufferAsync);
         Register("previous", ["wp"], "Switch to the previous window.", PreviousBufferAsync);
         Register("close", [], "Close the active window.", CloseBufferAsync);
-        Register("clear", [], "Clear the visible terminal.", ClearAsync);
+        Register("clear", [], "Clear the visible terminal or window activity.", ClearAsync);
         Register("autojoin", ["ajoin", "aj"], "Manage autojoin channels for the active network profile.", AutojoinAsync);
         Register("rj", [], "Remove a channel from the active network profile's autojoin list.", AutojoinRemoveAliasAsync);
         Register("msg", ["m"], "Send a message to a nickname or channel.", MessageAsync);

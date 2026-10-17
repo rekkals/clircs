@@ -268,6 +268,17 @@ internal sealed class WindowStateRegistry
         }
     }
 
+    public void ClearActivity()
+    {
+        lock (_gate)
+        {
+            foreach (var state in _windows.Values)
+            {
+                state.Unread.Clear();
+            }
+        }
+    }
+
     public SessionEventKind[] UnreadKinds(BufferId bufferId)
     {
         lock (_gate)

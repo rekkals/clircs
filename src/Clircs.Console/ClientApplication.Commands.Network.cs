@@ -1411,10 +1411,26 @@ internal sealed partial class ClientApplication
     internal static int? PreviousBufferNumber(int closingNumber, IEnumerable<int> openNumbers) =>
         openNumbers.Where(number => number < closingNumber).Select(number => (int?)number).Max();
 
-    private ValueTask<CommandResult> ClearAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
+    private ValueTask<CommandResult> ClearAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
     {
-        _presenter.Clear();
-        return ValueTask.FromResult(CommandResult.Success());
+        if (input.Arguments.Count == 0)
+        {
+            _presenter.Clear();
+            return ValueTask.FromResult(CommandResult.Success());
+        }
+
+        if (input.Arguments.Count == 1 &&
+            input.Arguments[0].Equals("activity", StringComparison.OrdinalIgnoreCase))
+        {
+            _windowStates.ClearActivity();
+            return ValueTask.FromResult(CommandResult.Success());
+        }
+
+        return ValueTask.FromResult(
+            CommandResult.Failure("Usage: /clear [activity]"));
     }
 
     private async ValueTask<CommandResult> NotifyAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)

@@ -40,6 +40,7 @@ internal static class ThemeTests
         suite.Add("viewport paging retains mixed fields and tables", ViewportPagingRetainsMixedPresentations);
         suite.Add("transient viewport events replace one history entry and become permanent", TransientViewportEventsReplaceInPlace);
         suite.Add("unread activity distinguishes parts, quits, and kicks", UnreadActivityDistinguishesDepartures);
+        suite.Add("clearing activity preserves window state", ClearActivityPreservesWindowState);
         suite.Add("window activation resets unread and scroll state through one owner", WindowActivationResetsTransientState);
         suite.Add("window removal clears all terminal state without reusing numbers", WindowRemovalClearsTerminalState);
         suite.Add("viewport history snapshots are isolated from live event arrival", ViewportHistorySnapshotsAreIsolated);
@@ -1219,6 +1220,38 @@ internal static class ThemeTests
         Assert.Equal(
             SessionEventKind.Part,
             states.ChromeState(null).Activity.Single().Kinds.Single());
+    }
+
+    private static void ClearActivityPreservesWindowState()
+    {
+        var states = new WindowStateRegistry();
+        var session = NetworkSessionId.New();
+        var first = BufferId.New();
+        var second = BufferId.New();
+        var firstNumber = states.AssignNumber(first);
+        var secondNumber = states.AssignNumber(second);
+
+        states.AppendHistory(new SessionEvent(
+            session, first, SessionEventKind.Message, "first", DateTimeOffset.Now));
+        states.AppendHistory(new SessionEvent(
+            session, second, SessionEventKind.Message, "second", DateTimeOffset.Now));
+        states.Activate(session, first);
+        states.MarkUnread(first, SessionEventKind.Message);
+        states.MarkUnread(second, SessionEventKind.Highlight);
+        states.SetScrollOffset(first, 24);
+        states.SetScrollOffset(second, 48);
+
+        states.ClearActivity();
+
+        Assert.False(states.IsUnread(first));
+        Assert.False(states.IsUnread(second));
+        Assert.False(states.HistoryIsEmpty(first));
+        Assert.False(states.HistoryIsEmpty(second));
+        Assert.Equal(24, states.ScrollOffset(first));
+        Assert.Equal(48, states.ScrollOffset(second));
+        Assert.Equal(firstNumber, states.AssignNumber(first));
+        Assert.Equal(secondNumber, states.AssignNumber(second));
+        Assert.True(states.ActiveLocation() == (session, first));
     }
 
     private static void WindowActivationResetsTransientState()
