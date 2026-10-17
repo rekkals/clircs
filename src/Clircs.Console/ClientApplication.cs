@@ -210,7 +210,6 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _tlsCertificatePolicy = new TlsCertificatePromptPolicy(
             _presenter,
             System.IO.Path.Combine(dataDirectory, "trusted-certificates.json"));
-        _tlsCertificatePolicy.NoticeRaised += OnTlsCertificateNotice;
         _profileStore = new NetworkProfileStore(System.IO.Path.Combine(dataDirectory, "networks.toml"));
         _networkCredentials = new NetworkCredentialStore(System.IO.Path.Combine(dataDirectory, "network-secrets.json"));
         _userDirectoryStore = new UserDirectoryStore(System.IO.Path.Combine(dataDirectory, "users"));

@@ -4,7 +4,7 @@ using Clircs.Sessions;
 
 namespace Clircs.ConsoleClient;
 
-internal sealed class TlsCertificatePromptPolicy : ITlsCertificatePolicy
+internal sealed class TlsCertificatePromptPolicy
 {
     private readonly ConsolePresenter _presenter;
     private readonly TrustedCertificateStore _store;
@@ -23,11 +23,20 @@ internal sealed class TlsCertificatePromptPolicy : ITlsCertificatePolicy
 
     public string StorePath => _store.Path;
 
-    public event Action<TlsCertificateNotice>? NoticeRaised;
+    public ITlsCertificatePolicy CreateSessionPolicy(Action<TlsCertificateNotice> noticeHandler)
+    {
+        ArgumentNullException.ThrowIfNull(noticeHandler);
+        return new SessionPolicy(this, noticeHandler);
+    }
 
-    public TlsCertificateDecision Decide(TlsCertificateInfo certificate)
+    private TlsCertificateDecision Decide(
+        TlsCertificateInfo certificate,
+        Action<TlsCertificateNotice> noticeHandler)
     {
         ArgumentNullException.ThrowIfNull(certificate);
+
+        void Report(IrcEndpoint endpoint, string text, bool success = true) =>
+            noticeHandler(new TlsCertificateNotice(endpoint, text, success));
         if (_store.IsTrusted(certificate))
         {
             Report(certificate.Endpoint, $"TLS: accepted pinned certificate for {certificate.Endpoint.Host}:{certificate.Endpoint.Port}.");
@@ -100,15 +109,12 @@ internal sealed class TlsCertificatePromptPolicy : ITlsCertificatePolicy
 
     public bool Forget(string host, int port) => _store.Remove(host, port);
 
-    private void Report(IrcEndpoint endpoint, string text, bool success = true)
+    private sealed class SessionPolicy(
+        TlsCertificatePromptPolicy owner,
+        Action<TlsCertificateNotice> noticeHandler) : ITlsCertificatePolicy
     {
-        var handler = NoticeRaised;
-        if (handler is null)
-        {
-            _presenter.Result(text, success);
-            return;
-        }
-        handler(new TlsCertificateNotice(endpoint, text, success));
+        public TlsCertificateDecision Decide(TlsCertificateInfo certificate) =>
+            owner.Decide(certificate, noticeHandler);
     }
 
     private static string FormatFingerprint(string fingerprint)

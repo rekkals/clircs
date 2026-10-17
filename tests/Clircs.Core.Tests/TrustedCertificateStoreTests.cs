@@ -1,3 +1,4 @@
+using Clircs.ConsoleClient;
 using Clircs.Infrastructure;
 using Clircs.Networking;
 
@@ -10,6 +11,7 @@ internal static class TrustedCertificateStoreTests
         suite.Add("certificate pins persist and remain endpoint-scoped", PinsPersistAndRemainScoped);
         suite.Add("expired certificates cannot be pinned or silently trusted", ExpiredPinsAreRejected);
         suite.Add("a damaged trust file is preserved instead of overwritten", DamagedStoreIsPreserved);
+        suite.Add("certificate notices remain isolated for sessions sharing an endpoint", CertificateNoticesRemainSessionScoped);
     }
 
     private static void PinsPersistAndRemainScoped()
@@ -74,6 +76,41 @@ internal static class TrustedCertificateStoreTests
             Assert.True(store.LoadError is not null);
             Assert.Throws<InvalidOperationException>(() => store.AddOrReplace(Certificate("irc.example.test", 6697, 'D')));
             Assert.Equal("{not valid json", File.ReadAllText(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void CertificateNoticesRemainSessionScoped()
+    {
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var path = System.IO.Path.Combine(directory, "trusted-certificates.json");
+            var certificate = Certificate("irc.example.test", 6697, 'E');
+            var store = new TrustedCertificateStore(path);
+            store.AddOrReplace(certificate);
+
+            var policy = new TlsCertificatePromptPolicy(new ConsolePresenter(), path);
+            var firstNotices = new List<TlsCertificateNotice>();
+            var secondNotices = new List<TlsCertificateNotice>();
+            var firstPolicy = policy.CreateSessionPolicy(firstNotices.Add);
+            var secondPolicy = policy.CreateSessionPolicy(secondNotices.Add);
+
+            Assert.Equal(TlsCertificateDecision.Accept, firstPolicy.Decide(certificate));
+            Assert.Equal(1, firstNotices.Count);
+            Assert.Equal(0, secondNotices.Count);
+
+            Assert.Equal(TlsCertificateDecision.Accept, secondPolicy.Decide(certificate));
+            Assert.Equal(1, firstNotices.Count);
+            Assert.Equal(1, secondNotices.Count);
+            Assert.Equal(
+                "TLS: accepted pinned certificate for irc.example.test:6697.",
+                firstNotices[0].Text);
+            Assert.True(firstNotices[0].Success);
+            Assert.Equal(firstNotices[0], secondNotices[0]);
         }
         finally
         {

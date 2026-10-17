@@ -26,12 +26,16 @@ internal sealed partial class ClientApplication
         bool tolerateTaggedCapabilityMessages = false)
     {
         var displayName = UniqueDisplayName(requestedDisplayName ?? options.Endpoint.Host);
+        NetworkSessionId? certificateNoticeSessionId = null;
+        var sessionCertificatePolicy = _tlsCertificatePolicy.CreateSessionPolicy(
+            notice => OnTlsCertificateNotice(certificateNoticeSessionId, notice));
         var session = new IrcNetworkSession(
             displayName,
             options,
-            new TcpIrcTransportFactory(_tlsCertificatePolicy),
+            new TcpIrcTransportFactory(sessionCertificatePolicy),
             () => _quotes.Next(220),
             IsPermanentlyIgnored);
+        certificateNoticeSessionId = session.State.Id;
         lock (_windowTransactionGate)
         {
             _liveSessions.Add(session, options, profileId, _lifetime.Token);
@@ -1282,19 +1286,19 @@ internal sealed partial class ClientApplication
             TerminalTextSanitizer.Sanitize(FormatLocalCommandResult(text)),
             DateTimeOffset.Now));
 
-    private void OnTlsCertificateNotice(TlsCertificateNotice notice)
+    private void OnTlsCertificateNotice(
+        NetworkSessionId? sessionId,
+        TlsCertificateNotice notice)
     {
-        var session = _liveSessions.SessionSnapshot()
-            .Where(candidate =>
-                candidate.Options.Endpoint.Host.Equals(notice.Endpoint.Host, StringComparison.OrdinalIgnoreCase) &&
-                candidate.Options.Endpoint.Port == notice.Endpoint.Port)
-            .OrderByDescending(candidate => _windowStates.IsActiveSession(candidate.State.Id))
-            .FirstOrDefault();
+        var session = sessionId is { } id
+            ? _liveSessions.Find(id)
+            : null;
         if (session is null)
         {
             _presenter.Result(notice.Text, notice.Success);
             return;
         }
+
         PublishStatus(
             session,
             notice.Success ? SessionEventKind.Status : SessionEventKind.Error,
