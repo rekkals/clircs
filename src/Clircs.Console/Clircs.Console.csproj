@@ -15,8 +15,24 @@
       <Link>DOCUMENTATION.md</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="..\..\SCRIPTING.md">
+      <Link>SCRIPTING.md</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\..\VERSIONS.txt">
       <Link>VERSIONS.txt</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\LICENSE">
+      <Link>LICENSE</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\DOTNET-LICENSE.txt">
+      <Link>DOTNET-LICENSE.txt</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\docs\images\*.png">
+      <Link>docs\images\%(Filename)%(Extension)</Link>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
@@ -29,16 +45,6 @@
   <ItemGroup>
     <Content Include="..\..\examples\theme-example.toml">
       <Link>themes\theme-example.toml</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-    <Content Include="..\..\examples\script-demo\**\*">
-      <Link>scripts\script-demo\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-    <Content Include="..\..\examples\musikcube\**\*">
-      <Link>scripts\musikcube\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

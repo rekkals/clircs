@@ -1,6 +1,6 @@
 # Contributing to clircs
 
-clircs is a Windows-native console IRC client written in C#. This guide is for contributors working from source. Start with [ARCHITECTURE.md](ARCHITECTURE.md) before making a change that crosses protocol, session, routing, window, persistence, DCC, protection, or scripting boundaries.
+clircs is a Windows Console IRC client written in C# for .NET 10. This guide is for contributors working from source. Start with [ARCHITECTURE.md](ARCHITECTURE.md) before making a change that crosses protocol, session, routing, window, persistence, DCC, protection, or scripting boundaries.
 
 By contributing to clircs, you agree that your contribution is licensed under the GNU General Public License, version 3 or later.
 
@@ -8,32 +8,25 @@ By contributing to clircs, you agree that your contribution is licensed under th
 
 - Windows 10 or Windows 11
 - .NET 10 SDK
-- Visual Studio is optional; the command-line build is authoritative
+
+Optional, but handy: Visual Studio (the command-line build is authoritative)
 
 The SDK version policy is recorded in `global.json`. NuGet dependencies come from the source declared in `NuGet.Config`.
 
-## AI Policy
-
-clircs started out as a simple curiosity project. A lot of my nerd friends wouldn't shut up about coding with AI, so I figured I'd give it a shot, fully anticipating it'd suck just as badly at that as it does at writing. Two weeks later I'm on freeCodeCamp frantically trying to power through guided projects.
-
-Which is to say, a not-insignificant portion of early development was done with the help of OpenAI Codex, including writing and reviewing code, testing, and even some of the documentation. Now, clircs has moved from "curiosity project" to "learning project," as I have been figuring out just how well decades of IRC and mIRC scripting knowledge transfers to picking up C#.
-
-What this means to you, potential future contributor, is that AI contributions are welcome, but it's the standard "you have to be able to explain the code" rule. We're not trying to cram vibe coded features into clircs. This isn't that client.
-
-## Build, test, and run
+## Build, Test, and Run
 
 From the repository root:
 
-```powershell
+```
 dotnet restore clircs.sln
 dotnet build clircs.sln -c Release --no-restore
 dotnet run --project tests/Clircs.Core.Tests/Clircs.Core.Tests.csproj -c Release --no-build
 dotnet run --project src/Clircs.Console/Clircs.Console.csproj -c Release --no-build
 ```
 
-The tests are a purpose-built executable suite, so use `dotnet run` rather than `dotnet test`. A restricted Windows environment may skip the Schannel tests that require access to the current user's certificate key store; the suite reports those skips explicitly.
+The tests are a purpose-built executable suite, so use `dotnet run` rather than `dotnet test`.
 
-## Source map
+## Source Map
 
 | Path | Responsibility |
 | --- | --- |
@@ -47,26 +40,30 @@ The tests are a purpose-built executable suite, so use `dotnet run` rather than 
 
 `ARCHITECTURE.md` provides the detailed ownership map and traces inbound and outbound IRC data through the application.
 
-## Working conventions
+## Working Conventions
 
 1. Create a branch for a meaningful change instead of working directly on `main`.
 2. Keep changes focused. Architectural work, features, and cosmetic cleanup should not be mixed casually.
 3. Preserve domain ownership. Do not duplicate protocol, routing, persistence, validation, or presentation rules in a convenient caller.
-4. Add tests for behavior, invariants, edge cases, and failure modes—not merely for the current implementation shape.
+4. Add tests for behavior, invariants, edge cases, and failure modes and not just for the current implementation shape.
 5. Run the complete Release build and test suite before requesting review.
-6. Update user documentation when behavior changes. Do not bump the application version for repository-only maintenance unless the maintainer requests it.
+6. Update user documentation when behavior changes. Do not bump the application version for repository-only maintenance unless I request it.
 7. Do not commit build packages, local clircs data, downloaded reference trees, logs, credentials, certificate bundles, or private keys.
 
 The repository enables nullable reference types, implicit usings, deterministic builds, and warnings as errors through `Directory.Build.props`. Follow the formatting rules in `.editorconfig`; avoid drive-by formatting in files unrelated to the change.
 
-## Commits and pull requests
+## Commits and Pull Requests
 
-Use a short, specific commit subject written as an action, for example:
+Use a short, specific commit subject written as an action. Like this:
 
-```text
+```
 Route channel notices before join synchronization completes
 ```
 
 A pull request should explain the user-visible or architectural outcome, identify important compatibility considerations, and state which verification was run. Screenshots or short transcripts are useful for terminal-presentation changes.
 
-Security-sensitive findings should be shared directly with the maintainer rather than placed in a public issue or transcript. Never include real IRC, services, SASL, bouncer, or certificate credentials in a test fixture.
+Security-sensitive findings should be emailed to me directly rather than placed in a public issue or transcript. Never include real IRC, services, SASL, bouncer, or certificate credentials in a test fixture.
+
+## AI Policy
+
+You can use an LLM (I have), but you have to be able to explain the code and know what it's doing. We're not cramming vibe-coded features into this client.

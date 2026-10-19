@@ -1,14 +1,14 @@
-# clircs scripting guide
+# clircs Scripting Guide
 
-clircs scripts are optional JavaScript addons executed by the embedded Jint interpreter. They can add commands, observe semantic IRC events, keep private settings, use bounded timers, and contribute small items to the window header.
+clircs scripting is a deliberately small extension system built on the embedded Jint JavaScript interpreter. An addon can add commands, observe semantic IRC events, keep private settings, use bounded timers, and contribute small items to the window header.
 
-The scripting system is deliberately narrower than mIRC scripting, a browser, Node.js, or unrestricted .NET. Scripts receive only the `clircs` APIs described here. They do not receive arbitrary filesystem access, process launching, registry access, raw sockets, unrestricted CLR access, or unrestricted Internet access.
+It is narrower than mIRC scripting, a browser, Node.js, or unrestricted .NET on purpose. Scripts receive only the `clircs` APIs described here. They do not receive arbitrary filesystem access, process launching, registry access, raw sockets, unrestricted CLR access, or unrestricted Internet access.
 
-Scripts are still code. Read a script before loading it, inspect the permissions it requests, and grant `irc` or `localnetwork` only when you trust what it does.
+Scripts are still code. A sandbox is a boundary, not a certificate of good intentions. Read a script before loading it, inspect the permissions it requests, and grant `irc` or `localnetwork` only when you trust what it does.
 
-## Installing and managing scripts
+## Installing and Managing Scripts
 
-A script is one directory containing a manifest named `clircs-script.json` and a JavaScript entry file:
+A script is not a package ecosystem. It is one directory containing a manifest named `clircs-script.json` and a JavaScript entry file:
 
 ```text
 my-script\
@@ -22,7 +22,7 @@ User-installed scripts belong under:
 %APPDATA%\clircs\scripts\<script-id>\
 ```
 
-Release packages may also contain bundled scripts under the `scripts` directory next to `clircs.exe`. If a user-installed script and a bundled script have the same ID, the user-installed script takes precedence.
+clircs can also discover installed scripts under a `scripts` directory next to `clircs.exe`. The v0.9.0 release packages do not include any; the example scripts remain in the source repository. If an executable-adjacent script and a user-installed script have the same ID, the user-installed script takes precedence.
 
 Use `/script` without arguments or `/script list` to inspect installed scripts. The complete management commands are:
 
@@ -37,11 +37,13 @@ Use `/script` without arguments or `/script list` to inspect installed scripts. 
 /script permissions <id> <permission> on|off
 ```
 
-Loading and unloading are remembered immediately. A script that was loaded when clircs closed is loaded again at the next startup. One script failing to load does not prevent other remembered scripts from loading.
+Loading and unloading are remembered immediately. A script that was loaded when clircs closed is loaded again at the next startup. One broken addon does not get to keep the others from loading.
 
 Changing a permission reloads the script when it is already loaded. `/script errors` shows the 20 most recent recorded errors from the current clircs process.
 
 ## Manifest
+
+A manifest tells clircs which script it is looking at, which file to execute, and which capabilities the script expects to use. Keeping that contract explicit is boring in the useful way.
 
 A complete manifest looks like this:
 
@@ -59,7 +61,7 @@ A complete manifest looks like this:
     "output",
     "storage",
     "irc",
-    "localNetwork",
+    "localnetwork",
     "secrets",
     "ui"
   ]
@@ -79,11 +81,11 @@ The fields are:
 
 Script IDs contain 1–64 lowercase letters, digits, dots, underscores, or hyphens and must begin with a letter or digit. The entry point must remain inside the script directory and cannot exceed 256 KiB.
 
-clircs executes one classic JavaScript entry file. It does not expose Node.js, a browser DOM, `require()`, package installation, or JavaScript module loading.
+clircs executes one classic JavaScript entry file. It does not expose Node.js, a browser DOM, `require()`, package installation, or JavaScript module loading. If an addon expects npm to be waiting nearby, it has arrived at the wrong building.
 
 ## Permissions
 
-A manifest must request a permission before the corresponding API can be used. Loading fails if the entry file immediately calls an API whose permission is not granted.
+A manifest must request a permission before the corresponding API can be used. Requesting a capability and being granted it are separate things for the two permissions that can act outside the script itself. Loading fails if the entry file immediately calls an API whose permission is not granted.
 
 | Permission | API or capability |
 | --- | --- |
@@ -93,7 +95,7 @@ A manifest must request a permission before the corresponding API can be used. L
 | `output` | Print sanitized text in clircs. |
 | `storage` | Read and write private durable string settings. |
 | `irc` | Queue an existing clircs slash command through the normal command lane. |
-| `localNetwork` | Open text WebSockets restricted to the local machine. |
+| `localnetwork` | Open text WebSockets restricted to the local machine. |
 | `secrets` | Prompt for and store values protected for the current Windows user. |
 | `ui` | Contribute constrained items to the window header. |
 
@@ -104,9 +106,9 @@ Requested `commands`, `events`, `timers`, `output`, `storage`, `secrets`, and `u
 /script permissions my-script localnetwork on
 ```
 
-The `irc` permission controls `clircs.run()`. It permits only host-approved IRC automation commands, including messaging, channel operations, moderation, server queries, and services commands. Command aliases resolve to the same permission as their canonical commands. Raw protocol access, DCC, filesystem operations, configuration changes, credential management, connection management, and application administration are not available through `clircs.run()`. Unknown and unapproved commands fail closed. Allowed commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts never receive direct access to an IRC socket.
+The `irc` permission controls `clircs.run()`. It opens a controlled route through the client, not around it. It permits only host-approved IRC automation commands, including messaging, channel operations, moderation, server queries, and services commands. Command aliases resolve to the same permission as their canonical commands. Raw protocol access, DCC, filesystem operations, configuration changes, credential management, connection management, and application administration are not available through `clircs.run()`. Unknown and unapproved commands fail closed. Allowed commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts never receive direct access to an IRC socket.
 
-The `localnetwork` permission permits only `ws://` and `wss://` WebSockets whose host is `localhost` or a loopback IP address. It does not permit general HTTP requests or connections to external hosts.
+Local means local here. The `localnetwork` permission permits only `ws://` and `wss://` WebSockets whose host is `localhost` or a loopback IP address. It does not permit general HTTP requests or connections to external hosts.
 
 A script can test a permission without causing an error:
 
@@ -116,7 +118,9 @@ if (!clircs.permissions.has("localnetwork")) {
 }
 ```
 
-## A minimal script
+## A Minimal Script
+
+Here is a complete addon with one command and no machinery it does not need.
 
 Create `%APPDATA%\clircs\scripts\hello\clircs-script.json`:
 
@@ -153,9 +157,9 @@ Edit `main.js` and run `/script reload hello` to load the new source.
 
 ## JavaScript API
 
-The global host object is named `clircs`.
+The global host object is named `clircs`. It is the script's entire doorway into the client.
 
-### Printing output
+### Printing Output
 
 ```javascript
 clircs.print("hello");
@@ -163,7 +167,7 @@ clircs.print("hello");
 
 Requires `output`. Text is prefixed with the script ID when displayed, terminal controls are sanitized, and one call cannot exceed 4,096 characters.
 
-### Registering commands
+### Registering Commands
 
 ```javascript
 clircs.registerCommand("greet", ["gr"], "Greet somebody.", context => {
@@ -194,7 +198,7 @@ Returning `null` or `undefined` succeeds silently. Returning `false` reports com
 
 Script commands participate in the ordinary command registry, appear in `/help`, and are removed when the script unloads or faults. A script may register at most 64 commands.
 
-### Observing events
+### Observing Events
 
 ```javascript
 clircs.on("message", event => {
@@ -224,11 +228,11 @@ Each event contains:
 
 When present, `fields` is an object whose names depend on the event. IRC events commonly provide values such as `nick`, `user`, `host`, `channel`, `actor`, `reason`, `modes`, or request-routing identifiers. Field values are strings or `null`; scripts should check that `fields` and the particular field exist before using them.
 
-Events are delivered after clircs has applied protocol state and application routing. Scripts observe semantic events rather than parsing themed terminal output. Stable IDs distinguish identical channel names on simultaneous networks.
+Events are delivered after clircs has applied protocol state and application routing. Scripts observe semantic events rather than parsing themed terminal output, so changing a theme does not quietly break an addon. Stable IDs distinguish identical channel names on simultaneous networks.
 
 One script may register at most 256 event handlers.
 
-### Requesting clircs commands
+### Requesting clircs Commands
 
 ```javascript
 clircs.run("/notice Nick hello");
@@ -236,7 +240,7 @@ clircs.run("/notice Nick hello");
 
 Requires `irc`. Only slash commands are accepted. The command is queued asynchronously using the network and window context active for the script callback that requested it.
 
-`clircs.run()` runs a clircs command. It is not a Windows shell command and cannot launch an executable.
+Despite the name, `clircs.run()` runs a clircs command. It is not a Windows shell command and cannot launch an executable.
 
 ### Timers
 
@@ -247,7 +251,7 @@ clircs.clearTimeout(timerId);
 
 Requires `timers`. Timers are one-shot and accept delays from 10 milliseconds through 24 hours. A script may have at most 256 active timers. All of its timers are canceled when it unloads or faults.
 
-### Private storage
+### Private Storage
 
 ```javascript
 const value = clircs.storage.get("key", "fallback");
@@ -255,11 +259,11 @@ clircs.storage.set("key", "value");
 clircs.storage.remove("key");
 ```
 
-Requires `storage`. Keys and values are strings. Each script receives its own JSON file under `%APPDATA%\clircs\script-data`.
+Requires `storage`. Keys and values are strings. Each script receives its own JSON file under `%APPDATA%\clircs\script-data`. Private means isolated from other scripts here, not encrypted.
 
 Keys cannot exceed 128 characters, an individual value cannot exceed 65,536 characters, and one script's complete storage file cannot exceed one MiB. Ordinary script storage is not encrypted; use the secrets API for credentials.
 
-### Windows-protected secrets
+### Windows-Protected Secrets
 
 ```javascript
 if (!clircs.secrets.get("password")) {
@@ -273,7 +277,7 @@ clircs.secrets.remove("password");
 
 Requires `secrets`. `prompt()` uses masked terminal input and returns `true` when a value was entered or `false` when the prompt was canceled. Time spent waiting for the user is not charged against the script's execution timeout.
 
-Secret values are encrypted with Windows DPAPI for the current Windows user and stored under `%APPDATA%\clircs\script-secrets`. Backups contain the encrypted files, but another Windows account cannot decrypt them. Enter the secrets again after restoring under another account.
+Secret keys contain 1–128 characters, and values cannot exceed 16,384 characters. Values are encrypted with Windows DPAPI for the current Windows user and stored under `%APPDATA%\clircs\script-secrets`. Backups contain the encrypted files, but another Windows account cannot decrypt them. Enter the secrets again after restoring under another account.
 
 ### Local WebSockets
 
@@ -294,11 +298,11 @@ const socketId = clircs.local.websocket.connect(
 clircs.local.websocket.close(socketId);
 ```
 
-Requires `localnetwork`. Callback event types are `open`, `message`, `error`, and `close`. Messages are text-only and cannot exceed one MiB. Connections time out after five seconds, a script may open at most 16 WebSockets, and all of its connections close when it unloads or faults.
+Requires `localnetwork`. This API is for local companion services, not a narrow-looking route to the wider Internet. Callback event types are `open`, `message`, `error`, and `close`. Messages are text-only and cannot exceed one MiB. Connections time out after five seconds, a script may open at most 16 WebSockets, and all of its connections close when it unloads or faults.
 
 Callbacks for events, timers, commands, and WebSockets are serialized for each script.
 
-### Window-header items
+### Window-Header Items
 
 ```javascript
 clircs.ui.setHeader("example", "CPU: 7%", {
@@ -314,11 +318,11 @@ Requires `ui`. Header IDs contain 1–64 letters, digits, dots, underscores, or 
 
 With `scope: "all"`, the item is available in every window. Supply `bufferId` to target a stable buffer explicitly. Without either option, the item uses the current callback's buffer context. `priority` is clamped from -1000 through 1000 and `minimumWidth` from 8 through 200.
 
-The channel topic remains the primary header content. The presenter decides which auxiliary items fit at the current terminal width. All contributions disappear when their script unloads or faults.
+Header contributions are suggestions, not ownership of the terminal. The channel topic remains the primary content, and the presenter decides which auxiliary items fit at the current width. All contributions disappear when their script unloads or faults.
 
-## Execution limits and failure isolation
+## Execution Limits and Failure Isolation
 
-Every script receives its own Jint engine and serialized callback queue. Each execution is constrained to:
+Every script receives its own Jint engine and serialized callback queue. The limits below are hard guardrails, not performance recommendations. Each execution is constrained to:
 
 - 25,000 JavaScript statements;
 - 250 milliseconds of execution time;
@@ -328,23 +332,23 @@ Every script receives its own Jint engine and serialized callback queue. Each ex
 
 A script also cannot queue more than 512 pending callbacks. Exceeding a hard execution or queue limit faults that script. Three consecutive ordinary handler failures also fault it.
 
-Faulting a script unregisters its commands, cancels its timers, removes its header items, and closes its local WebSockets. It does not disconnect IRC sessions or disable other scripts. Inspect failures with:
+Faulting a script unregisters its commands, cancels its timers, removes its header items, and closes its local WebSockets. A script can ruin its own afternoon; it does not get to disconnect IRC sessions or disable other scripts. Inspect failures with:
 
 ```text
 /script errors
 /script list
 ```
 
-## Bundled examples
+## Examples in the Source Tree
 
 The source repository contains two examples under `examples`:
 
 - `script-demo` demonstrates a registered command, semantic JOIN events, a bounded timer, and private storage.
-- `musikcube` is a complete addon that controls an already-running local musikcube WebSocket service, stores its password with Windows protection, and contributes playback information to the header.
+- `musikcube` is a (mostly) complete (and sort of buggy) addon that controls an already-running local musikcube WebSocket service, stores its password with Windows protection, and contributes playback information to the header.
 
-Both are copied into release output as bundled scripts but remain inactive until explicitly loaded. See their individual README files for commands and setup.
+Neither example is included in the v0.9.0 release packages. They remain available in the source tree for anyone who wants to inspect or install them. See their individual README files for commands and setup.
 
-## Author checklist
+## Author Checklist
 
 Before distributing a script:
 

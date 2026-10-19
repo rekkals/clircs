@@ -4,67 +4,78 @@ Command line IRC software (for Windows)
 
 ![Screenshot](docs/images/screen-clircs.png)
 
-clircs is a Windows-native console IRC client written in C# for .NET 10 with scriptability via Jint. It does not require WSL or Cygwin to run. That's actually the whole point of the client.
+clircs is a traditional terminal IRC client written in C# for .NET 10. It runs in Windows Console without needing WSL or Cygwin underneath it.
 
-That, and for it to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do much until you install a bunch of other shit. Yes, the beauty of IRC is that it's decentralized and extensible and customizable. That's why I love it. But two things can exist at the same time, and in this case, that other thing is some people really do just want to chat without learning how to script or any of that other nerd stuff.
+It is also designed to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do much until you install a bunch of other shit. Yes, the beauty of IRC is that it's decentralized and extensible and customizable. That's why I love it. But two things can exist at the same time, and in this case, the other thing is that some people just want to chat without learning how to script or any of that nerd crap.
 
-Additionally, we're not all aboard the current IRCv3 "make IRC into Discord" train that's rolling through. clircs operates in "back to basics" territory.
+Additionally, while clircs does support some IRCv3 capabilities, it's not on board the whole "make IRC into Discord" train that's rolling through. This is "back to basics" territory.
 
 ## Current Version
 
-This is the current development build, which includes normal IRC functions, multi-net, TLS, SASL, bouncer support, channel management, flood protection, logging, scripting, regular-old and the now-more-secure DCC SCHAT and SSEND including passive and resumed file transfers.
+Version 0.9.0 is a preview release, which includes typical (plus additional!) IRC commands, support for multiple networks, TLS, SASL, DCC (and SDCC), bouncer connectivity, channel management, flood protection, logging, and you can add your own scripts by way of Jint (JavaScript).
 
-Support for all the various IRCds could be ... mixed, at least cosmetically. I'm an ircd-ratbox guy, and clircs is pretty solid on EFnet. But I make no promises that it won't display some things a little funny, depending on the IRCd and what it's running.
+## Installing
 
-## Requirements
+clircs runs on 64-bit Windows 10 or 11. The packaged release comes as a ZIP in both the self-contained and framework-dependent variety, or you can build it yourself from source.
 
-Windows 10 or Windows 11 and the .NET 10 SDK.
+### Get the Packaged Release
 
-Precompiled packages and an installer will come later, but for now, you'll have to build it yourself from source. Don't worry, it's easy.
+- **Self-contained (`clircs-v0.9.0-win-x64-self-contained.zip`):** The bigger download, with .NET 10 included. You don't have to install .NET separately, meaning this is the one to grab if you just want to run clircs.
+- **Framework-dependent (`clircs-v0.9.0-win-x64-framework-dependent.zip`):** The smaller download. It requires that you install (or have already installed) the [.NET 10 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) for Windows x64. You do not need the full Desktop Runtime or the SDK.
 
-## Building and Running
+[Snag the ZIP](https://github.com/rekkals/clircs/releases/tag/v0.9.0) you need, extract its contents wherever you want, and run `clircs.exe`.
 
-Just clone the repository and build the solution:
+**HEADS UP:** Windows ShitScreen is probably going to complain about it being an unknown publisher. Just click More Info, then Run Anyway. Do NOT disable SmartScreen system-wide on your machine. If it doesn't let you Run Anyway, you can try building clircs from source instead.
 
-```powershell
-git clone https://github.com/rekkals/clircs.git
-cd clircs
-dotnet build clircs.sln
+### Build From Source
+
+First things first: grab the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
+
+Then head over to the [0.9.0 release page](https://github.com/rekkals/clircs/releases/tag/v0.9.0), download **Source code (zip)**, and extract it. Open PowerShell in the extracted folder where `clircs.sln` is located and run:
+
+```
+dotnet build clircs.sln -c Release
+dotnet run --project src/Clircs.Console/Clircs.Console.csproj -c Release --no-build
 ```
 
-Then run clircs with:
+If you want to take a crack at the latest (and most buggy) development build:
 
-```powershell
-dotnet run --project src/Clircs.Console/Clircs.Console.csproj
+```
+git clone https://github.com/rekkals/clircs.git
+cd clircs
+dotnet build clircs.sln -c Release
+dotnet run --project src/Clircs.Console/Clircs.Console.csproj -c Release --no-build
 ```
 
 ![Startup](docs/images/clircs-screenshot.png)
 
 ## Connecting
 
-You can connect to an IRC server with:
+Connect to a server with:
 
 ```text
-/server <host> [port] [--tls] [--password]
+/server <host> [port] [--tls] [--new] [--password]
 ```
 
-Open a new network window with `--new`.
+Using `--new` opens an additional connection in a new window without disturbing your current connection:
 
 ```text
 /server irc.efnet.org 9999 --tls --new
 ```
 
-You can also connect via SASL after setting up a network profile with `/network`.
+Before connecting for the first time, use `/set nickname`, `/set username`, and `/set realname` to view and set the identity that'll be displayed on IRC.
+
+You can also configure network profiles, allowing you to connect via SASL and set up multiple server endpoints, with `/network`.
 
 ### Bouncers
 
-The following bouncers/proxies are compatible with clircs:
+The following bouncers are compatible with clircs:
 
++ Lurker
 + ZNC
 + soju
-+ Lurker
-+ IRCCloud
 + shroudBNC
++ IRCCloud
 
 ![Lurker](docs/images/lurker-screenshot.png)
 
@@ -74,19 +85,21 @@ Use `/help` for a list of commands and `/help <command>` for help with a `<comma
 
 ## More Info
 
-[DOCUMENTATION](DOCUMENTATION.md) contains detailed user documentation, settings, command notes, scripting information, and current limitations.
+[DOCUMENTATION](DOCUMENTATION.md) contains detailed user documentation, settings, command notes, and current limitations.
 
-[CONTRIBUTING](CONTRIBUTING.md) contains guidelines and instructions on how to contribute to the clircs project.
+[CONTRIBUTING](https://github.com/rekkals/clircs/blob/main/CONTRIBUTING.md) has guidelines and instructions on how to contribute to the clircs project.
 
-[SCRIPTING](SCRIPTING.md) contains info on adding scripts via Jint.
+[SCRIPTING](SCRIPTING.md) includes info on adding scripts via Jint.
 
-[VERSIONS](VERSIONS.txt) contains the glorious, me-struggling-through-C# version history.
+[VERSIONS](VERSIONS.txt) shows the pre-GitHub-upload version history.
 
-[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.txt) contains third-party licensing notices as required.
-
-## License
+## Licensing
 
 clircs is free software licensed under the GNU General Public License, either version 3 or (at your option) any later version. See [LICENSE](LICENSE).
+
+The license for .NET 10 is in [DOTNET-LICENSE.txt](DOTNET-LICENSE.txt).
+
+Licensing notices for Jint, Acornima, and for .NET's bundled libraries can be found in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.txt).
 
 ## Contact
 
@@ -94,4 +107,4 @@ Report all issues (other than security) via GitHub at: https://github.com/rekkal
 
 Please send security issues by email: slakker@clircs.org
 
-Join the #clircs IRC channel on EFnet: ircs://irc.efnet.org:9999/clircs | irc://irc.efnet.org/clircs
+Visit #clircs on EFnet.

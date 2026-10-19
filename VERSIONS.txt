@@ -1,35 +1,45 @@
-clircs version history
+clircs Version History
 
-This records meaningful development builds. The early preview series is grouped by milestone where the surviving packages do not justify pretending every minor preview deserves a novel.
+This records progress through the early development builds. It's grouped by milestone. Sort of.
+
+v0.9.0
+
+Network profiles can now manage multiple servers and per-profile usernames and user modes. Manual connections stay separate so they're not trying to pull in, or store info in, saved profiles.
+
+Bouncer compatibility got a ton of work, and clircs now officially supports five: Lurker, soju, ZNC, shroudBNC, IRCCloud. Added support for certain IRCv3 capabilities so everyone plays together nicely: echo-message, message-tags, server-time.
+
+Lots of other boring (but important!) stuff like tightening up DCC, limiting scrollback for better performance, encoding for UTF-8, formatting tweaks, and a whole bunch of bug fixes for connection and rendering and command issues.
 
 v0.8.0 through v0.8.61
 
-DCC and direct-transfer milestone. Built one typed request, state, and lifecycle system for DCC CHAT and SEND; incoming and outgoing active and passive connections; IPv4 and IPv6 offers; progress, cancellation, collision-safe downloads, and resumable transfers; TLS-based SCHAT and SSEND without plaintext fallback; and interactive XDCC and secure XDCC pack requests. DCC sockets, listeners, files, timers, buffers, and background work gained explicit ownership, integrity checks, legal state transitions, and coordinated cleanup.
+DCC joined the party, with CHAT and SEND, passive, IPv4 and IPv6, secure SCHAT and SSEND, and even a few XDCC capabilities (no server). DCC sockets, listeners, files, timers, buffers, and background work got explicit ownership, integrity checks, and coordinated cleanup.
 
-Architecture and audit milestone. Audited and rebuilt IRC protocol compatibility, response routing, connection and reconnect lifecycles, persistent configuration, command and help ownership, terminal windows, presentation, scripting, userlist and protection behavior, and application concurrency. Split the former 11,622-line `ClientApplication` source into domain partials, then moved durable runtime state into dedicated session, DCC, routing, window, synchronization, transient-state, policy, and preference owners. Stateful numeric families gained focused processors, stable IDs and negotiated IRC case mapping became authoritative, and the inbound application pipeline became an explicit ordered set of inspectable stages.
+Audited and rebuilt IRC protocol compatibility, response routing, connection and reconnect lifecycles, persistent configuration, command and help ownership, terminal windows, presentation, scripting, userlist and protection behavior, and application concurrency. The main `ClientApplication` source had become a monster, so it was split into domain partials, then durable runtime state was moved into dedicated session, DCC, routing, window, synchronization, transient-state, policy, and preference owners. Stateful numeric families gained focused processors, stable IDs and negotiated IRC case mapping became authoritative, and the inbound application pipeline became an explicit ordered set of inspectable stages.
 
-Resilience, authentication, and security milestone. Replaced visible inbound flood suppression with ordered lossless event delivery, batched terminal presentation, asynchronous logging, ring-buffer scrollback, and explicit emergency resource boundaries. Added bounded outbound scheduling and automatic CTCP reply limits separately from personal and channel protection. Added IRCv3 CAP negotiation, SASL PLAIN and EXTERNAL over TLS, Windows-protected credentials, structured channel list modes, MONITOR with ISON fallback, raw network debug windows and logging, responsive semantic tables and hyperlinks, traditional IRC input and topic formatting, asynchronous DNS cancellation, and terminal sanitization for hostile control and bidirectional text.
+Replaced visible inbound flood suppression with ordered lossless event delivery, batched terminal presentation, asynchronous logging, ring-buffer scrollback, and explicit emergency resource boundaries. Added bounded outbound scheduling and automatic CTCP reply limits separately from personal and channel protection. Added IRCv3 CAP negotiation, SASL PLAIN and EXTERNAL over TLS, Windows-protected credentials, structured channel list modes, MONITOR with ISON fallback, raw network debug windows and logging, responsive semantic tables and hyperlinks, traditional IRC input and topic formatting, asynchronous DNS cancellation, and terminal sanitization for hostile control and bidirectional text.
+
+Then I put it on GitHub.
 
 v0.7.0 through v0.7.6
 
-Compatibility milestone. Server capabilities advertised through numeric 005 became connection-specific state instead of fixed ratbox assumptions. Added and corrected formatting for major IRCd families, WHO, WHOIS, WHOWAS, LIST, forwarding, account and hidden-host numerics, notices, and traditional IRC colors. Slow registrations gained a 60-second timeout. Reconnect cancellation, query behavior, and cross-network window handling were tightened during real-network testing.
+Compatibility milestone! Started paying attention to server capabilities advertised through numeric 005 instead of making fixed ratbox assumptions. Added and corrected formatting for major IRCd families, WHO, WHOIS, WHOWAS, LIST, forwarding, account and hidden-host numerics, notices, and traditional IRC colors. Slow registrations gained a 60-second timeout. Reconnect cancellation, query behavior, and cross-network window handling were tightened during real, actual network testing. At length.
 
 v0.6.0 through v0.6.2
 
-Scripting milestone. Added JavaScript addon loading through Jint, permissions, command registration, scoped events, private persistent storage, encrypted script secrets, remembered load state, and runtime limits. The musikcube example proved that a script could control an external program and contribute display content without adding musikcube-specific behavior to the core client.
+Scripting becomes a thing. Added JavaScript addon loading through Jint, permissions, command registration, scoped events, private persistent storage, encrypted script secrets, remembered load state, and runtime limits. The musikcube example proved that a script could control an external program and contribute display content without adding musikcube-specific behavior to the core client.
 
 v0.5.0 through v0.5.13
 
-Connectivity and persistence milestone. Added automatic reconnect with intentional, accidental, and KILL-aware behavior; saved connection routes and credentials; ZNC awareness; preserved windows across disconnects; network profiles; safer configuration writes and backups; daily logging; per-window input history; DNS lookup; and numerous connection-state corrections found through extended use.
+Focused work on connectivity and persistence: Added automatic reconnect with intentional, accidental, and KILL-aware behavior; saved connection routes and credentials; ZNC awareness; preserved windows across disconnects; network profiles; safer configuration writes and backups; daily logging; per-window input history; DNS lookup; and numerous connection-state corrections found through dogfooding.
 
-v0.4.19 through v0.4.25
+v0.4.0 through v0.4.25
 
-Terminal and protection milestone. Added the full-screen redrawable viewport, stable numbered windows, status and topic bars, unread activity, themes, formatted WHO and WHOIS output, channel and personal protection, userlists, clone detection, network-scoped channel settings, settings help, and the current command-oriented interface.
+Did a bunch of terminal work, formatting, and user protection stuff. Added the full-screen redrawable viewport, stable numbered windows, status and topic bars, unread activity, some themes, formatted WHO and WHOIS output, channel and personal protection, userlists, clone detection, network-scoped channel settings, settings help, and the current command-oriented interface.
 
 v0.3 development series
 
-Established the standalone IRC client: Windows console input, server connections, TLS certificate handling, multiple network sessions, channels and queries, core convenience aliases, local echo behavior, autojoin profiles, membership state, basic formatted server output, and early theming. The project was renamed from WircN to clirc and then to clircs during this period.
+Established a technically functional IRC client with Windows console input, server connections, TLS certificate handling, multiple network sessions, channels and queries, core convenience aliases, local echo behavior, autojoin profiles, membership state, basic formatted server output, and early theming.
 
-M0 through M2 prototypes
+v0.idea-in-my-head through v0.2
 
-Proved the architecture, command parser, network session isolation, protocol framing, and basic ability to connect, join, and chat. These builds were working prototypes rather than public releases.
+I assume most IRC clients start out the same way this one did, by putting together the architecture and command parser and protocol framing and all that, just trying to get it to connect, join a channel, and send a message. That's what happened here. Not a lot to write home about here.
