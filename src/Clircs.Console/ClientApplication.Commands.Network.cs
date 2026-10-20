@@ -1224,15 +1224,15 @@ internal sealed partial class ClientApplication
             {
                 BufferNumber(entry.Buffer.Id).ToString(),
                 _windowStates.IsActiveBuffer(entry.Buffer.Id) ? "*" : string.Empty,
-                ProfileFor(entry.Session)?.DisplayName ?? entry.Session.Features.NetworkName ?? entry.Session.State.DisplayName,
+                entry.Session.Features.NetworkName ?? "unknown",
+                ProfileFor(entry.Session)?.DisplayName ?? "none",
                 WindowTarget(entry.Buffer),
-                entry.Buffer.Kind.ToString(),
                 ActivitySuffix(entry.Buffer.Id).Trim()
             }).ToArray();
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "Active Windows",
                 Table: new PresentationTable(
-                    ["No.", "", "Connected To", "Target", "Type", "Activity"],
+                    ["No.", "", "Network", "Profile", "Window", "Activity"],
                     rows,
                     KeepAllColumns: true,
                     MaximumWidths:
@@ -1241,7 +1241,7 @@ internal sealed partial class ClientApplication
                         1,
                         32,
                         32,
-                        12,
+                        32,
                         PresentationTable.UnboundedWidth
                     ]))));
         }
@@ -1269,7 +1269,7 @@ internal sealed partial class ClientApplication
         ValueTask.FromResult(MoveBuffer(1));
 
     internal static string WindowTarget(BufferState buffer) =>
-        buffer.Kind == BufferKind.Status ? "-" : buffer.Name;
+        buffer.Kind == BufferKind.Status ? "(status)" : buffer.Name;
 
     private ValueTask<CommandResult> PreviousBufferAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
         ValueTask.FromResult(MoveBuffer(-1));

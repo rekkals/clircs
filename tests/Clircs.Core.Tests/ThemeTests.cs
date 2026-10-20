@@ -1565,7 +1565,7 @@ internal static class ThemeTests
     private static void StatusWindowsUseDistinctTargetMarker()
     {
         var network = NetworkSessionId.New();
-        Assert.Equal("-", ClientApplication.WindowTarget(
+        Assert.Equal("(status)", ClientApplication.WindowTarget(
             new BufferState(BufferId.New(), network, BufferKind.Status, "irc.example.test")));
         Assert.Equal("#clircs", ClientApplication.WindowTarget(
             new BufferState(BufferId.New(), network, BufferKind.Channel, "#clircs")));
