@@ -165,6 +165,8 @@ The usual commands: `/join /part /cycle /msg /query /notice /me /nick /away /bac
 
 `/ignore` is available for any assholes you encounter, and `/unignore` for when you've made amends with those assholes after they've messaged you from a different nickname/host and apologized.
 
+`/uptime` displays how long clircs has been running, and you can share it in a conversation with `/uptime say`.
+
 Service shortcuts are available as `/nickserv`, `/chanserv`, `/memoserv`, `/operserv`, `/hostserv`, `/botserv`, and `/limitserv`. They send the remaining command text to the named service without opening a query.
 
 Recognized `/*serv` commands that require a password prompt do so without echoing it. Ordinary `/msg` remains an ordinary message and is not inspected for secrets, so be smart about using it when communicating with the *Servs.

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Clircs.Commands;
 using Clircs.Dcc;
 using Clircs.Identity;
@@ -62,6 +63,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["ping"] = "/ping <nickname>",
             ["sv"] = "/sv",
             ["time"] = "/time [nickname]",
+            ["uptime"] = "/uptime [say]",
             ["part"] = "/part [channel] [reason]",
             ["cycle"] = "/cycle [channel] [reason]",
             ["topic"] = "/topic [channel] [topic]",
@@ -149,6 +151,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["tls"] = "/tls [pins|forget <host> <port>]",
             ["script"] = "/script <list|load|unload|reload|errors|permissions> [arguments]"
         };
+    private readonly long _startedTimestamp = Stopwatch.GetTimestamp();
     private readonly CommandRegistry _commands = new();
     private readonly CommandExecutionCoordinator _commandExecution;
     private readonly ConsolePresenter _presenter = new();

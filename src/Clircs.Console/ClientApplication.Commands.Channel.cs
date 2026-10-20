@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Clircs.Commands;
 using Clircs.Networking;
 using Clircs.Protocol;
@@ -44,6 +45,34 @@ internal sealed partial class ClientApplication
         input.Arguments.Count == 0
             ? ValueTask.FromResult(CommandResult.Success(DateTimeOffset.Now.ToString("F")))
             : CtcpAsync(context, new CommandInput("ctcp", [input.Arguments[0], "TIME"], string.Empty), cancellationToken);
+
+    private async ValueTask<CommandResult> UptimeAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (input.Arguments.Count > 1 ||
+            (input.Arguments.Count == 1 &&
+             !input.Arguments[0].Equals("say", StringComparison.OrdinalIgnoreCase)))
+        {
+            return CommandResult.Failure("Usage: /uptime [say]");
+        }
+
+        var text = FormatUptime(Stopwatch.GetElapsedTime(_startedTimestamp));
+        return input.Arguments.Count == 0
+            ? CommandResult.Success(text)
+            : await SayAsync(text, cancellationToken);
+    }
+
+    internal static string FormatUptime(TimeSpan elapsed)
+    {
+        var parts = new List<string>();
+        if (elapsed.Days > 0) parts.Add($"{elapsed.Days}d");
+        if (elapsed.Hours > 0) parts.Add($"{elapsed.Hours}h");
+        if (elapsed.Minutes > 0) parts.Add($"{elapsed.Minutes}m");
+        parts.Add($"{elapsed.Seconds}s");
+        return $"{ProductInfo.DisplayName} has been up for {string.Join(' ', parts)}";
+    }
 
     private async ValueTask<CommandResult> RawAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {

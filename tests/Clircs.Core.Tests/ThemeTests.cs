@@ -62,6 +62,7 @@ internal static class ThemeTests
         suite.Add("preserved table columns stay visible without wrapping the viewport", PreservedTableColumnsDoNotWrap);
         suite.Add("status labels distinguish IRC and bouncer TLS", StatusLabelsDistinguishTlsHops);
         suite.Add("channel status totals use compact labels", ChannelStatusTotalsUseCompactLabels);
+        suite.Add("client uptime formats elapsed time across unit boundaries", UptimeFormattingHandlesUnitBoundaries);
         suite.Add("raw IRC debug lines expose direction and visible control delimiters", RawDebugLinesAreReadable);
         suite.Add("service commands redact credentials locally", ServiceCommandCredentialsAreRedacted);
         suite.Add("NickServ commands use secure secret prompts", NickServCommandsUseSecureSecretPrompts);
@@ -95,6 +96,26 @@ internal static class ThemeTests
         Assert.Equal("hlf", ClientApplication.PrefixCountLabel('h', '%'));
         Assert.Equal("voc", ClientApplication.PrefixCountLabel('v', '+'));
         Assert.Equal("sys", ClientApplication.PrefixCountLabel('Y', '!'));
+    }
+
+    private static void UptimeFormattingHandlesUnitBoundaries()
+    {
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 0s",
+            ClientApplication.FormatUptime(TimeSpan.Zero));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 0s",
+            ClientApplication.FormatUptime(TimeSpan.FromMilliseconds(999)));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 59s",
+            ClientApplication.FormatUptime(TimeSpan.FromMilliseconds(59_999)));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 1m 0s",
+            ClientApplication.FormatUptime(TimeSpan.FromMinutes(1)));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 1h 0s",
+            ClientApplication.FormatUptime(TimeSpan.FromHours(1)));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 23h 59m 59s",
+            ClientApplication.FormatUptime(new TimeSpan(0, 23, 59, 59)));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 1d 0s",
+            ClientApplication.FormatUptime(TimeSpan.FromDays(1)));
+        Assert.Equal($"{ProductInfo.DisplayName} has been up for 2d 3h 4m 5s",
+            ClientApplication.FormatUptime(new TimeSpan(2, 3, 4, 5)));
     }
 
     private static void RawDebugLinesAreReadable()

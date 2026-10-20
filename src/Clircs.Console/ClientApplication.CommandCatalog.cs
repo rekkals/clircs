@@ -48,6 +48,7 @@ internal sealed partial class ClientApplication
         Register("ping", [], "Send a CTCP PING request.", PingAsync);
         Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
         Register("time", [], "Show local time or query a [nickname].", TimeAsync);
+        Register("uptime", [], "Show clircs runtime locally, or say it in the active conversation.", UptimeAsync);
         Register("raw", ["quote"], "Send an IRC command directly to the server.", RawAsync);
         Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
         Register("join", ["j"], "Join one or more channels; separate multiple channels and keys with commas.", JoinAsync);
