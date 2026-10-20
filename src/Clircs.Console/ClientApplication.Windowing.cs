@@ -401,7 +401,10 @@ internal sealed partial class ClientApplication
                 {
                     var count = members.Count(member => session.Features.HighestPrefix(member.PrefixModes) == symbol);
                     rankedUsers += count;
-                    ranked.Add($"{PrefixCountLabel(mode, symbol)}:{count}");
+                    if (mode != 'Y')
+                    {
+                        ranked.Add($"{PrefixCountLabel(mode, symbol)}:{count}");
+                    }
                 }
                 ranked.Add($"non:{Math.Max(0, members.Count - rankedUsers)}");
                 fields.Add(string.Join(' ', ranked));
