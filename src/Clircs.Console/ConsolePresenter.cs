@@ -1722,11 +1722,10 @@ internal sealed class ConsolePresenter
     {
         EraseCurrentRowUnsafe(width);
         SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
-        var activityText = _statusBar.Activity.Count == 0
-            ? string.Empty
-            : $" Act: {string.Join(',', _statusBar.Activity.Select(item => item.Number))}";
+
+        var activityLayout = CalculateStatusActivityLayout(_statusBar.Activity, width);
         var fullContext = string.Join(_theme.StatusSeparator, _statusBar.Fields);
-        var maximumContext = Math.Max(0, width - 1 - activityText.Length);
+        var maximumContext = Math.Max(0, width - 1) - activityLayout.Width;
         var context = fullContext.Length <= maximumContext
             ? fullContext
             : maximumContext > 1 ? fullContext[..(maximumContext - 1)] + "…" : string.Empty;
@@ -1748,25 +1747,89 @@ internal sealed class ConsolePresenter
             Console.Write(paddedContext);
         }
 
-        if (_statusBar.Activity.Count > 0)
+        if (activityLayout.Width > 0)
         {
             Console.Write(" Act: ");
-            for (var index = 0; index < _statusBar.Activity.Count; index++)
+            for (var index = 0; index < activityLayout.VisibleCount; index++)
             {
                 if (index > 0)
                 {
-                    SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
                     Console.Write(',');
                 }
-                var activityColor = ReadableActivityColor(_theme, _statusBar.Activity[index].Kind);
+
+                var activityColor = ReadableActivityColor(
+                    _theme, _statusBar.Activity[index].Kind);
                 SetConsoleColorsUnsafe(activityColor, _theme.StatusBackground);
                 Console.Write(_statusBar.Activity[index].Number);
+                SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
             }
-            SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
+
+            if (activityLayout.HiddenCount > 0)
+            {
+                if (activityLayout.VisibleCount > 0)
+                {
+                    Console.Write(',');
+                }
+
+                Console.Write($"+{activityLayout.HiddenCount}");
+            }
         }
-        var written = maximumContext + activityText.Length;
-        if (written < width - 1) Console.Write(new string(' ', width - 1 - written));
+
         ResetConsoleColorsUnsafe();
+    }
+
+    internal static (int VisibleCount, int HiddenCount, int Width) CalculateStatusActivityLayout(
+        IReadOnlyList<StatusActivity> activity,
+        int width)
+    {
+        var budget = Math.Max(0, width - 1) / 2;
+        if (activity.Count == 0)
+        {
+            return (0, 0, 0);
+        }
+
+        var visibleCount = 0;
+        var activityWidth = " Act: ".Length;
+
+        // First determine whether the complete list fits.
+        while (visibleCount < activity.Count)
+        {
+            var additionalWidth = activity[visibleCount].Number.ToString().Length +
+                (visibleCount > 0 ? 1 : 0);
+            if (additionalWidth > budget - activityWidth)
+            {
+                break;
+            }
+
+            activityWidth += additionalWidth;
+            visibleCount++;
+        }
+
+        if (visibleCount == activity.Count)
+        {
+            return (visibleCount, 0, activityWidth);
+        }
+
+        // Remove whole entries until the overflow count also fits.
+        while (true)
+        {
+            var hiddenCount = activity.Count - visibleCount;
+            var overflowWidth = $"+{hiddenCount}".Length +
+                (visibleCount > 0 ? 1 : 0);
+            if (activityWidth + overflowWidth <= budget)
+            {
+                return (visibleCount, hiddenCount, activityWidth + overflowWidth);
+            }
+
+            if (visibleCount == 0)
+            {
+                return (0, activity.Count, 0);
+            }
+
+            visibleCount--;
+            activityWidth -= activity[visibleCount].Number.ToString().Length +
+                (visibleCount > 0 ? 1 : 0);
+        }
     }
 
     internal static StatusWarning? ClipStatusWarning(

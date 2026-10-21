@@ -28,6 +28,9 @@ internal static class ThemeTests
         suite.Add("lag values retain three characters across thresholds and regional settings", LagValuesHaveFixedWidth);
         suite.Add("status warnings use the theme warning color with a visibility fallback", StatusWarningsRemainVisible);
         suite.Add("status warnings clip without coloring the truncation ellipsis", StatusWarningsClipToVisibleText);
+        suite.Add("status activity retains whole entries and counts omitted windows", StatusActivityKeepsWholeEntries);
+        suite.Add("status activity respects its half-row budget at narrow widths", StatusActivityStaysWithinBudget);
+        suite.Add("bounded status activity preserves lag warning clipping", StatusActivityPreservesLagWarningClipping);
         suite.Add("LINKS output defaults to the status window", LinksDefaultsToStatus);
         suite.Add("LIST output defaults to a dedicated result window", ListDefaultsToDedicated);
         suite.Add("DNS output defaults to active and formats addresses and nicknames", DnsDefaultsAndFormatting);
@@ -1105,6 +1108,109 @@ internal static class ThemeTests
         Assert.Equal(
             warning,
             ConsolePresenter.ClipStatusWarning(warning, context.Length, context.Length)!);
+    }
+
+    private static void StatusActivityKeepsWholeEntries()
+    {
+        (int Width, int[] Numbers, int Visible, int Hidden, int Used)[] cases =
+        [
+            (80, [], 0, 0, 0),
+            (23, [2, 4, 5], 3, 0, 11),
+            (22, [2, 4, 5], 1, 2, 10),
+            (35, [9, 10, 123, 1234], 3, 1, 17),
+            (80, Enumerable.Range(1, 30).ToArray(), 13, 17, 39),
+            (21, Enumerable.Range(1, 10).ToArray(), 1, 9, 10),
+            (21, Enumerable.Range(1, 11).ToArray(), 0, 11, 9),
+            (33, [int.MaxValue], 1, 0, 16),
+            (32, [int.MaxValue], 0, 1, 8),
+            (17, [2, 4, 5], 0, 3, 8),
+            (16, [2, 4, 5], 0, 3, 0)
+        ];
+
+        foreach (var item in cases)
+        {
+            var activity = item.Numbers
+                .Select(number => new StatusActivity(number, SessionEventKind.Message))
+                .ToArray();
+
+            Assert.Equal(
+                (item.Visible, item.Hidden, item.Used),
+                ConsolePresenter.CalculateStatusActivityLayout(activity, item.Width));
+        }
+    }
+
+    private static void StatusActivityStaysWithinBudget()
+    {
+        var activity = Enumerable.Range(0, 1000)
+            .Select(index => new StatusActivity(
+                int.MaxValue - 999 + index,
+                SessionEventKind.Message))
+            .ToArray();
+
+        for (var width = 0; width <= 200; width++)
+        {
+            var layout = ConsolePresenter.CalculateStatusActivityLayout(activity, width);
+            var usableWidth = Math.Max(0, width - 1);
+
+            Assert.True(layout.VisibleCount >= 0 && layout.VisibleCount <= activity.Length);
+            Assert.Equal(activity.Length - layout.VisibleCount, layout.HiddenCount);
+            Assert.True(
+                layout.Width >= 0 && layout.Width <= usableWidth / 2,
+                $"Activity exceeded its budget at terminal width {width}.");
+
+            var entries = activity
+                .Take(layout.VisibleCount)
+                .Select(item => item.Number.ToString())
+                .ToList();
+
+            if (layout.HiddenCount > 0)
+            {
+                entries.Add($"+{layout.HiddenCount}");
+            }
+
+            var text = layout.Width == 0
+                ? string.Empty
+                : $" Act: {string.Join(',', entries)}";
+
+            Assert.Equal(text.Length, layout.Width);
+        }
+    }
+
+    private static void StatusActivityPreservesLagWarningClipping()
+    {
+        const string context = "(1) EFNet[TLS][Lag:10+] | status";
+        var warning = new StatusWarning(
+            context.IndexOf("10+", StringComparison.Ordinal),
+            3);
+        var activity = Enumerable.Range(1, 30)
+            .Select(number => new StatusActivity(number, SessionEventKind.Message))
+            .ToArray();
+
+        (int Width, int WarningLength)[] cases =
+        [
+            (0, 0),
+            (40, 0),
+            (41, 1),
+            (42, 2),
+            (45, 3),
+            (80, 3)
+        ];
+
+        foreach (var item in cases)
+        {
+            var layout = ConsolePresenter.CalculateStatusActivityLayout(activity, item.Width);
+            var maximumContext = Math.Max(0, item.Width - 1) - layout.Width;
+            var clipped = ConsolePresenter.ClipStatusWarning(
+                warning,
+                context.Length,
+                maximumContext);
+
+            Assert.Equal(item.WarningLength, clipped?.Length ?? 0);
+            if (clipped is not null)
+            {
+                Assert.Equal(warning.Start, clipped.Start);
+            }
+        }
     }
 
     private static void LinksDefaultsToStatus()
