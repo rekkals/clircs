@@ -110,7 +110,12 @@ internal sealed record TerminalTheme(
 
 internal sealed record StatusActivity(int Number, SessionEventKind Kind);
 
-internal sealed record StatusBarModel(IReadOnlyList<string> Fields, IReadOnlyList<StatusActivity> Activity);
+internal sealed record StatusWarning(int Start, int Length);
+
+internal sealed record StatusBarModel(
+    IReadOnlyList<string> Fields,
+    IReadOnlyList<StatusActivity> Activity,
+    StatusWarning? Warning = null);
 
 internal enum HostmaskVisibility
 {

@@ -207,7 +207,9 @@ internal sealed class ConsolePresenter
         left.Auxiliary.SequenceEqual(right.Auxiliary);
 
     private static bool StatusEquals(StatusBarModel left, StatusBarModel right) =>
-        left.Fields.SequenceEqual(right.Fields) && left.Activity.SequenceEqual(right.Activity);
+        left.Fields.SequenceEqual(right.Fields) &&
+        left.Activity.SequenceEqual(right.Activity) &&
+        left.Warning == right.Warning;
 
     public void Banner()
     {
@@ -1728,7 +1730,24 @@ internal sealed class ConsolePresenter
         var context = fullContext.Length <= maximumContext
             ? fullContext
             : maximumContext > 1 ? fullContext[..(maximumContext - 1)] + "…" : string.Empty;
-        Console.Write(context.PadRight(maximumContext));
+        var paddedContext = context.PadRight(maximumContext);
+
+        if (ClipStatusWarning(
+                _statusBar.Warning, fullContext.Length, maximumContext) is { } warning)
+        {
+            Console.Write(paddedContext[..warning.Start]);
+            SetConsoleColorsUnsafe(
+                ReadableStatusColor(_theme, _theme.Warning),
+                _theme.StatusBackground);
+            Console.Write(paddedContext.Substring(warning.Start, warning.Length));
+            SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
+            Console.Write(paddedContext[(warning.Start + warning.Length)..]);
+        }
+        else
+        {
+            Console.Write(paddedContext);
+        }
+
         if (_statusBar.Activity.Count > 0)
         {
             Console.Write(" Act: ");
@@ -1750,9 +1769,34 @@ internal sealed class ConsolePresenter
         ResetConsoleColorsUnsafe();
     }
 
-    internal static ConsoleColor ReadableActivityColor(TerminalTheme theme, SessionEventKind kind)
+    internal static StatusWarning? ClipStatusWarning(
+        StatusWarning? warning,
+        int fullContextLength,
+        int maximumContext)
     {
-        var color = theme.EventColor(kind);
+        var visibleLength = fullContextLength <= maximumContext
+            ? fullContextLength
+            : Math.Max(0, maximumContext - 1);
+
+        if (warning is null ||
+            warning.Start < 0 ||
+            warning.Start >= visibleLength ||
+            warning.Length <= 0)
+        {
+            return null;
+        }
+
+        var available = visibleLength - warning.Start;
+        return warning.Length <= available
+            ? warning
+            : warning with { Length = available };
+    }
+
+    internal static ConsoleColor ReadableActivityColor(TerminalTheme theme, SessionEventKind kind) =>
+        ReadableStatusColor(theme, theme.EventColor(kind));
+
+    internal static ConsoleColor ReadableStatusColor(TerminalTheme theme, ConsoleColor color)
+    {
         if (color != theme.StatusBackground) return color;
         return theme.StatusForeground == theme.StatusBackground
             ? ConsoleColor.White

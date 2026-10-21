@@ -326,6 +326,12 @@ internal static class SaslTests
         public ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
         {
             var line = Encoding.UTF8.GetString(bytes.Span).TrimEnd('\r', '\n');
+            if (line.StartsWith("PING clircs-lag-", StringComparison.Ordinal))
+            {
+                Receive($"PONG {line[5..]}");
+                return ValueTask.CompletedTask;
+            }
+
             return _sent.Writer.WriteAsync(line, cancellationToken);
         }
 

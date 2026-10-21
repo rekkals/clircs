@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Clircs.Identity;
 using Clircs.Networking;
 using Clircs.Protocol;
@@ -23,6 +24,8 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     private readonly IrcClientConnection _connection;
     private readonly OutboundEchoTracker _echoTracker = new();
+    private readonly ConnectionLagTracker _lagTracker = new();
+    private bool _lagMeasurementEnabled = true;
     private readonly AutomaticCtcpReplyLimiter _ctcpReplyLimiter = new();
     // Persistent ignore storage remains an application concern; the session only
     // asks whether it should suppress an automatic CTCP reply.
@@ -94,6 +97,40 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public IrcConnectionOptions Options { get; private set; }
 
     public IrcConnectionState ConnectionState => _connection.State;
+
+    public ConnectionLagSnapshot Lag =>
+        Volatile.Read(ref _disposed) == 0 &&
+        _connection.State == IrcConnectionState.Online
+            ? _lagTracker.Snapshot(Stopwatch.GetTimestamp())
+            : default;
+
+    public void SetLagMeasurementEnabled(bool enabled)
+    {
+        CancellationTokenSource? monitor;
+        var cancellationToken = CancellationToken.None;
+
+        lock (_healthMonitorGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0 ||
+                _lagMeasurementEnabled == enabled)
+            {
+                return;
+            }
+
+            _lagMeasurementEnabled = enabled;
+            _lagTracker.Reset();
+            monitor = enabled ? _healthMonitor : null;
+            if (monitor is not null)
+            {
+                cancellationToken = monitor.Token;
+            }
+        }
+
+        if (monitor is not null)
+        {
+            _ = ProbeConnectionLagAsync(monitor, cancellationToken);
+        }
+    }
 
     public string CurrentNickname => _processor.CurrentNickname;
 
@@ -573,6 +610,10 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     private async ValueTask OnMessageReceivedAsync(IrcMessage message)
     {
         var receivedAt = DateTimeOffset.Now;
+        if (message.Command == "PONG")
+        {
+            _lagTracker.TryAcceptPong(message, Stopwatch.GetTimestamp());
+        }
         if (message.Command == "KILL" && message.Parameters.Count >= 1 &&
             new IrcNameComparer(State.CaseMapping).Equals(message.Parameters[0], CurrentNickname))
         {
@@ -1093,6 +1134,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         {
             healthMonitor = _healthMonitor;
             _healthMonitor = null;
+            _lagTracker.Reset();
         }
 
         CancelAndDisposeHealthMonitor(healthMonitor);
@@ -1132,10 +1174,12 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
             previousHealthMonitor = _healthMonitor;
             _healthMonitor = healthMonitor;
+            _lagTracker.Reset();
         }
 
         CancelAndDisposeHealthMonitor(previousHealthMonitor);
         _ = MonitorConnectionHealthAsync(cancellationToken);
+        _ = MonitorConnectionLagAsync(healthMonitor, cancellationToken);
     }
 
     internal static ConnectionHealthAction EvaluateConnectionHealth(
@@ -1153,6 +1197,76 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         return now - lastReceivedAt >= HealthIdleThreshold
             ? ConnectionHealthAction.SendPing
             : ConnectionHealthAction.Wait;
+    }
+
+    private async Task MonitorConnectionLagAsync(
+        CancellationTokenSource monitor,
+        CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await ProbeConnectionLagAsync(monitor, cancellationToken).ConfigureAwait(false);
+
+                if (!await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task ProbeConnectionLagAsync(
+        CancellationTokenSource monitor,
+        CancellationToken cancellationToken)
+    {
+        string? probeToken;
+        ValueTask pendingSend;
+
+        lock (_healthMonitorGate)
+        {
+            if (!_lagMeasurementEnabled ||
+                !ReferenceEquals(_healthMonitor, monitor) ||
+                cancellationToken.IsCancellationRequested ||
+                Volatile.Read(ref _disposed) != 0 ||
+                _connection.State != IrcConnectionState.Online)
+            {
+                return;
+            }
+
+            probeToken = _lagTracker.TryBeginProbe(Stopwatch.GetTimestamp());
+            if (probeToken is null)
+            {
+                return;
+            }
+
+            // Bind the send to this connection before shutdown or
+            // reconnect can replace its outbound scheduler.
+            pendingSend = SendAsync(
+                "PING",
+                [probeToken],
+                IrcOutboundPriority.Critical,
+                cancellationToken);
+        }
+
+        try
+        {
+            await pendingSend.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _lagTracker.CancelProbe(probeToken);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                OnDiagnostic($"Could not send lag probe: {exception.Message}");
+            }
+        }
     }
 
     private async Task MonitorConnectionHealthAsync(CancellationToken cancellationToken)

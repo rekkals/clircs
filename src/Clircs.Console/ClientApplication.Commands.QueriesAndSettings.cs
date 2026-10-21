@@ -221,6 +221,7 @@ internal sealed partial class ClientApplication
                 new("banmask", BanmaskFormatter.Name(_preferences.BanmaskStyle)),
                 new("clonedetect", _preferences.CloneDetection ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
+                new("lagmeter", _preferences.LagMeter ? "on" : "off"),
                 new("joininfo", _preferences.AnnounceUserInfoOnJoin ? "on" : "off"),
                 new("hostmasks.join", FormatHostmaskVisibility(_preferences.JoinHostmasks)),
                 new("hostmasks.part", FormatHostmaskVisibility(_preferences.PartHostmasks)),
@@ -248,6 +249,12 @@ internal sealed partial class ClientApplication
         var requestedSetting = input.Arguments[0];
         var setting = requestedSetting.ToLowerInvariant();
         var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
+
+        if (setting == "lagmeter" && input.Arguments.Count == 1)
+        {
+            return ValueTask.FromResult(CommandResult.Success(
+                $"lagmeter is {(_preferences.LagMeter ? "on" : "off")}."));
+        }
 
         if (input.Arguments.Count < 2 && !clearingUserModes)
         {
@@ -316,6 +323,13 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure("highlight must be on or off."));
                 }
                 _preferences.HighlightNickname = highlightNickname;
+                break;
+            case "lagmeter":
+                if (!TryParseOnOff(value, out var lagMeter))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure("lagmeter must be on or off."));
+                }
+                _preferences.LagMeter = lagMeter;
                 break;
             case "clonedetect":
                 if (!TryParseOnOff(value, out var cloneDetection))
@@ -442,6 +456,18 @@ internal sealed partial class ClientApplication
         {
             ApplyAppearanceSettings(previousSettings);
             return ValueTask.FromResult(CommandResult.Failure(exception.Message));
+        }
+        finally
+        {
+            if (setting == "lagmeter")
+            {
+                foreach (var session in SessionsSnapshot())
+                {
+                    session.SetLagMeasurementEnabled(_preferences.LagMeter);
+                }
+
+                _applicationEvents.Dispatch(RefreshWindowChrome);
+            }
         }
     }
 

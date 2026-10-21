@@ -1,3 +1,9 @@
+using Clircs.Identity;
+using Clircs.Networking;
+using Clircs.Protocol;
+using Clircs.Sessions;
+using Clircs.State;
+using Clircs.Transport;
 using System.ComponentModel;
 using System.Net;
 using System.Net.Security;
@@ -6,12 +12,6 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using Clircs.Identity;
-using Clircs.Networking;
-using Clircs.Protocol;
-using Clircs.Sessions;
-using Clircs.State;
-using Clircs.Transport;
 
 namespace Clircs.Core.Tests;
 
@@ -25,6 +25,8 @@ internal static class NetworkingIntegrationTests
         suite.Add("confirmed self joins automatically query channel modes", SelfJoinQueriesModesAsync);
         suite.Add("failed joins never become reconnect restoration targets", FailedJoinIsNotRememberedAsync);
         suite.Add("one session reconnects without losing its channel buffer", SessionReconnectPreservesBuffersAsync);
+        suite.Add("lag probes match replies and reset after connection loss and reconnect", LagProbesResetAcrossReconnectsAsync);
+        suite.Add("lag measurement stops when disabled and starts fresh when enabled", LagMeasurementFollowsEnabledSettingAsync);
         suite.Add("authentication rejection ends registration without retry recommendation", AuthenticationRejectionStopsRegistrationAsync);
         suite.Add("cancelled registration does not render a generic connection-lost error", CancelledRegistrationIsQuietAsync);
         suite.Add("reconnect waits for an in-progress disconnect", ReconnectWaitsForDisconnectAsync);
@@ -55,6 +57,247 @@ internal static class NetworkingIntegrationTests
         Assert.True(factory.Canceled);
     }
 
+    private static async ValueTask LagProbesResetAcrossReconnectsAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var options = new IrcConnectionOptions(
+                new IrcEndpoint("127.0.0.1", port, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "Test User"));
+            await using var session = new IrcNetworkSession(
+                "test",
+                options,
+                new TcpIrcTransportFactory());
+
+            Assert.Equal(default(ConnectionLagSnapshot), session.Lag);
+
+            string? previousToken = null;
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var disconnected = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                Action<IrcNetworkSession, SessionDisconnectInfo> onDisconnected =
+                    (_, _) => disconnected.TrySetResult();
+                session.Disconnected += onDisconnected;
+
+                try
+                {
+                    var staleToken = previousToken ?? "unrelated-probe";
+                    var serverTask = Task.Run(async () =>
+                    {
+                        using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+                        await using var stream = client.GetStream();
+                        using var reader = new StreamReader(
+                            stream, new UTF8Encoding(false), false, leaveOpen: true);
+                        await using var writer = new StreamWriter(
+                            stream, new UTF8Encoding(false), leaveOpen: true)
+                        {
+                            AutoFlush = true,
+                            NewLine = "\r\n"
+                        };
+
+                        _ = await CompleteEmptyCapabilityNegotiationAsync(
+                            reader, writer, "TestNick", timeout.Token);
+                        await writer.WriteLineAsync(
+                            ":server 001 TestNick :Welcome".AsMemory(),
+                            timeout.Token);
+
+                        var ping = IrcMessageParser.Parse(
+                            (await reader.ReadLineAsync(timeout.Token))!);
+                        Assert.Equal("PING", ping.Command);
+                        Assert.Equal(1, ping.Parameters.Count);
+
+                        var token = ping.Parameters[0];
+                        Assert.True(token.StartsWith("clircs-lag-", StringComparison.Ordinal));
+                        Assert.False(token == staleToken);
+                        Assert.True(session.Lag.RoundTripTime is null);
+                        Assert.True(session.Lag.UnansweredFor is not null);
+
+                        await writer.WriteLineAsync(
+                            $"PONG {staleToken}".AsMemory(),
+                            timeout.Token);
+                        await writer.WriteLineAsync(
+                            "PING :lag-before-reply".AsMemory(),
+                            timeout.Token);
+                        Assert.Equal(
+                            "PONG lag-before-reply",
+                            (await reader.ReadLineAsync(timeout.Token))!);
+
+                        // The barrier confirms the preceding stale PONG was processed.
+                        Assert.True(session.Lag.RoundTripTime is null);
+                        Assert.True(session.Lag.UnansweredFor is not null);
+
+                        await writer.WriteLineAsync(
+                            $"PONG {token}".AsMemory(),
+                            timeout.Token);
+                        await writer.WriteLineAsync(
+                            "PING :lag-after-reply".AsMemory(),
+                            timeout.Token);
+                        Assert.Equal(
+                            "PONG lag-after-reply",
+                            (await reader.ReadLineAsync(timeout.Token))!);
+
+                        var measured = session.Lag;
+                        Assert.True(
+                            measured.RoundTripTime is { } elapsed &&
+                            elapsed >= TimeSpan.Zero);
+                        Assert.True(measured.UnansweredFor is null);
+
+                        // Closing this socket exercises accidental connection loss.
+                        return token;
+                    }, timeout.Token);
+
+                    if (attempt == 0)
+                    {
+                        await session.ConnectAsync(timeout.Token);
+                    }
+                    else
+                    {
+                        await session.ReconnectAsync(cancellationToken: timeout.Token);
+                    }
+
+                    previousToken = await serverTask;
+                    await disconnected.Task.WaitAsync(timeout.Token);
+                    Assert.Equal(default(ConnectionLagSnapshot), session.Lag);
+                }
+                finally
+                {
+                    session.Disconnected -= onDisconnected;
+                }
+            }
+        }
+        finally
+        {
+            timeout.Cancel();
+            listener.Stop();
+        }
+    }
+
+    private static async ValueTask LagMeasurementFollowsEnabledSettingAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var options = new IrcConnectionOptions(
+                new IrcEndpoint("127.0.0.1", port, useTls: false),
+                new IrcIdentity(["TestNick"], "test", "Test User"));
+            await using var session = new IrcNetworkSession(
+                "test",
+                options,
+                new TcpIrcTransportFactory());
+
+            session.SetLagMeasurementEnabled(false);
+
+            var serverTask = Task.Run(async () =>
+            {
+                using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+                await using var stream = client.GetStream();
+                using var reader = new StreamReader(
+                    stream, new UTF8Encoding(false), false, leaveOpen: true);
+                await using var writer = new StreamWriter(
+                    stream, new UTF8Encoding(false), leaveOpen: true)
+                {
+                    AutoFlush = true,
+                    NewLine = "\r\n"
+                };
+
+                async Task BarrierAsync(string marker)
+                {
+                    await writer.WriteLineAsync(
+                        $"PING :{marker}".AsMemory(),
+                        timeout.Token);
+                    Assert.Equal(
+                        $"PONG {marker}",
+                        (await reader.ReadLineAsync(timeout.Token))!);
+                }
+
+                async Task<string> ReadLagProbeAsync()
+                {
+                    var ping = IrcMessageParser.Parse(
+                        (await reader.ReadLineAsync(timeout.Token))!);
+                    Assert.Equal("PING", ping.Command);
+                    Assert.Equal(1, ping.Parameters.Count);
+
+                    var token = ping.Parameters[0];
+                    Assert.True(token.StartsWith("clircs-lag-", StringComparison.Ordinal));
+                    return token;
+                }
+
+                _ = await CompleteEmptyCapabilityNegotiationAsync(
+                    reader, writer, "TestNick", timeout.Token);
+                await writer.WriteLineAsync(
+                    ":server 001 TestNick :Welcome".AsMemory(),
+                    timeout.Token);
+
+                // Disabled startup must remain quiet across a monitor tick.
+                await BarrierAsync("lag-disabled-start");
+                await Task.Delay(TimeSpan.FromMilliseconds(1100), timeout.Token);
+                await BarrierAsync("lag-disabled-tick");
+                Assert.Equal(default(ConnectionLagSnapshot), session.Lag);
+
+                session.SetLagMeasurementEnabled(true);
+                var firstToken = await ReadLagProbeAsync();
+                Assert.True(session.Lag.RoundTripTime is null);
+                Assert.True(session.Lag.UnansweredFor is not null);
+
+                // Disabling clears the pending probe and ignores its eventual reply.
+                session.SetLagMeasurementEnabled(false);
+                Assert.Equal(default(ConnectionLagSnapshot), session.Lag);
+
+                await writer.WriteLineAsync(
+                    $"PONG {firstToken}".AsMemory(),
+                    timeout.Token);
+                await BarrierAsync("lag-disabled-reply");
+                Assert.Equal(default(ConnectionLagSnapshot), session.Lag);
+
+                // Re-enabling sends a fresh probe without waiting thirty seconds.
+                session.SetLagMeasurementEnabled(true);
+                var secondToken = await ReadLagProbeAsync();
+                Assert.False(secondToken == firstToken);
+
+                await writer.WriteLineAsync(
+                    $"PONG {firstToken}".AsMemory(),
+                    timeout.Token);
+                await BarrierAsync("lag-old-reply");
+                Assert.True(session.Lag.RoundTripTime is null);
+                Assert.True(session.Lag.UnansweredFor is not null);
+
+                await writer.WriteLineAsync(
+                    $"PONG {secondToken}".AsMemory(),
+                    timeout.Token);
+                await BarrierAsync("lag-current-reply");
+
+                var measured = session.Lag;
+                Assert.True(
+                    measured.RoundTripTime is { } elapsed &&
+                    elapsed >= TimeSpan.Zero);
+                Assert.True(measured.UnansweredFor is null);
+
+                // Disabling also clears a completed measurement.
+                session.SetLagMeasurementEnabled(false);
+                Assert.Equal(default(ConnectionLagSnapshot), session.Lag);
+                await BarrierAsync("lag-disabled-finish");
+            }, timeout.Token);
+
+            await session.ConnectAsync(timeout.Token);
+            await serverTask;
+        }
+        finally
+        {
+            timeout.Cancel();
+            listener.Stop();
+        }
+    }
+
     private static async ValueTask FailedJoinIsNotRememberedAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -73,9 +316,9 @@ internal static class NetworkingIntegrationTests
             };
             _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
-            Assert.Equal("JOIN #invite-only key", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("JOIN #invite-only key", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             await writer.WriteLineAsync(":server 473 TestNick #invite-only :Cannot join channel (+i)".AsMemory(), timeout.Token);
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -109,29 +352,29 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(timeout.Token))!);
-            Assert.Equal("NICK TestNick", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("CAP LS 302", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
+            Assert.Equal("NICK TestNick", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             Assert.Equal(
                 "USER test 0 * :Test User",
-                (await reader.ReadLineAsync(timeout.Token))!);
+                (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             await writer.WriteLineAsync(
                 ":server CAP * LS :message-tags".AsMemory(),
                 timeout.Token);
             Assert.Equal(
                 "CAP REQ message-tags",
-                (await reader.ReadLineAsync(timeout.Token))!);
+                (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             await writer.WriteLineAsync(
                 ":server CAP TestNick ACK :message-tags".AsMemory(),
                 timeout.Token);
             Assert.Equal(
                 "CAP END",
-                (await reader.ReadLineAsync(timeout.Token))!);
+                (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":server 005 TestNick MONITOR=100 :supported".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":server 730 TestNick :Alice!user@example".AsMemory(), timeout.Token);
             await writer.WriteLineAsync("@label=wire-test :alice!user@example NOTICE TestNick :raw test".AsMemory(), timeout.Token);
-            var sent = await reader.ReadLineAsync(timeout.Token);
-            var quit = await reader.ReadLineAsync(timeout.Token);
+            var sent = await ReadClientCommandAsync(reader, writer, timeout.Token);
+            var quit = await ReadClientCommandAsync(reader, writer, timeout.Token);
             return (sent, quit);
         }, timeout.Token);
 
@@ -210,8 +453,7 @@ internal static class NetworkingIntegrationTests
 
             var chatLines = new List<string>();
 
-            while (await reader.ReadLineAsync(
-                       timeout.Token) is { } line)
+            while (await ReadClientCommandAsync(reader, writer, timeout.Token) is { } line)
             {
                 if (line.StartsWith(
                         "PRIVMSG #test ",
@@ -418,7 +660,7 @@ internal static class NetworkingIntegrationTests
             _ = await CompleteEmptyCapabilityNegotiationAsync(secondReader, secondWriter, "TestNick", timeout.Token);
             await secondWriter.WriteLineAsync(":server 001 TestNick :Welcome back".AsMemory(), timeout.Token);
             await secondWriter.WriteLineAsync(":server 376 TestNick :End of MOTD".AsMemory(), timeout.Token);
-            return await secondReader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(secondReader, secondWriter, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -462,10 +704,10 @@ internal static class NetworkingIntegrationTests
                 AutoFlush = true,
                 NewLine = "\r\n"
             };
-            Assert.Equal("PASS wrong", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("PASS wrong", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 464 TestNick :Password incorrect".AsMemory(), timeout.Token);
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -557,7 +799,7 @@ internal static class NetworkingIntegrationTests
             };
             _ = await CompleteEmptyCapabilityNegotiationAsync(secondReader, secondWriter, "TestNick", timeout.Token);
             await secondWriter.WriteLineAsync(":server 001 TestNick :Welcome back".AsMemory(), timeout.Token);
-            return await secondReader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(secondReader, secondWriter, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -661,8 +903,8 @@ internal static class NetworkingIntegrationTests
         var registration = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, nickname, cancellationToken);
         var transcript = new List<string> { registration.Nick, registration.User };
         await writer.WriteLineAsync($":server 001 {nickname} :{marker} ready".AsMemory(), cancellationToken);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         return transcript.ToArray();
     }
 
@@ -783,11 +1025,11 @@ internal static class NetworkingIntegrationTests
             var registration = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "Primary", timeout.Token);
             Assert.Equal("NICK Primary", registration.Nick);
             await writer.WriteLineAsync(":server 433 * Primary :Nickname is already in use".AsMemory(), timeout.Token);
-            Assert.Equal("NICK Alternate", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("NICK Alternate", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             await writer.WriteLineAsync(":server 433 * Alternate :Nickname is already in use".AsMemory(), timeout.Token);
-            Assert.Equal("NICK Chosen", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("NICK Chosen", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
             await writer.WriteLineAsync(":server 001 Chosen :Welcome".AsMemory(), timeout.Token);
-            return (await reader.ReadLineAsync(timeout.Token))!;
+            return (await ReadClientCommandAsync(reader, writer, timeout.Token))!;
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -843,7 +1085,7 @@ internal static class NetworkingIntegrationTests
             _ = await CompleteEmptyCapabilityNegotiationAsync(reader, writer, "TestNick", timeout.Token);
             await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
             await writer.WriteLineAsync(":TestNick!user@host JOIN #clirc".AsMemory(), timeout.Token);
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -870,9 +1112,9 @@ internal static class NetworkingIntegrationTests
 
         Assert.Equal(
             "CAP LS 302",
-            (await reader.ReadLineAsync(cancellationToken))!);
-        var nick = (await reader.ReadLineAsync(cancellationToken))!;
-        var user = (await reader.ReadLineAsync(cancellationToken))!;
+            (await ReadClientCommandAsync(reader, writer, cancellationToken))!);
+        var nick = (await ReadClientCommandAsync(reader, writer, cancellationToken))!;
+        var user = (await ReadClientCommandAsync(reader, writer, cancellationToken))!;
         Assert.Equal("NICK TestNick", nick);
 
         await writer.WriteLineAsync(
@@ -880,33 +1122,33 @@ internal static class NetworkingIntegrationTests
             cancellationToken);
         Assert.Equal(
             "CAP REQ echo-message",
-            (await reader.ReadLineAsync(cancellationToken))!);
+            (await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         await writer.WriteLineAsync(
             ":server CAP TestNick ACK :echo-message".AsMemory(),
             cancellationToken);
         Assert.Equal(
             "CAP END",
-            (await reader.ReadLineAsync(cancellationToken))!);
+            (await ReadClientCommandAsync(reader, writer, cancellationToken))!);
 
         var registration = (Nick: nick, User: user);
         var transcript = new List<string> { registration.Nick, registration.User };
 
         await writer.WriteLineAsync(":server 433 * TestNick :Nickname is already in use".AsMemory(), cancellationToken);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         await writer.WriteLineAsync("PING :cookie".AsMemory(), cancellationToken);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         await writer.WriteLineAsync(":bob!ignored@blocked.test PRIVMSG TestNick_ :\u0001VERSION\u0001".AsMemory(), cancellationToken);
         await writer.WriteLineAsync(":alice!u@h PRIVMSG TestNick_ :\u0001VERSION\u0001".AsMemory(), cancellationToken);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         await writer.WriteLineAsync(":server 001 TestNick_ :Welcome to the test network".AsMemory(), cancellationToken);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         await writer.WriteLineAsync(":TestNick_!test@localhost PRIVMSG #test :hello".AsMemory(), cancellationToken);
         await writer.WriteLineAsync(
             ":TestNick_!test@localhost PRIVMSG alice :\u0001VERSION\u0001".AsMemory(),
             cancellationToken);
         await writer.WriteLineAsync(":server NOTICE TestNick_ :echo complete".AsMemory(), cancellationToken);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
-        transcript.Add((await reader.ReadLineAsync(cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
+        transcript.Add((await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         return transcript.ToArray();
     }
 
@@ -954,10 +1196,10 @@ internal static class NetworkingIntegrationTests
 
             await stream.WriteAsync(oversizedThenPing, timeout.Token);
 
-            var pong = (await reader.ReadLineAsync(timeout.Token))!;
+            var pong = (await ReadClientCommandAsync(reader, writer, timeout.Token))!;
             pongReceived.TrySetResult(pong);
 
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -1012,9 +1254,9 @@ internal static class NetworkingIntegrationTests
                 NewLine = "\r\n"
             };
 
-            Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(timeout.Token))!);
-            Assert.Equal("NICK TestNick", (await reader.ReadLineAsync(timeout.Token))!);
-            Assert.Equal("USER test 0 * :Test User", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("CAP LS 302", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
+            Assert.Equal("NICK TestNick", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
+            Assert.Equal("USER test 0 * :Test User", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             await writer.WriteLineAsync(
                 ":lurker.bouncer CAP * LS :sasl=PLAIN server-time message-tags echo-message".AsMemory(),
@@ -1022,25 +1264,25 @@ internal static class NetworkingIntegrationTests
 
             Assert.Equal(
                 "CAP REQ :echo-message message-tags server-time",
-                (await reader.ReadLineAsync(timeout.Token))!);
+                (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             await writer.WriteLineAsync(
                 ":lurker.bouncer CAP * ACK :echo-message message-tags server-time".AsMemory(),
                 timeout.Token);
 
-            Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("CAP END", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             await writer.WriteLineAsync(
                 ":pine.fxnet.org 001 TestNick :Welcome".AsMemory(),
                 timeout.Token);
 
-            Assert.Equal("MODE TestNick", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("MODE TestNick", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             await writer.WriteLineAsync(
                 ":pine.fxnet.org 221 TestNick +i".AsMemory(),
                 timeout.Token);
 
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -1103,9 +1345,9 @@ internal static class NetworkingIntegrationTests
                 NewLine = "\r\n"
             };
 
-            Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(timeout.Token))!);
-            Assert.Equal("NICK TestNick", (await reader.ReadLineAsync(timeout.Token))!);
-            Assert.Equal("USER test 0 * :Test User", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("CAP LS 302", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
+            Assert.Equal("NICK TestNick", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
+            Assert.Equal("USER test 0 * :Test User", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             const string capabilities =
                 "soju.im/read batch cap-notify account-tag chghost extended-join multi-prefix away-notify " +
@@ -1121,13 +1363,13 @@ internal static class NetworkingIntegrationTests
 
             Assert.Equal(
                 "CAP REQ :multi-prefix echo-message message-tags server-time",
-                (await reader.ReadLineAsync(timeout.Token))!);
+                (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             await writer.WriteLineAsync(
                 ":irc.clircs.org CAP * ACK :multi-prefix echo-message message-tags server-time".AsMemory(),
                 timeout.Token);
 
-            Assert.Equal("CAP END", (await reader.ReadLineAsync(timeout.Token))!);
+            Assert.Equal("CAP END", (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
             await writer.WriteLineAsync(
                 ":irc.clircs.org 001 TestNick :Welcome".AsMemory(),
@@ -1137,9 +1379,9 @@ internal static class NetworkingIntegrationTests
                 timeout.Token);
 
             pongReceived.TrySetResult(
-                (await reader.ReadLineAsync(timeout.Token))!);
+                (await ReadClientCommandAsync(reader, writer, timeout.Token))!);
 
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -1220,10 +1462,10 @@ internal static class NetworkingIntegrationTests
                 "PING :after-excess-parameters".AsMemory(),
                 timeout.Token);
 
-            var pong = (await reader.ReadLineAsync(timeout.Token))!;
+            var pong = (await ReadClientCommandAsync(reader, writer, timeout.Token))!;
             pongReceived.TrySetResult(pong);
 
-            return await reader.ReadLineAsync(timeout.Token);
+            return await ReadClientCommandAsync(reader, writer, timeout.Token);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -1261,18 +1503,38 @@ internal static class NetworkingIntegrationTests
         listener.Stop();
     }
 
+    private static async Task<string?> ReadClientCommandAsync(
+        StreamReader reader,
+        StreamWriter writer,
+        CancellationToken cancellationToken)
+    {
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        {
+            if (!line.StartsWith("PING clircs-lag-", StringComparison.Ordinal))
+            {
+                return line;
+            }
+
+            await writer.WriteLineAsync(
+                $"PONG {line[5..]}".AsMemory(),
+                cancellationToken);
+        }
+
+        return null;
+    }
+
     private static async Task<(string Nick, string User)> CompleteEmptyCapabilityNegotiationAsync(
         StreamReader reader,
         StreamWriter writer,
         string nickname,
         CancellationToken cancellationToken)
     {
-        Assert.Equal("CAP LS 302", (await reader.ReadLineAsync(cancellationToken))!);
-        var nick = (await reader.ReadLineAsync(cancellationToken))!;
-        var user = (await reader.ReadLineAsync(cancellationToken))!;
+        Assert.Equal("CAP LS 302", (await ReadClientCommandAsync(reader, writer, cancellationToken))!);
+        var nick = (await ReadClientCommandAsync(reader, writer, cancellationToken))!;
+        var user = (await ReadClientCommandAsync(reader, writer, cancellationToken))!;
         Assert.Equal($"NICK {nickname}", nick);
         await writer.WriteLineAsync($":server CAP * LS :".AsMemory(), cancellationToken);
-        Assert.Equal("CAP END", (await reader.ReadLineAsync(cancellationToken))!);
+        Assert.Equal("CAP END", (await ReadClientCommandAsync(reader, writer, cancellationToken))!);
         return (nick, user);
     }
 

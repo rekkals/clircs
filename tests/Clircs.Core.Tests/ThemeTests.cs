@@ -5,6 +5,7 @@ using Clircs.Protocol;
 using Clircs.Sessions;
 using Clircs.State;
 using System.Net;
+using System.Globalization;
 
 namespace Clircs.Core.Tests;
 
@@ -23,6 +24,10 @@ internal static class ThemeTests
         suite.Add("damaged themes are isolated without losing built-ins", DamagedThemeIsIsolated);
         suite.Add("theme parsing accepts comments and rejects ambiguous duplicates", ThemeParsingIsDeterministic);
         suite.Add("appearance settings persist theme routes and hostmask visibility", AppearancePersistence);
+        suite.Add("lag meter defaults on for new and existing settings files", LagMeterDefaultsOn);
+        suite.Add("lag values retain three characters across thresholds and regional settings", LagValuesHaveFixedWidth);
+        suite.Add("status warnings use the theme warning color with a visibility fallback", StatusWarningsRemainVisible);
+        suite.Add("status warnings clip without coloring the truncation ellipsis", StatusWarningsClipToVisibleText);
         suite.Add("LINKS output defaults to the status window", LinksDefaultsToStatus);
         suite.Add("LIST output defaults to a dedicated result window", ListDefaultsToDedicated);
         suite.Add("DNS output defaults to active and formats addresses and nicknames", DnsDefaultsAndFormatting);
@@ -979,7 +984,8 @@ internal static class ThemeTests
             DccPorts: "50000-50009",
             DccDownloads: Path.Combine(temporary.Path, "downloads"),
             AwayMessage: "out getting lunch",
-            UserModes: string.Empty));
+            UserModes: string.Empty,
+            LagMeter: false));
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
@@ -989,6 +995,7 @@ internal static class ThemeTests
         Assert.Equal("lewser", loaded.DefaultKickMessage!);
         Assert.True(loaded.AnnounceUserInfoOnJoin);
         Assert.False(loaded.HighlightNickname);
+        Assert.False(loaded.LagMeter);
         Assert.Equal("userhost", loaded.DefaultBanmask);
         Assert.Equal("rekkals", loaded.Nickname!);
         Assert.Equal("rekkals_", loaded.AlternateNickname!);
@@ -1002,6 +1009,102 @@ internal static class ThemeTests
         Assert.Equal(Path.Combine(temporary.Path, "downloads"), loaded.DccDownloads!);
         Assert.Equal("out getting lunch", loaded.AwayMessage);
         Assert.Equal(string.Empty, loaded.UserModes);
+    }
+
+    private static void LagMeterDefaultsOn()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = Path.Combine(temporary.Path, "appearance.json");
+        var store = new AppearanceSettingsStore(path);
+
+        Assert.True(store.Load().LagMeter);
+
+        File.WriteAllText(path, """
+            {
+                "SchemaVersion": 1,
+                "Theme": "green"
+            }
+            """);
+
+        var loaded = store.Load();
+        Assert.True(store.LoadError is null);
+        Assert.Equal("green", loaded.Theme);
+        Assert.True(loaded.LagMeter);
+    }
+
+    private static void LagValuesHaveFixedWidth()
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("fr-FR");
+
+            (string Expected, ConnectionLagSnapshot Lag)[] cases =
+            [
+                ("???", default),
+                ("???", new(null, TimeSpan.FromSeconds(9.9))),
+                ("10+", new(null, TimeSpan.FromSeconds(10))),
+                ("0.1", new(TimeSpan.Zero, null)),
+                ("0.1", new(TimeSpan.FromMilliseconds(37.98), null)),
+                ("0.2", new(TimeSpan.FromMilliseconds(160), null)),
+                ("0.3", new(TimeSpan.FromMilliseconds(250), null)),
+                ("9.9", new(TimeSpan.FromMilliseconds(9999), null)),
+                ("10+", new(TimeSpan.FromSeconds(10), null)),
+                ("10+", new(TimeSpan.FromMinutes(1), null)),
+                ("1.0", new(TimeSpan.FromSeconds(0.1), TimeSpan.FromSeconds(1))),
+                ("10+", new(TimeSpan.FromSeconds(0.1), TimeSpan.FromSeconds(10))),
+                ("10+", new(TimeSpan.FromSeconds(11), TimeSpan.FromSeconds(1)))
+            ];
+
+            foreach (var item in cases)
+            {
+                var formatted = LagMeterFormatter.Format(item.Lag);
+                Assert.Equal(item.Expected, formatted);
+                Assert.Equal(3, formatted.Length);
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    private static void StatusWarningsRemainVisible()
+    {
+        var theme = TerminalTheme.BuiltIns["clircs"];
+        Assert.Equal(
+            theme.Warning,
+            ConsolePresenter.ReadableStatusColor(theme, theme.Warning));
+
+        var collision = theme with { Warning = theme.StatusBackground };
+        Assert.Equal(
+            collision.StatusForeground,
+            ConsolePresenter.ReadableStatusColor(collision, collision.Warning));
+    }
+
+    private static void StatusWarningsClipToVisibleText()
+    {
+        const string context = "(1) EFNet[TLS][Lag:10+] | status";
+        var start = context.IndexOf("10+", StringComparison.Ordinal);
+        var warning = new StatusWarning(start, 3);
+
+        Assert.True(ConsolePresenter.ClipStatusWarning(null, context.Length, 80) is null);
+        Assert.True(ConsolePresenter.ClipStatusWarning(warning, context.Length, 0) is null);
+        Assert.True(ConsolePresenter.ClipStatusWarning(warning, context.Length, 1) is null);
+        Assert.True(ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 1) is null);
+
+        Assert.Equal(
+            new StatusWarning(start, 1),
+            ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 2)!);
+        Assert.Equal(
+            new StatusWarning(start, 2),
+            ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 3)!);
+        Assert.Equal(
+            warning,
+            ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 4)!);
+        Assert.Equal(
+            warning,
+            ConsolePresenter.ClipStatusWarning(warning, context.Length, context.Length)!);
     }
 
     private static void LinksDefaultsToStatus()

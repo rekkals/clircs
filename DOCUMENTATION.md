@@ -157,6 +157,8 @@ Traditional IRC formatting controls are available. `Ctrl-B` toggles bold, `Ctrl-
 
 Use `/close` to close the active window. Closing a joined channel parts it. Closing a connected status window requires `/close --force` since that also closes the network connection and its associated windows.
 
+The status bar has a lag meter that measures connection response time in seconds and can be toggled on or off with `/set lagmeter on|off`.
+
 ## Everyday IRC
 
 The usual commands: `/join /part /cycle /msg /query /notice /me /nick /away /back /who /whois /iwhois /whowas /list /links /invite /ignore /unignore /kick /ban /kb /op /voice /mode /topic /names`. Convenience aliases are part of the client.

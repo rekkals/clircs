@@ -254,6 +254,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.DefaultQuitMessage = appearance.DefaultQuitMessage;
         _preferences.DefaultTopicMessage = appearance.DefaultTopicMessage;
         _preferences.HighlightNickname = appearance.HighlightNickname;
+        _preferences.LagMeter = appearance.LagMeter;
         _preferences.CloneDetection = appearance.CloneDetection;
         _preferences.NetworkReconnect = appearance.NetworkReconnect;
         _preferences.KillReconnect = appearance.KillReconnect;
@@ -329,6 +330,11 @@ internal sealed partial class ClientApplication : IAsyncDisposable
 
         try
         {
+            _applicationWork.TryStart(
+                "lag meter refresh",
+                () => RefreshLagMeterAsync(_applicationWork.Token),
+                LogUnexpectedApplicationWorkFailure);
+
             while (!_exitRequested && !_lifetime.IsCancellationRequested)
             {
                 RefreshWindowChrome();

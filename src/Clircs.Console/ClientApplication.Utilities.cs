@@ -427,7 +427,8 @@ internal sealed partial class ClientApplication
         _preferences.DccPorts.ToString(),
         _preferences.DccDownloads,
         _preferences.AwayMessage,
-        _preferences.UserModes);
+        _preferences.UserModes,
+        _preferences.LagMeter);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -454,6 +455,7 @@ internal sealed partial class ClientApplication
         _preferences.DefaultTopicMessage = settings.DefaultTopicMessage;
         _preferences.AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin;
         _preferences.HighlightNickname = settings.HighlightNickname;
+        _preferences.LagMeter = settings.LagMeter;
         _preferences.CloneDetection = settings.CloneDetection;
         _preferences.NetworkReconnect = settings.NetworkReconnect;
         _preferences.KillReconnect = settings.KillReconnect;

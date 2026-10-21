@@ -287,6 +287,26 @@ internal sealed partial class ClientApplication
             .ToArray();
     }
 
+    private async Task RefreshLagMeterAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            _applicationEvents.Dispatch(() =>
+            {
+                if (cancellationToken.IsCancellationRequested ||
+                    !_preferences.LagMeter ||
+                    ActiveSession()?.ConnectionState != IrcConnectionState.Online)
+                {
+                    return;
+                }
+
+                RefreshWindowChrome();
+            });
+        }
+    }
+
     private void RefreshWindowChrome()
     {
         var (session, buffer) = ActiveDisplayWindowSnapshot();
@@ -415,6 +435,17 @@ internal sealed partial class ClientApplication
             }
         }
 
+        StatusWarning? warning = null;
+        if (_preferences.LagMeter)
+        {
+            var lagValue = LagMeterFormatter.Format(session?.Lag ?? default);
+            fields[0] += $"[Lag:{lagValue}]";
+            if (lagValue == "10+")
+            {
+                warning = new StatusWarning(fields[0].Length - 4, 3);
+            }
+        }
+
         var chromeState = _windowStates.ChromeState(buffer?.Id);
         if (chromeState.ScrollOffset > 0)
         {
@@ -426,7 +457,7 @@ internal sealed partial class ClientApplication
                 entry.Kinds.OrderByDescending(ActivityPriority).First()))
             .OrderBy(entry => entry.Number)
             .ToArray();
-        return new StatusBarModel(fields, activity);
+        return new StatusBarModel(fields, activity, warning);
     }
 
     internal static string FormatStatusNetworkField(int number, string networkName, bool upstreamTls) =>

@@ -6,6 +6,7 @@ ProtocolRoutingTests.Register(suite);
 DccTests.Register(suite);
 StateAndCommandTests.Register(suite);
 SessionTests.Register(suite);
+ConnectionLagTests.Register(suite);
 NetworkingIntegrationTests.Register(suite);
 CapabilityNegotiationTests.Register(suite);
 SaslTests.Register(suite);

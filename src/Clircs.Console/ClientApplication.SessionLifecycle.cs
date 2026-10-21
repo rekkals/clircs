@@ -39,6 +39,7 @@ internal sealed partial class ClientApplication
         lock (_windowTransactionGate)
         {
             _liveSessions.Add(session, options, profileId, _lifetime.Token);
+            session.SetLagMeasurementEnabled(_preferences.LagMeter);
 
             if (preferredStatusNumber is not { } number ||
                 !_windowStates.TryAssignPreferredNumber(session.State.StatusBuffer.Id, number))
