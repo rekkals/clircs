@@ -15,6 +15,9 @@ internal static class LoggingTests
         suite.Add("log paths keep distinct channel names separate", DistinctChannelLogPathsAsync);
         suite.Add("log paths escape special and long names", EscapesLogPathSegmentsAsync);
         suite.Add("event logger retains a burst larger than its former queue", RetainsLargeBurstAsync);
+        suite.Add("log checkpoints flush queued entries and allow continued logging", FlushesWithoutStoppingAsync);
+        suite.Add("log checkpoints report write failures and allow recovery", ReportsFlushFailureAndRecoversAsync);
+        suite.Add("log checkpoints handle cancellation and a stopped writer", HandlesUnavailableFlushAsync);
         suite.Add("log formatter records semantic events but skips startup UI", FormatsSemanticEvents);
         suite.Add("logging status shows network and effective window rules", StatusPresentationIsReadable);
         suite.Add("session logging stays isolated and expires with its session", SessionRulesAreTemporary);
@@ -135,6 +138,107 @@ internal static class LoggingTests
         Assert.Equal(eventCount, lines.Length);
         Assert.True(lines[0].EndsWith("line 0", StringComparison.Ordinal));
         Assert.True(lines[^1].EndsWith($"line {eventCount - 1}", StringComparison.Ordinal));
+    }
+
+    private static async ValueTask FlushesWithoutStoppingAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        await using var writer = new EventLogWriter(temporary.Path);
+        var timestamp = new DateTimeOffset(2026, 10, 21, 12, 34, 56, TimeSpan.Zero);
+        const int eventCount = 600;
+
+        for (var index = 0; index < eventCount; index++)
+        {
+            Assert.Equal(ResourceQueueWriteResult.Accepted, writer.Enqueue(
+                "EFnet", BufferKind.Channel, "#clircs", timestamp,
+                [$"line {index}: café こんにちは 😀"]));
+        }
+
+        Assert.Equal(ResourceQueueWriteResult.Accepted, writer.EnqueueSession(
+            new IrcEndpoint("irc.example.test", 6667, false),
+            NetworkSessionId.New(), BufferKind.Status, "status", timestamp,
+            ["session entry"]));
+
+        await writer.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        var channelPath = Path.Combine(
+            temporary.Path, "EFnet", "#clircs", "2026-10-21.log");
+        var sessionPath = Path.Combine(
+            temporary.Path, "session", "irc.example.test_6667",
+            "status", "2026-10-21.log");
+        var lines = File.ReadAllLines(channelPath);
+
+        Assert.Equal(eventCount, lines.Length);
+        for (var index = 0; index < eventCount; index++)
+        {
+            Assert.Equal($"[12:34:56] line {index}: café こんにちは 😀", lines[index]);
+        }
+        Assert.Equal("[12:34:56] session entry", File.ReadAllText(sessionPath).Trim());
+
+        Assert.Equal(ResourceQueueWriteResult.Accepted, writer.Enqueue(
+            "EFnet", BufferKind.Channel, "#clircs", timestamp, ["after checkpoint"]));
+        await writer.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        lines = File.ReadAllLines(channelPath);
+        Assert.Equal(eventCount + 1, lines.Length);
+        Assert.Equal("[12:34:56] after checkpoint", lines[^1]);
+    }
+
+    private static async ValueTask ReportsFlushFailureAndRecoversAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var blockedDirectory = Path.Combine(temporary.Path, "EFnet");
+        File.WriteAllText(blockedDirectory, "A file prevents creation of the log directory.");
+
+        await using var writer = new EventLogWriter(temporary.Path);
+        var errors = new List<string>();
+        writer.ErrorRaised += errors.Add;
+        var timestamp = new DateTimeOffset(2026, 10, 21, 12, 34, 56, TimeSpan.Zero);
+
+        Assert.Equal(ResourceQueueWriteResult.Accepted, writer.Enqueue(
+            "EFnet", BufferKind.Channel, "#clircs", timestamp, ["cannot write"]));
+
+        var failure = await Assert.ThrowsAsync<IOException>(() =>
+            writer.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(failure.InnerException is IOException or UnauthorizedAccessException);
+        Assert.Equal(1, errors.Count);
+        Assert.True(errors[0].StartsWith("Logging failed:", StringComparison.Ordinal));
+
+        File.Delete(blockedDirectory);
+        Assert.Equal(ResourceQueueWriteResult.Accepted, writer.Enqueue(
+            "EFnet", BufferKind.Channel, "#clircs", timestamp, ["recovered"]));
+        await writer.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        var path = Path.Combine(
+            temporary.Path, "EFnet", "#clircs", "2026-10-21.log");
+        Assert.Equal("[12:34:56] recovered", File.ReadAllText(path).Trim());
+        Assert.Equal(1, errors.Count);
+    }
+
+    private static async ValueTask HandlesUnavailableFlushAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        await using var writer = new EventLogWriter(temporary.Path);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            writer.FlushAsync(cancellation.Token));
+
+        var timestamp = new DateTimeOffset(2026, 10, 21, 12, 34, 56, TimeSpan.Zero);
+        Assert.Equal(ResourceQueueWriteResult.Accepted, writer.Enqueue(
+            "EFnet", BufferKind.Status, "status", timestamp, ["still logging"]));
+        await writer.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+        var path = Path.Combine(
+            temporary.Path, "EFnet", "status", "2026-10-21.log");
+        Assert.Equal("[12:34:56] still logging", File.ReadAllText(path).Trim());
+
+        await writer.DisposeAsync();
+        await Assert.ThrowsAsync<IOException>(() =>
+            writer.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ResourceQueueWriteResult.Completed, writer.Enqueue(
+            "EFnet", BufferKind.Status, "status", timestamp, ["too late"]));
     }
 
     private static void FormatsSemanticEvents()

@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Clircs.State;
 using Clircs.Identity;
 using Clircs.Networking;
+using Clircs.Infrastructure;
 
 namespace Clircs.ConsoleClient;
 
@@ -12,7 +13,7 @@ internal sealed class EventLogWriter : IAsyncDisposable
     private readonly string _root;
     internal const int MaximumWriteBatchSize = 256;
     internal const int MaximumPendingEntries = 100_000;
-    private readonly Channel<LogEntry> _queue;
+    private readonly Channel<WorkItem> _queue;
     private readonly object _completionGate = new();
     private readonly Dictionary<NetworkSessionId, string> _sessionFolders = [];
     private readonly Task _worker;
@@ -22,7 +23,7 @@ internal sealed class EventLogWriter : IAsyncDisposable
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumPendingEntries, 1);
         _root = Path.GetFullPath(root);
-        _queue = Channel.CreateBounded<LogEntry>(new BoundedChannelOptions(maximumPendingEntries)
+        _queue = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(maximumPendingEntries)
         {
             SingleReader = true,
             SingleWriter = false,
@@ -97,6 +98,36 @@ internal sealed class EventLogWriter : IAsyncDisposable
         lock (_completionGate) _sessionFolders.Remove(sessionId);
     }
 
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var completion = new TaskCompletionSource<Exception?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            await _queue.Writer.WriteAsync(
+                new FlushRequest(completion), cancellationToken).ConfigureAwait(false);
+        }
+        catch (ChannelClosedException exception)
+        {
+            throw new IOException(
+                "The log writer stopped before queued logs could be flushed", exception);
+        }
+
+        // Also watch the worker so an unexpected failure cannot leave us waiting
+        // indefinitely for a checkpoint it will never reach.
+        var finished = await Task.WhenAny(completion.Task, _worker)
+            .WaitAsync(cancellationToken).ConfigureAwait(false);
+        await finished.ConfigureAwait(false);
+
+        var failure = await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (failure is not null)
+        {
+            throw new IOException("Queued log entries could not be written", failure);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         lock (_completionGate)
@@ -137,19 +168,49 @@ internal sealed class EventLogWriter : IAsyncDisposable
     private async Task WriteLoopAsync()
     {
         var batch = new List<LogEntry>(MaximumWriteBatchSize);
-        while (await _queue.Reader.WaitToReadAsync().ConfigureAwait(false))
+        Exception? writeFailure = null;
+
+        try
         {
-            while (batch.Count < MaximumWriteBatchSize && _queue.Reader.TryRead(out var entry))
+            while (await _queue.Reader.WaitToReadAsync().ConfigureAwait(false))
             {
-                batch.Add(entry);
+                while (batch.Count < MaximumWriteBatchSize &&
+                       _queue.Reader.TryRead(out var work))
+                {
+                    if (work is FlushRequest flush)
+                    {
+                        writeFailure = WriteBatch(batch) ?? writeFailure;
+                        batch.Clear();
+
+                        // Report failures at the next checkpoint, then allow
+                        // subsequent checkpoints to reflect recovered logging.
+                        flush.Completion.TrySetResult(writeFailure);
+                        writeFailure = null;
+                    }
+                    else
+                    {
+                        batch.Add((LogEntry)work);
+                    }
+                }
+
+                writeFailure = WriteBatch(batch) ?? writeFailure;
+                batch.Clear();
             }
-            await WriteBatchAsync(batch).ConfigureAwait(false);
-            batch.Clear();
+        }
+        finally
+        {
+            lock (_completionGate)
+            {
+                _completed = true;
+                _queue.Writer.TryComplete();
+            }
         }
     }
 
-    private async Task WriteBatchAsync(IReadOnlyList<LogEntry> entries)
+    private Exception? WriteBatch(IReadOnlyList<LogEntry> entries)
     {
+        Exception? failure = null;
+
         foreach (var group in entries.GroupBy(entry =>
                      entry.SessionFolder is { } folder
                         ? PathForSession(folder, entry.Kind, entry.Target, entry.Timestamp)
@@ -157,16 +218,18 @@ internal sealed class EventLogWriter : IAsyncDisposable
         {
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(group.Key)!);
                 var text = string.Concat(group.SelectMany(entry => entry.Lines.Select(line =>
                     $"[{entry.Timestamp:HH:mm:ss}] {line}{Environment.NewLine}")));
-                await File.AppendAllTextAsync(group.Key, text, new UTF8Encoding(false)).ConfigureAwait(false);
+                DurableFileWriter.Shared.AppendText(group.Key, text);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
+                failure ??= exception;
                 ErrorRaised?.Invoke($"Logging failed: {exception.Message}");
             }
         }
+
+        return failure;
     }
 
     private static string SafeSegment(string value)
@@ -231,11 +294,16 @@ internal sealed class EventLogWriter : IAsyncDisposable
         return segment[..prefixLength] + suffix;
     }
 
+    private abstract record WorkItem;
+
+    private sealed record FlushRequest(
+        TaskCompletionSource<Exception?> Completion) : WorkItem;
+
     private sealed record LogEntry(
         string Network,
         BufferKind Kind,
         string Target,
         DateTimeOffset Timestamp,
         IReadOnlyList<string> Lines,
-        string? SessionFolder = null);
+        string? SessionFolder = null) : WorkItem;
 }

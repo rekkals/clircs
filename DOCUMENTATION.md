@@ -49,7 +49,7 @@ Use `/set` to inspect or change client settings. Use `/help set` to see a list o
 
 Use `/network` to inspect live network sessions and saved profiles. Network-specific stuff like servers, autojoin channels, user modes, and SASL settings belong to profiles instead of individual server addresses.
 
-Use `/backup create` to make a backup and `/backup list` to show saved backups. Restore is, for now, a manual, unzip-and-overwrite process.
+Use `/backup create` to make a backup that includes user data and logs, and `/backup list` to show saved backups. Restore is, for now, a manual, unzip-and-overwrite process.
 
 ## Connecting
 

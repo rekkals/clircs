@@ -63,6 +63,26 @@ public sealed class DurableFileWriter
         }
     }
 
+    public void AppendText(string path, string contents, Encoding? encoding = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(contents);
+        path = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException("The persistent file has no parent directory");
+
+        PersistenceLock.EnterWriteLock();
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(path, contents, encoding ?? new UTF8Encoding(false));
+        }
+        finally
+        {
+            PersistenceLock.ExitWriteLock();
+        }
+    }
+
     public static T ReadSnapshot<T>(Func<T> read)
     {
         ArgumentNullException.ThrowIfNull(read);

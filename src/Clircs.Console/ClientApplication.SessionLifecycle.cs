@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Sockets;
-using System.Text;
+using Clircs.Infrastructure;
 using Clircs.Commands;
 using Clircs.Dcc;
 using Clircs.Identity;
@@ -242,17 +242,12 @@ internal sealed partial class ClientApplication
         try
         {
             var directory = Path.Combine(_dataDirectory, "logs");
-            Directory.CreateDirectory(directory);
             var entry =
                 $"[{DateTimeOffset.Now:O}] Application work failed: {operation}{Environment.NewLine}" +
                 $"{exception}{Environment.NewLine}{Environment.NewLine}";
-            lock (_errorLogGate)
-            {
-                File.AppendAllText(
-                    Path.Combine(directory, "application-errors.log"),
-                    entry,
-                    new UTF8Encoding(false));
-            }
+            DurableFileWriter.Shared.AppendText(
+                Path.Combine(directory, "application-errors.log"),
+                entry);
         }
         catch (Exception logException) when (
             logException is IOException or UnauthorizedAccessException or NotSupportedException)
@@ -271,18 +266,13 @@ internal sealed partial class ClientApplication
         try
         {
             var directory = Path.Combine(_dataDirectory, "logs");
-            Directory.CreateDirectory(directory);
             var entry =
                 $"[{DateTimeOffset.Now:O}] Session work failed: {operation}{Environment.NewLine}" +
                 $"Network session: {session.State.Id}{Environment.NewLine}" +
                 $"{exception}{Environment.NewLine}{Environment.NewLine}";
-            lock (_errorLogGate)
-            {
-                File.AppendAllText(
-                    Path.Combine(directory, "application-errors.log"),
-                    entry,
-                    new UTF8Encoding(false));
-            }
+            DurableFileWriter.Shared.AppendText(
+                Path.Combine(directory, "application-errors.log"),
+                entry);
         }
         catch (Exception logException) when (
             logException is IOException or UnauthorizedAccessException or NotSupportedException)

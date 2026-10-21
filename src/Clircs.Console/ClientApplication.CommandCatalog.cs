@@ -529,6 +529,7 @@ internal sealed partial class ClientApplication
             switch (operation)
             {
                 case "create":
+                    await _logWriter.FlushAsync(cancellationToken);
                     var path = await Task.Run(_backupManager.Create, cancellationToken);
                     return CommandResult.Success($"Backup created: {path}");
                 case "path":

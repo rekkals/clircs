@@ -174,7 +174,6 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     // Coordinates the few operations that must update a core IRC buffer and its
     // terminal window as one transaction. WindowStateRegistry protects its own data.
     private readonly object _windowTransactionGate = new();
-    private readonly object _errorLogGate = new();
     private readonly SerializedEventDispatcher<Action> _applicationEvents;
     private readonly InboundSessionEventPump<SessionEvent> _inboundSessionEvents;
     private readonly InboundResourceCircuitBreaker _inboundResourceCircuitBreaker = new();

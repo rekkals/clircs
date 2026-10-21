@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using Clircs.Commands;
 using Clircs.Identity;
+using Clircs.Infrastructure;
 using Clircs.Networking;
 using Clircs.Protection;
 using Clircs.Protocol;
@@ -198,8 +199,7 @@ internal sealed partial class ClientApplication
             var command = commandLine.TrimStart().Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries)
                 .FirstOrDefault() ?? "<empty>";
             var path = System.IO.Path.Combine(_dataDirectory, "logs", "command-errors.log");
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-            File.AppendAllText(
+            DurableFileWriter.Shared.AppendText(
                 path,
                 $"{DateTimeOffset.Now:O} Command={command} Session={context.NetworkSessionId} Buffer={context.BufferId}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
         }
