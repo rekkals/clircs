@@ -656,6 +656,8 @@ internal sealed class ConsolePresenter
 
     public void LocalResult(string message) => WriteLine(message, _theme.Dim);
 
+    public void Warning(string message) => WriteLine(message, _theme.Warning);
+
     public void Presentation(PresentationBlock presentation) => WritePresentation(
         new SessionEvent(NetworkSessionId.New(), BufferId.New(), SessionEventKind.Server, string.Empty, DateTimeOffset.Now,
             Presentation: presentation),

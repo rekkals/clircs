@@ -137,6 +137,26 @@ internal sealed class BackupManager
         }
     }
 
+    public string ResolveRestorePath(string requestedPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedPath);
+        var path = Environment.ExpandEnvironmentVariables(requestedPath);
+
+        if (Path.IsPathFullyQualified(path))
+        {
+            return Path.GetFullPath(path);
+        }
+
+        if (path.IndexOfAny(['/', '\\', ':']) >= 0 ||
+            path is "." or "..")
+        {
+            throw new ArgumentException(
+                "Use a backup filename or a full path.");
+        }
+
+        return Path.GetFullPath(Path.Combine(BackupDirectory, path));
+    }
+
     public IReadOnlyList<FileInfo> List() =>
         Directory.Exists(BackupDirectory)
             ? new DirectoryInfo(BackupDirectory)

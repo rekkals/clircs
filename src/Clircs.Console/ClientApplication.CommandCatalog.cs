@@ -14,7 +14,7 @@ internal sealed partial class ClientApplication
         Register("help", ["?"], "Show a list of commands or help for [command].", HelpAsync);
         Register("about", [], "Display the clircs startup presentation.", AboutAsync);
         Register("config", [], "Show where clircs stores configuration and user data.", ConfigAsync);
-        Register("backup", [], "Create or manage user-data backups.", BackupAsync);
+        Register("backup", [], "Create or restore user-data backups.", BackupAsync);
         Register("logging", ["log"], "Start, stop, and manage channel and query logs.", LoggingAsync);
         Register("server", ["connect"], "Connect to an IRC server or saved network profile.", ServerAsync);
         Register("network", [], "List live connections or manage saved network profiles.", NetworkAsync);
@@ -179,6 +179,11 @@ internal sealed partial class ClientApplication
 
     private static IReadOnlyList<PresentationField> ExtendedHelpFields(string command) => command.ToLowerInvariant() switch
     {
+        "backup" =>
+        [
+            new("Restore file", "Use a filename from /backup list or a quoted full path"),
+            new("Restore behavior", "Replaces current user data after confirmation, then exits; restart clircs to complete the process")
+        ],
         "server" =>
         [
             new("Direct", "/server <host> [port] [--tls] [--new] [--password]"),
@@ -519,11 +524,22 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        if (input.Arguments.Count > 1)
+        const string usage = "Usage: /backup <create|list|path|restore> [file]";
+
+        if (input.Arguments.Count == 0)
         {
-            return CommandResult.Failure("Usage: /backup [create|list|path]");
+            return CommandResult.Failure(usage);
         }
-        var operation = input.Arguments.Count == 0 ? "create" : input.Arguments[0].ToLowerInvariant();
+
+        var operation = input.Arguments[0].ToLowerInvariant();
+
+        if (operation == "restore"
+            ? input.Arguments.Count != 2
+            : input.Arguments.Count > 1)
+        {
+            return CommandResult.Failure(usage);
+        }
+
         try
         {
             switch (operation)
@@ -532,11 +548,18 @@ internal sealed partial class ClientApplication
                     await _logWriter.FlushAsync(cancellationToken);
                     var path = await Task.Run(_backupManager.Create, cancellationToken);
                     return CommandResult.Success($"Backup created: {path}");
+
                 case "path":
-                    return CommandResult.Success($"Backup directory: {_backupManager.BackupDirectory}");
+                    return CommandResult.Success(
+                        $"Backup directory: {_backupManager.BackupDirectory}");
+
                 case "list":
                     var backups = _backupManager.List();
-                    if (backups.Count == 0) return CommandResult.Success("No clircs backups found.");
+                    if (backups.Count == 0)
+                    {
+                        return CommandResult.Success("No clircs backups found.");
+                    }
+
                     return CommandResult.Success(new PresentationBlock(
                         "Backups",
                         Table: new PresentationTable(
@@ -544,19 +567,97 @@ internal sealed partial class ClientApplication
                             backups.Select(file => (IReadOnlyList<string>)new[]
                             {
                                 file.Name,
-                                file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                                file.LastWriteTime.ToString(
+                                    "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                                 FormatFileSize(file.Length)
                             }).ToArray(),
                             new HashSet<int> { 0 })));
+
+                case "restore":
+                    return await RestoreBackupAsync(
+                        context, input.Arguments[1], cancellationToken);
+
                 default:
-                    return CommandResult.Failure("Usage: /backup [create|list|path]");
+                    return CommandResult.Failure(usage);
             }
         }
         catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or InvalidDataException)
+            exception is IOException or UnauthorizedAccessException or
+                InvalidDataException or ArgumentException or NotSupportedException)
         {
-            return CommandResult.Failure($"Backup failed: {exception.Message}");
+            var action = operation == "restore" ? "Restore" : "Backup";
+            return CommandResult.Failure($"{action} failed: {exception.Message}");
         }
+    }
+
+    private async ValueTask<CommandResult> RestoreBackupAsync(
+        CommandContext context,
+        string requestedPath,
+        CancellationToken cancellationToken)
+    {
+        PreparedBackupRestore? prepared = null;
+
+        try
+        {
+            var archivePath = _backupManager.ResolveRestorePath(requestedPath);
+            prepared = await Task.Run(
+                () => PreparedBackupRestore.Create(
+                    _dataDirectory, archivePath, cancellationToken),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            DisplayCommandResult(
+                CommandResult.Success(new PresentationBlock(
+                    "Restore Backup",
+                    [
+                        new("Archive", prepared.ArchivePath),
+                        new("Destination", _dataDirectory)
+                    ])),
+                context);
+            DisplayCommandResult(
+                CommandResult.Success(
+                    "Existing backups will be kept. Close other clircs instances " +
+                    "using this data directory before continuing."),
+                context);
+            DisplayCommandResult(
+                CommandResult.Success(
+                    "After confirmation, clircs will disconnect, restore the backup, " +
+                    "and exit. Restart clircs to complete the process."),
+                context);
+
+            DisplayCommandWarning(
+                "WARNING: This replaces all current user data, including " +
+                "settings, profiles, scripts, and logs.",
+                context);
+            DisplayCommandWarning(
+                "WARNING: Files added since this backup will be deleted. " +
+                "Nothing will be merged, and overwritten data is unrecoverable.",
+                context);
+
+            var response = _presenter.ReadPrompt("Restore this backup? [y/N] ");
+            if (!IsBackupRestoreConfirmed(response))
+            {
+                return CommandResult.Success("Restore canceled.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            _pendingRestore = prepared;
+            prepared = null;
+            _exitRequested = true;
+
+            return CommandResult.Success("Closing clircs to restore the backup.");
+        }
+        finally
+        {
+            prepared?.Dispose();
+        }
+    }
+
+    internal static bool IsBackupRestoreConfirmed(string? response)
+    {
+        var choice = response?.Trim();
+        return string.Equals(choice, "y", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(choice, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static string FormatFileSize(long bytes)

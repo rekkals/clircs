@@ -791,6 +791,28 @@ internal static class ThemeTests
             new Dictionary<string, string?> { ["clientResult"] = "true" });
         Assert.Equal(TerminalTheme.BuiltIns["clircs"].Dim,
             TerminalTheme.BuiltIns["clircs"].EventColor(localResult));
+
+        var warning = localResult with
+        {
+            Text = "WARNING: Current data will be replaced.",
+            Fields = new Dictionary<string, string?>
+            {
+                ["clientResult"] = "true",
+                ["clientWarning"] = "true"
+            }
+        };
+
+        var themes = TerminalTheme.BuiltIns.Values.Append(
+            TerminalTheme.BuiltIns["clircs"] with
+            {
+                Warning = ConsoleColor.Magenta
+            });
+
+        foreach (var theme in themes)
+        {
+            Assert.Equal(theme.Dim, theme.EventColor(localResult));
+            Assert.Equal(theme.Warning, theme.EventColor(warning));
+        }
     }
 
     private static void BufferHeadersCompose()

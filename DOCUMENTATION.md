@@ -49,7 +49,9 @@ Use `/set` to inspect or change client settings. Use `/help set` to see a list o
 
 Use `/network` to inspect live network sessions and saved profiles. Network-specific stuff like servers, autojoin channels, user modes, and SASL settings belong to profiles instead of individual server addresses.
 
-Use `/backup create` to make a backup that includes user data and logs, and `/backup list` to show saved backups. Restore is, for now, a manual, unzip-and-overwrite process.
+Use `/backup create` to save user data, including logs. `/backup list` shows saved backups, and `/backup path` shows their location.
+
+Use `/backup restore <file>` to restore a backup, supplying a filename from `/backup list` or a quoted full path. Close other clircs instances using the same data directory first. After confirmation, clircs replaces current user data with the backup and exits. Files added since the backup are removed, existing backups are kept, and nothing is merged. Restart clircs to complete the process.
 
 ## Connecting
 

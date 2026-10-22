@@ -33,7 +33,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["help"] = "/help [command]",
             ["about"] = "/about",
             ["config"] = "/config [path]",
-            ["backup"] = "/backup [create|list|path]",
+            ["backup"] = "/backup <create|list|path|restore> [file]",
             ["logging"] = "/logging <on|off|status|list|path> [network] [target]",
             ["network"] = "/network [list|profiles|add|server|username|usermodes|remove|use|status|sasl] [arguments]",
             ["disconnect"] = "/disconnect [reason]",
@@ -157,6 +157,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     private readonly ConsolePresenter _presenter = new();
     private readonly string _dataDirectory;
     private readonly BackupManager _backupManager;
+    private readonly BackupRestorePhase? _recoveredRestore;
     private readonly LoggingSettingsStore _loggingStore;
     private readonly SessionLoggingSettings _sessionLogging = new();
     private readonly EventLogWriter _logWriter;
@@ -189,9 +190,13 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SessionWorkTracker _applicationWork;
     private RecentConnection? _recentConnection;
+    private PreparedBackupRestore? _pendingRestore;
     private bool _exitRequested;
-    public ClientApplication()
+    public ClientApplication(
+        string? dataDirectory = null,
+        BackupRestorePhase? recoveredRestore = null)
     {
+        _recoveredRestore = recoveredRestore;
         _applicationWork = new SessionWorkTracker(_lifetime.Token);
         _applicationEvents = new SerializedEventDispatcher<Action>(action => action());
         _inboundSessionEvents = new InboundSessionEventPump<SessionEvent>(
@@ -200,7 +205,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _commandExecution = new CommandExecutionCoordinator(_commands);
         _presenter.SetResizeHandler(ResizeActiveViewport);
         _windowStates.ActivateLocal(_localStatusBuffer.Id);
-        var dataDirectory = ClientDataDirectory.Resolve();
+        dataDirectory ??= ClientDataDirectory.Resolve();
         _dataDirectory = dataDirectory;
         _preferences = new ClientPreferences(
             CreateDefaultNickname(),
@@ -283,6 +288,21 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _windowStates.ReplaceHistory(_localStatusBuffer.Id, [LocalStartupEvent()]);
         RedrawActiveBuffer();
         var startupContext = CaptureCommandContext();
+        if (_recoveredRestore == BackupRestorePhase.RolledBack)
+        {
+            DisplayCommandResult(
+                CommandResult.Success(
+                    "Recovered an interrupted backup restore. " +
+                    "The data from before that restore is back in place."),
+                startupContext);
+        }
+        else if (_recoveredRestore == BackupRestorePhase.Committed)
+        {
+            DisplayCommandResult(
+                CommandResult.Success(
+                    "Finished cleanup from the previous backup restore."),
+                startupContext);
+        }
         if (_profileStore.LoadError is not null)
         {
             DisplayCommandResult(
@@ -398,6 +418,13 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         }
     }
 
+    public PreparedBackupRestore? TakePendingRestore()
+    {
+        var prepared = _pendingRestore;
+        _pendingRestore = null;
+        return prepared;
+    }
+
     internal static bool ShouldStoreInputInHistory(string line)
     {
         try
@@ -433,7 +460,14 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         }
         finally
         {
-            _presenter.ExitFullScreen();
+            try
+            {
+                TakePendingRestore()?.Dispose();
+            }
+            finally
+            {
+                _presenter.ExitFullScreen();
+            }
         }
         _applicationWork.Dispose();
         _lifetime.Dispose();
@@ -442,7 +476,12 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     private void DisplayCommandResult(CommandResult result, CommandContext? context = null) =>
         _applicationEvents.Dispatch(() => DisplayCommandResultCore(result, context));
 
-    private void DisplayCommandResultCore(CommandResult result, CommandContext? context)
+    private void DisplayCommandWarning(string message, CommandContext context) =>
+    _applicationEvents.Dispatch(() =>
+        DisplayCommandResultCore(
+            CommandResult.Success(message), context, warning: true));
+
+    private void DisplayCommandResultCore(CommandResult result, CommandContext? context, bool warning = false)
     {
         if (result.Presentation is null && string.IsNullOrEmpty(result.Message)) return;
         var message = result.Presentation is null
@@ -462,9 +501,20 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         if (buffer is null)
         {
             if (result.Presentation is not null) _presenter.Presentation(result.Presentation);
+            else if (warning) _presenter.Warning(message);
             else if (result.Succeeded) _presenter.LocalResult(message);
             else _presenter.Result(message, success: false);
             return;
+        }
+
+        var fields = result.Succeeded && result.Presentation is null
+            ? new Dictionary<string, string?> { ["clientResult"] = "true" }
+            : null;
+
+        if (warning)
+        {
+            fields ??= new Dictionary<string, string?>();
+            fields["clientWarning"] = "true";
         }
 
         var sessionEvent = new SessionEvent(
@@ -473,9 +523,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             result.Succeeded ? SessionEventKind.Server : SessionEventKind.Error,
             message,
             DateTimeOffset.Now,
-            result.Succeeded && result.Presentation is null
-                ? new Dictionary<string, string?> { ["clientResult"] = "true" }
-                : null,
+            fields,
             Presentation: result.Presentation);
         StoredWindowEvent stored;
         lock (_windowTransactionGate)

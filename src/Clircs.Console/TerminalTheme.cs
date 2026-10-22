@@ -63,6 +63,13 @@ internal sealed record TerminalTheme(
 
     public ConsoleColor EventColor(SessionEvent sessionEvent)
     {
+        if (string.Equals(
+            sessionEvent.Fields?.GetValueOrDefault("clientWarning"),
+            "true",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return Warning;
+        }
         var presentation = SessionEventPresentation.From(sessionEvent);
         if (presentation.IsClientResult) return Dim;
         return sessionEvent.Kind == SessionEventKind.Part && presentation.Subtype == SessionEventSubtype.Kick

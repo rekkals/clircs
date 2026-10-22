@@ -87,6 +87,7 @@ internal static class ScriptTests
             "/dcc send Nick secret.txt",
             "/users export stolen.json",
             "/backup create",
+            "/backup restore snapshot.zip",
             "/server hostile.example",
             "/connect hostile.example",
             "/network remove EFnet",
