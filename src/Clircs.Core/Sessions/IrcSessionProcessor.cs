@@ -1046,7 +1046,9 @@ public sealed class IrcSessionProcessor
                             ("outputRequestId", requestId?.ToString("D")),
                             ("outputEnd", requestId is null ? null : "true")),
                         presentation: new PresentationBlock(
-                            $"Users ({channelName}): {channel.Members.Count}, Ops: {ops}, Voice: {voices}, Normal: {channel.Members.Count - ops - voices}",
+                            requestId is null
+                                ? $"Users ({channelName}): Total: {channel.Members.Count}, Ops: {ops}, Voice: {voices}, Normal: {channel.Members.Count - ops - voices}"
+                                : $"NAMES: {channelName}",
                             Grid: names,
                             BracketGridCells: true,
                             TitleHighlight: channelName)));

@@ -90,7 +90,7 @@ internal static class SessionTests
         suite.Add("text segmentation carries IRC formatting across segments", TextSegmentationCarriesFormatting);
         suite.Add("text segmentation rejects impossible byte budgets", TextSegmentationRejectsImpossibleBudgets);
         suite.Add("NAMES and WHO build synchronized channel member state", NamesAndWhoBuildMemberState);
-        suite.Add("manual NAMES replies are correlated without creating joined-channel state", NamesProducesInformationBox);
+        suite.Add("manual NAMES replies use a simple title and preserve channel state", NamesProducesInformationBox);
         suite.Add("JOIN PART QUIT KICK and NICK maintain channel membership", MembershipEventsMaintainState);
         suite.Add("self kicks use personal wording and semantic fields", SelfKickUsesPersonalWording);
         suite.Add("self KILL messages are formatted and classified", SelfKillIsFormatted);
@@ -2155,7 +2155,14 @@ internal static class SessionTests
         Assert.Equal("self", state.VisibleUsername!);
         Assert.Equal("localhost", state.VisibleHost!);
         processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :@me @+Alice Bob"));
-        processor.Process(IrcMessageParser.Parse(":server 366 me #clirc :End of NAMES"));
+        var namesEvents = processor.Process(IrcMessageParser.Parse(
+            ":server 366 me #clirc :End of NAMES"));
+
+        Assert.Equal(1, namesEvents.Count);
+        Assert.Equal(
+            "Users (#clirc): Total: 3, Ops: 2, Voice: 0, Normal: 1",
+            namesEvents[0].Presentation!.Title);
+        Assert.Equal(3, namesEvents[0].Presentation!.Grid!.Count);
         processor.Process(IrcMessageParser.Parse(":server 352 me #clirc alice example.test server Alice H+ :0 Alice"));
         processor.Process(IrcMessageParser.Parse(":server 315 me #clirc :End of WHO"));
 
@@ -2189,9 +2196,7 @@ internal static class SessionTests
             ":server 366 me #clirc :End of NAMES"));
 
         Assert.Equal(1, events.Count);
-        Assert.Equal(
-            "Users (#clirc): 3, Ops: 1, Voice: 1, Normal: 1",
-            events[0].Presentation!.Title);
+        Assert.Equal("NAMES: #clirc", events[0].Presentation!.Title);
         Assert.Equal("#clirc", events[0].Presentation!.TitleHighlight!);
         Assert.Equal(3, events[0].Presentation!.Grid!.Count);
         Assert.True(events[0].Presentation!.Grid!.Contains("@me"));
@@ -2208,7 +2213,26 @@ internal static class SessionTests
 
         Assert.False(state.TryGetChannel("#clirc", out _));
         Assert.False(state.TryGetBuffer("#clirc", out _));
-        Assert.True(processor.TryBeginNamesRequest("#clirc", out _));
+        processor.Process(IrcMessageParser.Parse(
+            ":me!self@localhost JOIN #clirc"));
+
+        Assert.True(processor.TryBeginNamesRequest("#clirc", out requestId));
+        processor.Process(IrcMessageParser.Parse(
+            ":server 353 me = #clirc :@me +Alice Bob"));
+        events = processor.Process(IrcMessageParser.Parse(
+            ":server 366 me #clirc :End of NAMES"));
+
+        Assert.Equal(1, events.Count);
+        Assert.Equal("NAMES: #clirc", events[0].Presentation!.Title);
+        Assert.Equal(3, events[0].Presentation!.Grid!.Count);
+        Assert.True(events[0].Presentation!.Summary is null);
+        Assert.True(state.TryGetChannel("#clirc", out var channel));
+        Assert.Equal(3, channel!.Members.Count);
+        Assert.True(state.TryGetBuffer("#clirc", out var channelBuffer));
+        Assert.Equal(channelBuffer!.Id, events[0].BufferId);
+        Assert.Equal(
+            requestId.ToString("D"),
+            events[0].Fields!["outputRequestId"]!);
     }
 
     private static void MembershipEventsMaintainState()
