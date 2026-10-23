@@ -1317,7 +1317,7 @@ internal sealed partial class ClientApplication
                     "This network session is connected. Use /close --force to disconnect it and close all associated windows.");
             }
 
-            await CloseSessionAsync(session, "Closing network session");
+            await CloseSessionAsync(session, ResolveQuitMessage(null));
             RedrawActiveBuffer();
             return CommandResult.Success();
         }
