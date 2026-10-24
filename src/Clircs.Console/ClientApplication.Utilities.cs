@@ -392,9 +392,23 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private string ResolveKickMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultKickMessage);
+    private string ResolveQuitMessage(string? supplied)
+    {
+        var configured = _preferences.DefaultQuitMessage;
+        if (string.IsNullOrWhiteSpace(configured) ||
+            configured.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            configured = $"{ProductInfo.DisplayName} - {ProductInfo.Description}";
+        }
+        else if (configured.Equals("random", StringComparison.OrdinalIgnoreCase))
+        {
+            configured = null;
+        }
 
-    private string ResolveQuitMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultQuitMessage);
+        return ResolveMessage(supplied, configured);
+    }
+
+    private string ResolveKickMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultKickMessage);
 
     private string ResolveTopicMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultTopicMessage);
 

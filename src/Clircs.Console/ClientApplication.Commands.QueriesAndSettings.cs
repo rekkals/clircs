@@ -216,7 +216,7 @@ internal sealed partial class ClientApplication
                 new("realname", _preferences.RealName),
                 new("awaymsg", _preferences.AwayMessage),
                 new("kickmsg", _preferences.DefaultKickMessage ?? "random"),
-                new("quitmsg", _preferences.DefaultQuitMessage ?? "random"),
+                new("quitmsg", _preferences.DefaultQuitMessage ?? "default"),
                 new("topicmsg", _preferences.DefaultTopicMessage ?? "random"),
                 new("banmask", BanmaskFormatter.Name(_preferences.BanmaskStyle)),
                 new("clonedetect", _preferences.CloneDetection ? "on" : "off"),
@@ -306,9 +306,14 @@ internal sealed partial class ClientApplication
                 _preferences.DefaultKickMessage = kickDefault;
                 break;
             case "quitmsg":
-                var quitDefault = ParseOptionalDefault(value);
-                if (quitDefault?.Length > 300) return ValueTask.FromResult(CommandResult.Failure("A default message cannot exceed 300 characters."));
-                _preferences.DefaultQuitMessage = quitDefault;
+                var quitDefault = TerminalTextSanitizer.Sanitize(value).Trim();
+                if (quitDefault.Length > 300) return ValueTask.FromResult(CommandResult.Failure("A default message cannot exceed 300 characters."));
+                _preferences.DefaultQuitMessage = quitDefault.ToLowerInvariant() switch
+                {
+                    "" or "default" => null,
+                    "none" or "random" => "random",
+                    _ => quitDefault
+                };
                 break;
             case "topicmsg":
                 var topicDefault = ParseOptionalDefault(value);
