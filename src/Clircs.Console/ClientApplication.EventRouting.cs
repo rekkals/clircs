@@ -223,7 +223,7 @@ internal sealed partial class ClientApplication
             }
             else
             {
-                _presenter.Event(context.Event, context.BufferName);
+                PresentWindowEvent(context.Event, context.BufferName, context.Stored.DateChange);
             }
         }
 

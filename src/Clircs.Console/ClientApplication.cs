@@ -259,6 +259,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.DefaultTopicMessage = appearance.DefaultTopicMessage;
         _preferences.HighlightNickname = appearance.HighlightNickname;
         _preferences.LagMeter = appearance.LagMeter;
+        _preferences.DateChange = appearance.DateChange;
         _preferences.CloneDetection = appearance.CloneDetection;
         _preferences.NetworkReconnect = appearance.NetworkReconnect;
         _preferences.KillReconnect = appearance.KillReconnect;
@@ -350,8 +351,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         try
         {
             _applicationWork.TryStart(
-                "lag meter refresh",
-                () => RefreshLagMeterAsync(_applicationWork.Token),
+                "window clock refresh",
+                () => RefreshWindowClockAsync(_applicationWork.Token),
                 LogUnexpectedApplicationWorkFailure);
 
             while (!_exitRequested && !_lifetime.IsCancellationRequested)
@@ -543,7 +544,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         if (stored.IsActive && !stored.IsScrolled)
         {
             if (stored.Replaced) RedrawActiveBuffer();
-            else _presenter.Event(sessionEvent, buffer.Name);
+            else PresentWindowEvent(sessionEvent, buffer.Name, stored.DateChange);
         }
         if (stored.IsActive) RefreshWindowChrome();
     }
@@ -571,14 +572,16 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             previous => _presenter.MeasureEventRows(previous, bufferName),
             isReplay,
             trackUnread,
-            assignNumber);
+            assignNumber,
+            dateChange: _preferences.DateChange);
         return new StoredWindowEvent(
             result.Stored,
             result.Replaced,
             result.IsActive,
             result.IsScrolled,
             result.EmergencyLimitReached,
-            result.TotalEmergencyLimitReached);
+            result.TotalEmergencyLimitReached,
+            result.DateChange);
     }
 
     private readonly record struct StoredWindowEvent(
@@ -587,7 +590,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         bool IsActive,
         bool IsScrolled,
         bool EmergencyLimitReached = false,
-        bool TotalEmergencyLimitReached = false);
+        bool TotalEmergencyLimitReached = false,
+        SessionEvent? DateChange = null);
 
     private sealed record RecentConnection(IrcConnectionOptions Options, NetworkProfileId? ProfileId);
 

@@ -30,7 +30,8 @@ internal sealed record AppearanceSettings(
     string? DccDownloads = null,
     string AwayMessage = "away",
     string UserModes = "+i",
-    bool LagMeter = true);
+    bool LagMeter = true,
+    bool DateChange = true);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -88,7 +89,8 @@ internal sealed class AppearanceSettingsStore
                 stored.UserModes is null
                     ? "+i"
                     : NetworkProfile.NormalizeUserModes(stored.UserModes),
-                stored.LagMeter);
+                stored.LagMeter,
+                stored.DateChange);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -117,6 +119,7 @@ internal sealed class AppearanceSettingsStore
             AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin,
             HighlightNickname = settings.HighlightNickname,
             LagMeter = settings.LagMeter,
+            DateChange = settings.DateChange,
             DefaultBanmask = settings.DefaultBanmask,
             Nickname = settings.Nickname,
             AlternateNickname = settings.AlternateNickname,
@@ -168,6 +171,7 @@ internal sealed class AppearanceSettingsStore
         public bool AnnounceUserInfoOnJoin { get; set; }
         public bool HighlightNickname { get; set; } = true;
         public bool LagMeter { get; set; } = true;
+        public bool DateChange { get; set; } = true;
         public string DefaultBanmask { get; set; } = "host";
         public string? Nickname { get; set; }
         public string? AlternateNickname { get; set; }

@@ -25,6 +25,7 @@ internal static class ThemeTests
         suite.Add("theme parsing accepts comments and rejects ambiguous duplicates", ThemeParsingIsDeterministic);
         suite.Add("appearance settings persist theme routes and hostmask visibility", AppearancePersistence);
         suite.Add("lag meter defaults on for new and existing settings files", LagMeterDefaultsOn);
+        suite.Add("date changes default on for new and existing settings files", DateChangeDefaultsOn);
         suite.Add("lag values retain three characters across thresholds and regional settings", LagValuesHaveFixedWidth);
         suite.Add("status warnings use the theme warning color with a visibility fallback", StatusWarningsRemainVisible);
         suite.Add("status warnings clip without coloring the truncation ellipsis", StatusWarningsClipToVisibleText);
@@ -1010,7 +1011,8 @@ internal static class ThemeTests
             DccDownloads: Path.Combine(temporary.Path, "downloads"),
             AwayMessage: "out getting lunch",
             UserModes: string.Empty,
-            LagMeter: false));
+            LagMeter: false,
+            DateChange: false));
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
@@ -1021,6 +1023,7 @@ internal static class ThemeTests
         Assert.True(loaded.AnnounceUserInfoOnJoin);
         Assert.False(loaded.HighlightNickname);
         Assert.False(loaded.LagMeter);
+        Assert.False(loaded.DateChange);
         Assert.Equal("userhost", loaded.DefaultBanmask);
         Assert.Equal("rekkals", loaded.Nickname!);
         Assert.Equal("rekkals_", loaded.AlternateNickname!);
@@ -1055,6 +1058,27 @@ internal static class ThemeTests
         Assert.True(store.LoadError is null);
         Assert.Equal("green", loaded.Theme);
         Assert.True(loaded.LagMeter);
+    }
+
+    private static void DateChangeDefaultsOn()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = Path.Combine(temporary.Path, "appearance.json");
+        var store = new AppearanceSettingsStore(path);
+
+        Assert.True(store.Load().DateChange);
+
+        File.WriteAllText(path, """
+            {
+                "SchemaVersion": 1,
+                "Theme": "green"
+            }
+            """);
+
+        var loaded = store.Load();
+        Assert.True(store.LoadError is null);
+        Assert.Equal("green", loaded.Theme);
+        Assert.True(loaded.DateChange);
     }
 
     private static void LagValuesHaveFixedWidth()

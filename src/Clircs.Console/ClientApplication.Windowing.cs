@@ -20,6 +20,7 @@ internal sealed partial class ClientApplication
         NetworkSessionId.New(),
         BufferKind.Status,
         "*");
+    private readonly DateChangeClock _dateChangeClock = new(DateTimeOffset.Now);
     private CommandResult SwitchTo(IrcNetworkSession session, BufferState buffer)
     {
         lock (_windowTransactionGate)
@@ -34,6 +35,24 @@ internal sealed partial class ClientApplication
 
     private (NetworkSessionId? SessionId, BufferId? BufferId) ActiveLocation()
         => _windowStates.ActiveLocation();
+
+    private void PresentWindowEvent(
+        SessionEvent sessionEvent,
+        string bufferName,
+        SessionEvent? separator)
+    {
+        if (separator is null)
+        {
+            _presenter.Event(sessionEvent, bufferName);
+            return;
+        }
+
+        _presenter.RunEventBatch(() =>
+        {
+            _presenter.Event(separator, bufferName);
+            _presenter.Event(sessionEvent, bufferName);
+        });
+    }
 
     private void RedrawActiveBuffer(SessionEvent? pendingEvent = null)
     {
@@ -51,18 +70,35 @@ internal sealed partial class ClientApplication
     {
         var chrome = BuildWindowChrome(session, buffer);
         var viewportRows = _presenter.ViewportContentRowsFor(chrome.Header);
-        var viewport = _windowStates.ViewportSnapshot(buffer.Id, viewportRows);
+        var viewport = _windowStates.ViewportSnapshot(
+            buffer.Id, viewportRows, dateChange: _preferences.DateChange);
+        var displayHistory = DateChangeSeparators.ForHistory(
+            viewport.History, viewport.PreviousTimestamp, _preferences.DateChange);
+
+        var pendingRows = 0;
+        if (pendingEvent is not null)
+        {
+            pendingRows = _presenter.MeasureEventRows(pendingEvent, buffer.Name);
+            var previousTimestamp = viewport.History.Length > 0
+                ? viewport.History[^1].Timestamp
+                : (DateTimeOffset?)null;
+            if (_preferences.DateChange &&
+                DateChangeSeparators.Before(pendingEvent, previousTimestamp) is { } separator)
+            {
+                pendingRows += _presenter.MeasureEventRows(separator, buffer.Name);
+            }
+        }
+
         var offset = viewport.ScrollOffset;
         if (offset > 0)
         {
-            var totalRows = viewport.History.Sum(item => _presenter.MeasureEventRows(item, buffer.Name));
+            var totalRows = displayHistory.Sum(item => _presenter.MeasureEventRows(item, buffer.Name));
             offset = Math.Clamp(offset, 0, Math.Max(0, totalRows - viewportRows));
         }
         _windowStates.SetScrollOffsetIfActive(buffer.Id, offset);
-        var history = VisibleHistory(viewport.History, offset, viewportRows, buffer.Name, pendingEvent);
+        var history = VisibleHistory(displayHistory, offset, viewportRows, buffer.Name, pendingRows);
 
-        var outputRows = history.Sum(slice => slice.TakeRows);
-        if (pendingEvent is not null) outputRows += _presenter.MeasureEventRows(pendingEvent, buffer.Name);
+        var outputRows = history.Sum(slice => slice.TakeRows) + pendingRows;
         _presenter.Redraw(chrome, outputRows, () =>
         {
             foreach (var slice in history)
@@ -70,7 +106,6 @@ internal sealed partial class ClientApplication
                 _presenter.EventRows(slice.Item, buffer.Name, slice.SkipRows, slice.TakeRows);
             }
         });
-
     }
 
     private ViewportHistory.Slice<SessionEvent>[] VisibleHistory(
@@ -78,11 +113,10 @@ internal sealed partial class ClientApplication
         int offset,
         int viewportRows,
         string bufferName,
-        SessionEvent? pendingEvent)
+        int pendingRows)
     {
-        var budget = viewportRows;
-        if (pendingEvent is not null) budget -= _presenter.MeasureEventRows(pendingEvent, bufferName);
-        budget = Math.Max(1, budget);
+        var budget = Math.Max(0, viewportRows - pendingRows);
+        if (budget == 0) return [];
 
         return ViewportHistory.SelectRows(
             history,
@@ -98,9 +132,11 @@ internal sealed partial class ClientApplication
         var viewport = _windowStates.ViewportSnapshot(buffer.Id);
         if (viewport.History.Length == 0) return;
 
+        var displayHistory = DateChangeSeparators.ForHistory(
+            viewport.History, viewport.PreviousTimestamp, _preferences.DateChange);
         var rowBudget = Math.Max(1, _presenter.ViewportContentRows);
         var pageSize = Math.Max(1, rowBudget - 4);
-        var totalRows = viewport.History.Sum(sessionEvent => _presenter.MeasureEventRows(sessionEvent, buffer.Name));
+        var totalRows = displayHistory.Sum(sessionEvent => _presenter.MeasureEventRows(sessionEvent, buffer.Name));
         var maximumOffset = Math.Max(0, totalRows - rowBudget);
         if (!_windowStates.SetScrollOffsetIfActive(buffer.Id, direction > 0
                 ? Math.Min(maximumOffset, viewport.ScrollOffset + pageSize)
@@ -287,7 +323,7 @@ internal sealed partial class ClientApplication
             .ToArray();
     }
 
-    private async Task RefreshLagMeterAsync(CancellationToken cancellationToken)
+    private async Task RefreshWindowClockAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
 
@@ -295,16 +331,54 @@ internal sealed partial class ClientApplication
         {
             _applicationEvents.Dispatch(() =>
             {
-                if (cancellationToken.IsCancellationRequested ||
-                    !_preferences.LagMeter ||
-                    ActiveSession()?.ConnectionState != IrcConnectionState.Online)
+                if (cancellationToken.IsCancellationRequested) return;
+
+                var now = DateTimeOffset.Now;
+                if (_dateChangeClock.Observe(now) && _preferences.DateChange)
                 {
-                    return;
+                    RecordDateChanges(now);
                 }
 
-                RefreshWindowChrome();
+                if (_preferences.LagMeter &&
+                    ActiveSession()?.ConnectionState == IrcConnectionState.Online)
+                {
+                    RefreshWindowChrome();
+                }
             });
         }
+    }
+
+    private void RecordDateChanges(DateTimeOffset now)
+    {
+        var buffers = SessionsSnapshot()
+            .SelectMany(session => session.State.Buffers)
+            .Where(buffer => _windowStates.HasNumber(buffer.Id))
+            .Append(_localStatusBuffer)
+            .ToArray();
+
+        _presenter.RunEventBatch(() =>
+        {
+            foreach (var buffer in buffers)
+            {
+                var separator = DateChangeSeparators.Create(
+                    buffer.NetworkSessionId, buffer.Id, now);
+                var rows = _presenter.MeasureEventRows(separator, buffer.Name);
+                WindowStateRegistry.WindowEventStoreResult stored;
+                lock (_windowTransactionGate)
+                {
+                    stored = _windowStates.StoreDateChange(
+                        separator,
+                        rows,
+                        item => _presenter.MeasureEventRows(item, buffer.Name));
+                }
+
+                if (stored.Stored && stored.IsActive && !stored.IsScrolled)
+                {
+                    _presenter.Event(separator, buffer.Name);
+                }
+            }
+            RefreshWindowChrome();
+        });
     }
 
     private void RefreshWindowChrome()

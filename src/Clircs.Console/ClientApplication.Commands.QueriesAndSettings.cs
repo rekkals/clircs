@@ -220,6 +220,7 @@ internal sealed partial class ClientApplication
                 new("topicmsg", _preferences.DefaultTopicMessage ?? "random"),
                 new("banmask", BanmaskFormatter.Name(_preferences.BanmaskStyle)),
                 new("clonedetect", _preferences.CloneDetection ? "on" : "off"),
+                new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
                 new("lagmeter", _preferences.LagMeter ? "on" : "off"),
                 new("joininfo", _preferences.AnnounceUserInfoOnJoin ? "on" : "off"),
@@ -254,6 +255,12 @@ internal sealed partial class ClientApplication
         {
             return ValueTask.FromResult(CommandResult.Success(
                 $"lagmeter is {(_preferences.LagMeter ? "on" : "off")}."));
+        }
+
+        if (setting == "datechange" && input.Arguments.Count == 1)
+        {
+            return ValueTask.FromResult(CommandResult.Success(
+                $"datechange is {(_preferences.DateChange ? "on" : "off")}."));
         }
 
         if (input.Arguments.Count < 2 && !clearingUserModes)
@@ -330,6 +337,13 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure("lagmeter must be on or off."));
                 }
                 _preferences.LagMeter = lagMeter;
+                break;
+            case "datechange":
+                if (!TryParseOnOff(value, out var dateChange))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure("datechange must be on or off."));
+                }
+                _preferences.DateChange = dateChange;
                 break;
             case "clonedetect":
                 if (!TryParseOnOff(value, out var cloneDetection))
@@ -467,6 +481,10 @@ internal sealed partial class ClientApplication
                 }
 
                 _applicationEvents.Dispatch(RefreshWindowChrome);
+            }
+            else if (setting == "datechange")
+            {
+                _applicationEvents.Dispatch(() => RedrawActiveBuffer());
             }
         }
     }

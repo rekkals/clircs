@@ -78,7 +78,10 @@ internal sealed class WindowStateRegistry
         return (session, buffer);
     }
 
-    public WindowViewportSnapshot ViewportSnapshot(BufferId bufferId, int? bottomEntryLimit = null)
+    public WindowViewportSnapshot ViewportSnapshot(
+        BufferId bufferId,
+        int? bottomEntryLimit = null,
+        bool dateChange = true)
     {
         lock (_gate)
         {
@@ -86,11 +89,28 @@ internal sealed class WindowStateRegistry
             if (state.ScrollOffset == 0 && bottomEntryLimit is { } limit)
             {
                 ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
-                var count = Math.Min(state.History.Count, limit);
+                var start = state.History.Count;
+                var visibleCount = 0;
+                while (start > 0 && visibleCount < limit)
+                {
+                    start--;
+                    var precedingTimestamp = start > 0
+                        ? state.History[start - 1].Timestamp
+                        : (DateTimeOffset?)null;
+                    if (DateChangeSeparators.IsVisible(
+                            state.History[start], precedingTimestamp, dateChange))
+                    {
+                        visibleCount++;
+                    }
+                }
+
+                var count = state.History.Count - start;
                 var history = new SessionEvent[count];
-                var start = state.History.Count - count;
                 for (var index = 0; index < count; index++) history[index] = state.History[start + index];
-                return new WindowViewportSnapshot(history, 0);
+                var previousTimestamp = start > 0
+                    ? state.History[start - 1].Timestamp
+                    : (DateTimeOffset?)null;
+                return new WindowViewportSnapshot(history, 0, previousTimestamp);
             }
             return new WindowViewportSnapshot([.. state.History], state.ScrollOffset);
         }
@@ -124,13 +144,47 @@ internal sealed class WindowStateRegistry
         lock (_gate) EnsureUnsafe(sessionEvent.BufferId).History.Add(sessionEvent);
     }
 
+    public WindowEventStoreResult StoreDateChange(
+        SessionEvent separator,
+        int incomingRows,
+        Func<SessionEvent, int> measureRows)
+    {
+        ArgumentNullException.ThrowIfNull(separator);
+        ArgumentOutOfRangeException.ThrowIfNegative(incomingRows);
+        ArgumentNullException.ThrowIfNull(measureRows);
+        if (!DateChangeSeparators.IsSeparator(separator))
+        {
+            throw new ArgumentException("A date separator is required.", nameof(separator));
+        }
+
+        lock (_gate)
+        {
+            if (!_windows.TryGetValue(separator.BufferId, out var state) ||
+                (state.History.Count > 0 &&
+                 state.History[^1].Timestamp.Date == separator.Timestamp.Date))
+            {
+                return new WindowEventStoreResult(false, false, false, false);
+            }
+
+            return StoreEvent(
+                separator,
+                incomingRows,
+                measureRows,
+                isReplay: false,
+                trackUnread: false,
+                assignNumber: false,
+                dateChange: true);
+        }
+    }
+
     public WindowEventStoreResult StoreEvent(
         SessionEvent sessionEvent,
         int incomingRows,
         Func<SessionEvent, int> measureRows,
         bool isReplay,
         bool trackUnread,
-        bool assignNumber = true)
+        bool assignNumber = true,
+        bool dateChange = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(incomingRows);
         ArgumentNullException.ThrowIfNull(measureRows);
@@ -140,7 +194,48 @@ internal sealed class WindowStateRegistry
             var historyUpdate = ViewportHistory.StoreEvent(state.History, sessionEvent);
             if (!historyUpdate.Stored) return new WindowEventStoreResult(false, false, false, false);
 
+            var previousTimestamp = historyUpdate.Index > 0
+                ? state.History[historyUpdate.Index - 1].Timestamp
+                : (DateTimeOffset?)null;
+            var separator = dateChange
+                ? DateChangeSeparators.Before(sessionEvent, previousTimestamp)
+                : null;
+            if (separator is not null) incomingRows += measureRows(separator);
+
             var replacedRows = historyUpdate.Previous is null ? 0 : measureRows(historyUpdate.Previous);
+            if (dateChange && historyUpdate.Previous is { } previous)
+            {
+                if (DateChangeSeparators.Before(previous, previousTimestamp) is { } oldSeparator)
+                {
+                    replacedRows += measureRows(oldSeparator);
+                }
+
+                // Replacing an entry can change the date boundary on either side.
+                if (historyUpdate.Index + 1 < state.History.Count)
+                {
+                    var following = state.History[historyUpdate.Index + 1];
+                    if (DateChangeSeparators.IsSeparator(following))
+                    {
+                        if (DateChangeSeparators.IsVisible(following, previous.Timestamp))
+                        {
+                            replacedRows += measureRows(following);
+                        }
+                        if (DateChangeSeparators.IsVisible(following, sessionEvent.Timestamp))
+                        {
+                            incomingRows += measureRows(following);
+                        }
+                    }
+                    if (DateChangeSeparators.Before(following, previous.Timestamp) is { } oldFollowingSeparator)
+                    {
+                        replacedRows += measureRows(oldFollowingSeparator);
+                    }
+                    if (DateChangeSeparators.Before(following, sessionEvent.Timestamp) is { } newFollowingSeparator)
+                    {
+                        incomingRows += measureRows(newFollowingSeparator);
+                    }
+                }
+            }
+
             var isActive = _activeBufferId == sessionEvent.BufferId;
             if (isActive && state.ScrollOffset > 0)
             {
@@ -171,7 +266,8 @@ internal sealed class WindowStateRegistry
                 isActive,
                 isActive && state.ScrollOffset > 0,
                 emergencyLimitReached,
-                totalEmergencyLimitReached);
+                totalEmergencyLimitReached,
+                historyUpdate.Replaced ? null : separator);
         }
     }
 
@@ -402,14 +498,19 @@ internal sealed class WindowStateRegistry
 
     internal sealed record WindowActivity(BufferId BufferId, int Number, SessionEventKind[] Kinds);
     internal sealed record WindowChromeState(int ScrollOffset, WindowActivity[] Activity);
-    internal sealed record WindowViewportSnapshot(SessionEvent[] History, int ScrollOffset);
+    internal sealed record WindowViewportSnapshot(
+        SessionEvent[] History,
+        int ScrollOffset,
+        DateTimeOffset? PreviousTimestamp = null);
+
     internal readonly record struct WindowEventStoreResult(
         bool Stored,
         bool Replaced,
         bool IsActive,
         bool IsScrolled,
         bool EmergencyLimitReached = false,
-        bool TotalEmergencyLimitReached = false);
+        bool TotalEmergencyLimitReached = false,
+        SessionEvent? DateChange = null);
 
     private sealed class WindowState
     {

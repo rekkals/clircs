@@ -427,6 +427,12 @@ internal sealed class ConsolePresenter
             return;
         }
 
+        if (sessionEvent.Fields?.GetValueOrDefault("event") == "datechange")
+        {
+            DateChangeRows(sessionEvent, bufferName, skipRows, takeRows);
+            return;
+        }
+
         if (sessionEvent.Presentation is { Fields.Count: > 0, Table: not null } mixedBlock)
         {
             WriteMixedPresentationRows(sessionEvent, bufferName, mixedBlock, skipRows, takeRows);
@@ -566,6 +572,26 @@ internal sealed class ConsolePresenter
         // Ordinary events are small. This fallback preserves their semantic
         // formatting if a resize happens to place one across a viewport edge.
         Event(sessionEvent, bufferName);
+    }
+
+    internal void DateChangeRows(
+        SessionEvent sessionEvent,
+        string bufferName,
+        int skipRows,
+        int takeRows,
+        int? width = null)
+    {
+        var rows = TerminalWordWrapper.Wrap(
+            EventPrefix(sessionEvent, bufferName),
+            sessionEvent.Text,
+            EffectiveWidth(width));
+        RunEventBatch(() =>
+        {
+            foreach (var row in rows.Skip(skipRows).Take(takeRows))
+            {
+                WriteLine(row.Leading + row.Text, _theme.EventColor(sessionEvent));
+            }
+        });
     }
 
     private void WriteMixedPresentationRows(

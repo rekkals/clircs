@@ -15,6 +15,7 @@ NetworkProfileStoreTests.Register(suite);
 ScriptTests.Register(suite);
 UserDirectoryTests.Register(suite);
 ThemeTests.Register(suite);
+DateChangeTests.Register(suite);
 PresentationTests.Register(suite);
 BackupTests.Register(suite);
 PersistenceTests.Register(suite);

@@ -5,7 +5,11 @@ namespace Clircs.ConsoleClient;
 internal static class ViewportHistory
 {
     public sealed record Slice<T>(T Item, int SkipRows, int TakeRows);
-    public sealed record StoreResult(bool Stored, bool Replaced, SessionEvent? Previous);
+    public sealed record StoreResult(
+        bool Stored,
+        bool Replaced,
+        SessionEvent? Previous,
+        int Index = -1);
 
     public static StoreResult StoreEvent(IList<SessionEvent> history, SessionEvent sessionEvent)
     {
@@ -24,12 +28,12 @@ internal static class ViewportHistory
             {
                 var previous = history[index];
                 history[index] = sessionEvent;
-                return new StoreResult(true, true, previous);
+                return new StoreResult(true, true, previous, index);
             }
         }
 
         history.Add(sessionEvent);
-        return new StoreResult(true, false, null);
+        return new StoreResult(true, false, null, history.Count - 1);
     }
 
     private static bool ContainsFinalKey(IList<SessionEvent> history, string key)

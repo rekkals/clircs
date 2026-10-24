@@ -428,7 +428,8 @@ internal sealed partial class ClientApplication
         _preferences.DccDownloads,
         _preferences.AwayMessage,
         _preferences.UserModes,
-        _preferences.LagMeter);
+        _preferences.LagMeter,
+        _preferences.DateChange);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -456,6 +457,7 @@ internal sealed partial class ClientApplication
         _preferences.AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin;
         _preferences.HighlightNickname = settings.HighlightNickname;
         _preferences.LagMeter = settings.LagMeter;
+        _preferences.DateChange = settings.DateChange;
         _preferences.CloneDetection = settings.CloneDetection;
         _preferences.NetworkReconnect = settings.NetworkReconnect;
         _preferences.KillReconnect = settings.KillReconnect;
