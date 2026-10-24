@@ -512,11 +512,14 @@ internal sealed partial class ClientApplication
         StatusWarning? warning = null;
         if (_preferences.LagMeter)
         {
-            var lagValue = LagMeterFormatter.Format(session?.Lag ?? default);
-            fields[0] += $"[Lag:{lagValue}]";
-            if (lagValue == "10+")
+            var lagDisplay = LagMeterFormatter.Format(session?.Lag ?? default);
+            fields[0] += $"[Lag:{lagDisplay.Text}]";
+            if (lagDisplay.Severity != LagMeterSeverity.Normal)
             {
-                warning = new StatusWarning(fields[0].Length - 4, 3);
+                warning = new StatusWarning(
+                    fields[0].Length - 4,
+                    3,
+                    lagDisplay.Severity);
             }
         }
 

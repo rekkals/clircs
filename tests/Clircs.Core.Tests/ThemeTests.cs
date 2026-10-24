@@ -27,7 +27,7 @@ internal static class ThemeTests
         suite.Add("lag meter defaults on for new and existing settings files", LagMeterDefaultsOn);
         suite.Add("date changes default on for new and existing settings files", DateChangeDefaultsOn);
         suite.Add("lag values retain three characters across thresholds and regional settings", LagValuesHaveFixedWidth);
-        suite.Add("status warnings use the theme warning color with a visibility fallback", StatusWarningsRemainVisible);
+        suite.Add("status warnings use theme severity colors with a visibility fallback", StatusWarningsRemainVisible);
         suite.Add("status warnings clip without coloring the truncation ellipsis", StatusWarningsClipToVisibleText);
         suite.Add("status activity retains whole entries and counts omitted windows", StatusActivityKeepsWholeEntries);
         suite.Add("status activity respects its half-row budget at narrow widths", StatusActivityStaysWithinBudget);
@@ -1092,28 +1092,43 @@ internal static class ThemeTests
         {
             CultureInfo.CurrentCulture = new CultureInfo("fr-FR");
 
-            (string Expected, ConnectionLagSnapshot Lag)[] cases =
+            (string Text, LagMeterSeverity Severity, ConnectionLagSnapshot Lag)[] cases =
             [
-                ("???", default),
-                ("???", new(null, TimeSpan.FromSeconds(9.9))),
-                ("10+", new(null, TimeSpan.FromSeconds(10))),
-                ("0.1", new(TimeSpan.Zero, null)),
-                ("0.1", new(TimeSpan.FromMilliseconds(37.98), null)),
-                ("0.2", new(TimeSpan.FromMilliseconds(160), null)),
-                ("0.3", new(TimeSpan.FromMilliseconds(250), null)),
-                ("9.9", new(TimeSpan.FromMilliseconds(9999), null)),
-                ("10+", new(TimeSpan.FromSeconds(10), null)),
-                ("10+", new(TimeSpan.FromMinutes(1), null)),
-                ("1.0", new(TimeSpan.FromSeconds(0.1), TimeSpan.FromSeconds(1))),
-                ("10+", new(TimeSpan.FromSeconds(0.1), TimeSpan.FromSeconds(10))),
-                ("10+", new(TimeSpan.FromSeconds(11), TimeSpan.FromSeconds(1)))
+                ("???", LagMeterSeverity.Normal, default),
+                ("???", LagMeterSeverity.Normal, new(null, TimeSpan.FromMilliseconds(999))),
+                ("???", LagMeterSeverity.Warning, new(null, TimeSpan.FromSeconds(1))),
+                ("???", LagMeterSeverity.Warning, new(null, TimeSpan.FromSeconds(9.9))),
+                ("10+", LagMeterSeverity.Severe, new(null, TimeSpan.FromSeconds(10))),
+                ("<.1", LagMeterSeverity.Normal, new(TimeSpan.Zero, null)),
+                ("<.1", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(37.98), null)),
+                ("<.1", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(99.999), null)),
+                ("0.1", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(100), null)),
+                ("0.2", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(160), null)),
+                ("0.3", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(250), null)),
+                ("0.9", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(949), null)),
+                ("1.0", LagMeterSeverity.Normal, new(TimeSpan.FromMilliseconds(999), null)),
+                ("1.0", LagMeterSeverity.Warning, new(TimeSpan.FromSeconds(1), null)),
+                ("9.9", LagMeterSeverity.Warning, new(TimeSpan.FromMilliseconds(9999), null)),
+                ("10+", LagMeterSeverity.Severe, new(TimeSpan.FromSeconds(10), null)),
+                ("10+", LagMeterSeverity.Severe, new(TimeSpan.FromMinutes(1), null)),
+                ("1.0", LagMeterSeverity.Normal,
+                    new(TimeSpan.FromSeconds(0.1), TimeSpan.FromMilliseconds(999))),
+                ("1.0", LagMeterSeverity.Warning,
+                    new(TimeSpan.FromSeconds(0.1), TimeSpan.FromSeconds(1))),
+                ("10+", LagMeterSeverity.Severe,
+                    new(TimeSpan.FromSeconds(0.1), TimeSpan.FromSeconds(10))),
+                ("2.0", LagMeterSeverity.Warning,
+                    new(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(1))),
+                ("10+", LagMeterSeverity.Severe,
+                    new(TimeSpan.FromSeconds(11), TimeSpan.FromSeconds(1)))
             ];
 
             foreach (var item in cases)
             {
                 var formatted = LagMeterFormatter.Format(item.Lag);
-                Assert.Equal(item.Expected, formatted);
-                Assert.Equal(3, formatted.Length);
+                Assert.Equal(item.Text, formatted.Text);
+                Assert.Equal(item.Severity, formatted.Severity);
+                Assert.Equal(3, formatted.Text.Length);
             }
         }
         finally
@@ -1125,21 +1140,48 @@ internal static class ThemeTests
     private static void StatusWarningsRemainVisible()
     {
         var theme = TerminalTheme.BuiltIns["clircs"];
+        var warning = new StatusWarning(0, 3);
+        var severe = warning with { Severity = LagMeterSeverity.Severe };
+
         Assert.Equal(
             theme.Warning,
-            ConsolePresenter.ReadableStatusColor(theme, theme.Warning));
+            ConsolePresenter.ReadableStatusWarningColor(theme, warning));
+        Assert.Equal(
+            theme.Error,
+            ConsolePresenter.ReadableStatusWarningColor(theme, severe));
 
-        var collision = theme with { Warning = theme.StatusBackground };
+        var custom = theme with
+        {
+            Warning = ConsoleColor.Green,
+            Error = ConsoleColor.Magenta
+        };
+
+        Assert.Equal(
+            custom.Warning,
+            ConsolePresenter.ReadableStatusWarningColor(custom, warning));
+        Assert.Equal(
+            custom.Error,
+            ConsolePresenter.ReadableStatusWarningColor(custom, severe));
+
+        var collision = theme with
+        {
+            Warning = theme.StatusBackground,
+            Error = theme.StatusBackground
+        };
+
         Assert.Equal(
             collision.StatusForeground,
-            ConsolePresenter.ReadableStatusColor(collision, collision.Warning));
+            ConsolePresenter.ReadableStatusWarningColor(collision, warning));
+        Assert.Equal(
+            collision.StatusForeground,
+            ConsolePresenter.ReadableStatusWarningColor(collision, severe));
     }
 
     private static void StatusWarningsClipToVisibleText()
     {
         const string context = "(1) EFNet[TLS][Lag:10+] | status";
         var start = context.IndexOf("10+", StringComparison.Ordinal);
-        var warning = new StatusWarning(start, 3);
+        var warning = new StatusWarning(start, 3, LagMeterSeverity.Severe);
 
         Assert.True(ConsolePresenter.ClipStatusWarning(null, context.Length, 80) is null);
         Assert.True(ConsolePresenter.ClipStatusWarning(warning, context.Length, 0) is null);
@@ -1147,10 +1189,10 @@ internal static class ThemeTests
         Assert.True(ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 1) is null);
 
         Assert.Equal(
-            new StatusWarning(start, 1),
+            new StatusWarning(start, 1, LagMeterSeverity.Severe),
             ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 2)!);
         Assert.Equal(
-            new StatusWarning(start, 2),
+            new StatusWarning(start, 2, LagMeterSeverity.Severe),
             ConsolePresenter.ClipStatusWarning(warning, context.Length, start + 3)!);
         Assert.Equal(
             warning,

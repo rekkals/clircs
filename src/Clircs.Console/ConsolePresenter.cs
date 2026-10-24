@@ -1764,7 +1764,7 @@ internal sealed class ConsolePresenter
         {
             Console.Write(paddedContext[..warning.Start]);
             SetConsoleColorsUnsafe(
-                ReadableStatusColor(_theme, _theme.Warning),
+                ReadableStatusWarningColor(_theme, warning),
                 _theme.StatusBackground);
             Console.Write(paddedContext.Substring(warning.Start, warning.Length));
             SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
@@ -1882,6 +1882,15 @@ internal sealed class ConsolePresenter
             ? warning
             : warning with { Length = available };
     }
+
+    internal static ConsoleColor ReadableStatusWarningColor(
+        TerminalTheme theme,
+        StatusWarning warning) =>
+        ReadableStatusColor(
+            theme,
+            warning.Severity == LagMeterSeverity.Severe
+                ? theme.Error
+                : theme.Warning);
 
     internal static ConsoleColor ReadableActivityColor(TerminalTheme theme, SessionEventKind kind) =>
         ReadableStatusColor(theme, theme.EventColor(kind));

@@ -117,7 +117,10 @@ internal sealed record TerminalTheme(
 
 internal sealed record StatusActivity(int Number, SessionEventKind Kind);
 
-internal sealed record StatusWarning(int Start, int Length);
+internal sealed record StatusWarning(
+    int Start,
+    int Length,
+    LagMeterSeverity Severity = LagMeterSeverity.Warning);
 
 internal sealed record StatusBarModel(
     IReadOnlyList<string> Fields,
