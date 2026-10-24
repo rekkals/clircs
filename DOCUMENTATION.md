@@ -132,11 +132,10 @@ Use `/network sasl <profile>` to inspect and `/network sasl <profile> off` to re
 
 clircs officially supports the following bouncers:
 
-+ ZNC
-+ soju
 + Lurker
-+ IRCCloud
++ soju
 + shroudBNC
++ IRCCloud
 
 clircs keeps the client-to-bouncer connection separate from the bouncer-to-IRC-server state when it can so that, ideally, ordinary IRC can still feel like ordinary IRC. Connecting to bouncers via TLS is supported.
 

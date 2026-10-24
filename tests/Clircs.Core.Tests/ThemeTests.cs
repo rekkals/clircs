@@ -89,9 +89,13 @@ internal static class ThemeTests
         Assert.Equal("(1) EFNet", ClientApplication.FormatStatusNetworkField(1, "EFNet", upstreamTls: false));
         Assert.Equal("irc.deft.com", ClientApplication.FormatStatusServerField(
             "irc.deft.com", bouncerName: null, clientTransportTls: true));
-        Assert.Equal("irc.deft.com [ZNC]", ClientApplication.FormatStatusServerField(
+        Assert.Equal("irc.deft.com [Lurker]", ClientApplication.FormatStatusServerField(
+            "irc.deft.com", "Lurker", clientTransportTls: false));
+        Assert.Equal("irc.deft.com [Lurker/TLS]", ClientApplication.FormatStatusServerField(
+            "irc.deft.com", "Lurker", clientTransportTls: true));
+        Assert.Equal("irc.deft.com", ClientApplication.FormatStatusServerField(
             "irc.deft.com", "ZNC", clientTransportTls: false));
-        Assert.Equal("irc.deft.com [ZNC/TLS]", ClientApplication.FormatStatusServerField(
+        Assert.Equal("irc.deft.com", ClientApplication.FormatStatusServerField(
             "irc.deft.com", "ZNC", clientTransportTls: true));
         Assert.Equal("#clircs(+nt)", ClientApplication.FormatStatusChannelField("#clircs", "nt"));
         Assert.Equal("#clircs", ClientApplication.FormatStatusChannelField("#clircs", string.Empty));

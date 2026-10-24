@@ -540,8 +540,18 @@ internal sealed partial class ClientApplication
     internal static string FormatStatusChannelField(string channel, string modes) =>
         modes.Length == 0 ? channel : $"{channel}(+{modes})";
 
+    // Removing support for ZNC for now since its CAP ACK enabling server-time carries
+    // a time tag (violating spec). I'll add it back after an upstream fix happens, or,
+    // alternatively, the spec is changed to allow the tag in the ACK. Keeping internal
+    // detection for TLS-hop reporting and profile handling.
+    internal static string? BouncerDisplayName(string? bouncerName) =>
+        bouncerName?.Equals("ZNC", StringComparison.OrdinalIgnoreCase) == true
+            ? null
+            : bouncerName;
+
     internal static string FormatStatusServerField(string serverName, string? bouncerName, bool clientTransportTls)
     {
+        bouncerName = BouncerDisplayName(bouncerName);
         if (string.IsNullOrWhiteSpace(bouncerName))
         {
             return serverName;

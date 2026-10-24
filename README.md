@@ -72,7 +72,6 @@ You can also configure network profiles, allowing you to connect via SASL and se
 The following bouncers are compatible with clircs:
 
 + Lurker
-+ ZNC
 + soju
 + shroudBNC
 + IRCCloud

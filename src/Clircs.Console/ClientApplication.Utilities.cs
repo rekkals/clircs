@@ -52,7 +52,10 @@ internal sealed partial class ClientApplication
             fields.Insert(5, new PresentationField(
                 "Bouncer TLS",
                 session.State.ClientTransportTls ? "enabled" : "disabled"));
-            fields.Insert(6, new PresentationField("Connected through", session.State.BouncerName));
+            if (BouncerDisplayName(session.State.BouncerName) is { } bouncerName)
+            {
+                fields.Insert(6, new PresentationField("Connected through", bouncerName));
+            }
         }
         if (profile is null)
         {
