@@ -24,7 +24,7 @@ User-installed scripts belong under:
 
 clircs can also discover installed scripts under a `scripts` directory next to `clircs.exe`. The v0.9.0 release packages do not include any; the example scripts remain in the source repository. If an executable-adjacent script and a user-installed script have the same ID, the user-installed script takes precedence.
 
-Use `/script` without arguments or `/script list` to inspect installed scripts. The complete management commands are:
+Use `/script list` to inspect installed scripts. The complete management commands are:
 
 ```text
 /script list

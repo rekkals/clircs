@@ -636,12 +636,12 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
+        var operation = input.Arguments.Count == 0 ? string.Empty : input.Arguments[0].ToLowerInvariant();
         try
         {
             switch (operation)
             {
-                case "list":
+                case "list" when input.Arguments.Count == 1:
                 {
                     var scripts = _scriptManager.List();
                     if (scripts.Count == 0)
@@ -649,12 +649,29 @@ internal sealed partial class ClientApplication
                         return CommandResult.Success($"No scripts installed. Script directory: {_scriptManager.ScriptsDirectory}");
                     }
 
-                    var lines = scripts.Select(script =>
-                        $"{script.Id} {script.Version} [{script.Status}] permissions: " +
-                        (script.GrantedPermissions.Count == 0
-                            ? "none"
-                            : string.Join(',', script.GrantedPermissions.Select(FormatPermission))));
-                    return CommandResult.Success(string.Join(Environment.NewLine, lines));
+                    var rows = scripts.Select(script => (IReadOnlyList<string>)new[]
+                    {
+                        script.Id,
+                        script.Name,
+                        script.Version,
+                        script.Status,
+                        FormatPermissions(script.GrantedPermissions)
+                    }).ToArray();
+
+                    return CommandResult.Success(new PresentationBlock(
+                        "Scripts",
+                        Table: new PresentationTable(
+                            ["ID", "Name", "Version", "Status", "Permissions"],
+                            rows,
+                            KeepAllColumns: true,
+                            MaximumWidths:
+                            [
+                                32,
+                                32,
+                                32,
+                                32,
+                                PresentationTable.UnboundedWidth
+                            ])));
                 }
 
                 case "load" when input.Arguments.Count == 2:
@@ -696,9 +713,24 @@ internal sealed partial class ClientApplication
                         return CommandResult.Failure("No matching installed script.");
                     }
 
-                    return CommandResult.Success(string.Join(Environment.NewLine, scripts.Select(script =>
-                        $"{script.Id}: requested [{string.Join(',', script.RequestedPermissions.Select(FormatPermission))}] " +
-                        $"granted [{string.Join(',', script.GrantedPermissions.Select(FormatPermission))}]")));
+                    var fields = new List<PresentationField>();
+                    foreach (var script in scripts)
+                    {
+                        if (fields.Count > 0)
+                        {
+                            fields.Add(new PresentationField(string.Empty, string.Empty));
+                        }
+
+                        fields.Add(new PresentationField("ID", script.Id));
+                        fields.Add(new PresentationField(
+                            "Requested", FormatPermissions(script.RequestedPermissions)));
+                        fields.Add(new PresentationField(
+                            "Granted", FormatPermissions(script.GrantedPermissions)));
+                    }
+
+                    return CommandResult.Success(new PresentationBlock(
+                        "Script Permissions",
+                        Fields: fields));
                 }
 
                 case "permissions" when input.Arguments.Count == 4:
@@ -728,6 +760,11 @@ internal sealed partial class ClientApplication
         return CommandResult.Failure(
             "Usage: /script list|load <id>|unload <id>|reload <id>|errors|permissions [id [permission on|off]]");
     }
+
+    private static string FormatPermissions(IReadOnlyList<ScriptPermission> permissions) =>
+        permissions.Count == 0
+            ? "none"
+            : string.Join(',', permissions.Select(FormatPermission));
 
     private static string FormatPermission(ScriptPermission permission) => permission.ToString().ToLowerInvariant();
 
