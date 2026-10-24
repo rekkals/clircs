@@ -376,7 +376,11 @@ internal sealed class ScriptInstance : IAsyncDisposable
             throw new InvalidOperationException("clircs.run accepts slash commands only.");
         }
 
-        _services.QueueCommand(_script.Manifest.Id, _currentContext, commandLine);
+        _services.QueueCommand(
+            _script.Manifest.Id,
+            _currentContext,
+            commandLine,
+            _permissions.Contains(ScriptPermission.Raw));
     }
 
     private int SetTimeout(JsValue handler, double milliseconds)

@@ -746,12 +746,16 @@ internal sealed partial class ClientApplication
         return new CallbackDisposable(() => _commands.Unregister(definition));
     }
 
-    private void QueueScriptCommand(string scriptId, CommandContext context, string commandLine)
+    private void QueueScriptCommand(
+        string scriptId,
+        CommandContext context,
+        string commandLine,
+        bool allowRaw)
     {
-        _ = ExecuteQueuedScriptCommandAsync(scriptId, context, commandLine);
+        _ = ExecuteQueuedScriptCommandAsync(scriptId, context, commandLine, allowRaw);
     }
 
-    private async Task ExecuteQueuedScriptCommandAsync(string scriptId, CommandContext context, string commandLine)
+    private async Task ExecuteQueuedScriptCommandAsync(string scriptId, CommandContext context, string commandLine, bool allowRaw)
     {
         try
         {
@@ -762,7 +766,7 @@ internal sealed partial class ClientApplication
                 return;
             }
 
-            if (!ScriptCommandRequestPolicy.IsAllowed(_commands, command))
+            if (!ScriptCommandRequestPolicy.IsAllowed(_commands, command, allowRaw))
             {
                 PrintScriptOutput(scriptId, $"Command /{command.Name} is not available to scripts");
                 return;

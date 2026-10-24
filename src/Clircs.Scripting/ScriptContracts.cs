@@ -13,7 +13,8 @@ public enum ScriptPermission
     Irc,
     LocalNetwork,
     Secrets,
-    Ui
+    Ui,
+    Raw
 }
 
 public sealed record ScriptHeaderContribution(
@@ -33,7 +34,7 @@ public sealed record ScriptCommandRegistration(
 public sealed record ScriptHostServices(
     Action<string, string> Print,
     Func<ScriptCommandRegistration, IDisposable> RegisterCommand,
-    Action<string, CommandContext, string> QueueCommand,
+    Action<string, CommandContext, string, bool> QueueCommand,
     Action<string, ScriptHeaderContribution> SetHeader,
     Action<string, string> ClearHeader,
     Action<string> ClearHeaders,

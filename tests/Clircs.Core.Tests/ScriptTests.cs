@@ -24,8 +24,10 @@ internal static class ScriptTests
         suite.Add("damaged script permissions do not prevent startup or grant IRC access", DamagedPermissionsFailClosedAsync);
         suite.Add("scripts cannot use undeclared capabilities", UndeclaredCapabilityFailsAsync);
         suite.Add("IRC command permission requires an explicit grant", IrcPermissionRequiresGrantAsync);
+        suite.Add("raw command requests require IRC access and carry only explicitly granted raw access", RawPermissionRequiresGrantAsync);
+        suite.Add("raw permission survives restart and remains revoked after restart", RawPermissionPersistsAndRevokesAsync);
         suite.Add("local network permission requires an explicit grant", LocalNetworkPermissionRequiresGrantAsync);
-        suite.Add("script IRC permission allows IRC commands and denies privileged commands", ScriptCommandRequestsAreRestricted);
+        suite.Add("script command policy allows raw only with its explicit grant", ScriptCommandRequestsAreRestricted);
         suite.Add("script headers are removed when a script unloads", ScriptHeadersAreOwnedAsync);
         suite.Add("failed script loads roll back host resources", FailedLoadRollsBackResourcesAsync);
         suite.Add("loaded scripts remain manageable when their source disappears", MissingLoadedSourceRemainsVisibleAsync);
@@ -94,8 +96,6 @@ internal static class ScriptTests
             "/set dcc.downloads C:\\Temp",
             "/logging on",
             "/tls forget example.test 6697",
-            "/raw PRIVMSG Nick :hello",
-            "/quote PRIVMSG Nick :hello",
             "/debug",
             "/script permissions attacker localnetwork on",
             "/quit",
@@ -105,9 +105,24 @@ internal static class ScriptTests
 
         foreach (var commandLine in denied)
         {
-            Assert.False(ScriptCommandRequestPolicy.IsAllowed(
-                commands,
-                (CommandInput)CommandLineParser.Parse(commandLine)));
+            var command = (CommandInput)CommandLineParser.Parse(commandLine);
+            Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command));
+            Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command, allowRaw: true));
+        }
+
+        string[] rawCommands =
+        [
+            "/raw VENDORCOMMAND first :two  spaces",
+            "/quote VENDORCOMMAND first :two  spaces",
+            "/RAW VERSION",
+            "/QuOtE VERSION"
+        ];
+
+        foreach (var commandLine in rawCommands)
+        {
+            var command = (CommandInput)CommandLineParser.Parse(commandLine);
+            Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command));
+            Assert.True(ScriptCommandRequestPolicy.IsAllowed(commands, command, allowRaw: true));
         }
     }
 
@@ -316,6 +331,110 @@ internal static class ScriptTests
         await manager.LoadAsync("networking");
         Assert.True(host.CommandRequests.TryDequeue(out var request));
         Assert.Equal("/version", request!.CommandLine);
+    }
+
+    private static async ValueTask RawPermissionRequiresGrantAsync()
+    {
+        (bool Irc, bool Raw)[] cases =
+        [
+            (false, false),
+            (true, false),
+            (false, true),
+            (true, true)
+        ];
+
+        foreach (var item in cases)
+        {
+            using var directory = new TemporaryDirectory();
+            WriteScript(directory.Path, "raw-check", """
+                clircs.registerCommand("rawcheck", [], "Test raw IRC.", () => {
+                  clircs.run("/quote PRIVMSG Nick :hello  world");
+                });
+                """, ["commands", "irc", "raw"]);
+
+            var host = new TestScriptHost();
+            await using var manager = new ScriptManager(directory.Path, host.Services);
+
+            if (item.Irc)
+                await manager.SetPermissionAsync("raw-check", ScriptPermission.Irc, granted: true);
+            if (item.Raw)
+                await manager.SetPermissionAsync("raw-check", ScriptPermission.Raw, granted: true);
+
+            var loaded = await manager.LoadAsync("raw-check");
+            Assert.Equal(item.Irc, loaded.GrantedPermissions.Contains(ScriptPermission.Irc));
+            Assert.Equal(item.Raw, loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+
+            var context = new CommandContext(NetworkSessionId.New(), BufferId.New());
+            var result = await host.Commands["rawcheck"].Handler(
+                context, [], CancellationToken.None);
+
+            Assert.Equal(item.Irc, result.Succeeded);
+            if (!item.Irc)
+            {
+                Assert.True(host.CommandRequests.IsEmpty);
+                continue;
+            }
+
+            Assert.True(host.CommandRequests.TryDequeue(out var request));
+            Assert.Equal("raw-check", request.ScriptId);
+            Assert.Equal(context, request.Context);
+            Assert.Equal("/quote PRIVMSG Nick :hello  world", request.CommandLine);
+            Assert.Equal(item.Raw, request.AllowRaw);
+            Assert.True(host.CommandRequests.IsEmpty);
+        }
+    }
+
+    private static async ValueTask RawPermissionPersistsAndRevokesAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "raw-persist", """
+            clircs.registerCommand("rawpersist", [], "Test saved raw access.", () => {
+              clircs.run("/raw VERSION");
+            });
+            """, ["commands", "irc", "raw"]);
+
+        var host = new TestScriptHost();
+        var context = new CommandContext(null, null);
+
+        await using (var manager = new ScriptManager(directory.Path, host.Services))
+        {
+            await manager.SetPermissionAsync("raw-persist", ScriptPermission.Irc, granted: true);
+            await manager.SetPermissionAsync("raw-persist", ScriptPermission.Raw, granted: true);
+            await manager.LoadAsync("raw-persist");
+        }
+
+        await using (var manager = new ScriptManager(directory.Path, host.Services))
+        {
+            var loaded = await manager.LoadAsync("raw-persist");
+            Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+
+            var result = await host.Commands["rawpersist"].Handler(
+                context, [], CancellationToken.None);
+            Assert.True(result.Succeeded);
+            Assert.True(host.CommandRequests.TryDequeue(out var granted));
+            Assert.True(granted.AllowRaw);
+
+            await manager.SetPermissionAsync("raw-persist", ScriptPermission.Raw, granted: false);
+
+            result = await host.Commands["rawpersist"].Handler(
+                context, [], CancellationToken.None);
+            Assert.True(result.Succeeded);
+            Assert.True(host.CommandRequests.TryDequeue(out var revoked));
+            Assert.False(revoked.AllowRaw);
+        }
+
+        await using (var manager = new ScriptManager(directory.Path, host.Services))
+        {
+            var loaded = await manager.LoadAsync("raw-persist");
+            Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.Irc));
+            Assert.False(loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+
+            var result = await host.Commands["rawpersist"].Handler(
+                context, [], CancellationToken.None);
+            Assert.True(result.Succeeded);
+            Assert.True(host.CommandRequests.TryDequeue(out var revoked));
+            Assert.False(revoked.AllowRaw);
+        }
     }
 
     private static async ValueTask LocalNetworkPermissionRequiresGrantAsync()
@@ -839,7 +958,7 @@ internal static class ScriptTests
 
                     return new CallbackDisposable(() => Commands.TryRemove(registration.Name, out _));
                 },
-                (scriptId, context, commandLine) => CommandRequests.Enqueue((scriptId, context, commandLine)),
+                (scriptId, context, commandLine, allowRaw) => CommandRequests.Enqueue((scriptId, context, commandLine, allowRaw)),
                 (scriptId, contribution) =>
                 {
                     Headers[(scriptId, contribution.Id)] = contribution;
@@ -871,7 +990,7 @@ internal static class ScriptTests
 
         public ConcurrentDictionary<string, ScriptCommandRegistration> Commands { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        public ConcurrentQueue<(string ScriptId, CommandContext Context, string CommandLine)> CommandRequests { get; } = new();
+        public ConcurrentQueue<(string ScriptId, CommandContext Context, string CommandLine, bool AllowRaw)> CommandRequests { get; } = new();
 
         public ConcurrentDictionary<(string ScriptId, string ItemId), ScriptHeaderContribution> Headers { get; } = new();
 

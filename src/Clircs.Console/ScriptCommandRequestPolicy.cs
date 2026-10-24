@@ -92,12 +92,21 @@ internal static class ScriptCommandRequestPolicy
         "limitserv"
     };
 
-    public static bool IsAllowed(CommandRegistry commands, CommandInput command)
+    public static bool IsAllowed(
+        CommandRegistry commands,
+        CommandInput command,
+        bool allowRaw = false)
     {
         ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(command);
 
-        return commands.TryResolve(command.Name, out var definition) &&
-            AllowedCommands.Contains(definition.Name);
+        if (!commands.TryResolve(command.Name, out var definition))
+        {
+            return false;
+        }
+
+        return definition.Name.Equals("raw", StringComparison.OrdinalIgnoreCase)
+            ? allowRaw
+            : AllowedCommands.Contains(definition.Name);
     }
 }

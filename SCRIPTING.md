@@ -4,7 +4,7 @@ clircs scripting is a deliberately small extension system built on the embedded 
 
 It is narrower than mIRC scripting, a browser, Node.js, or unrestricted .NET on purpose. Scripts receive only the `clircs` APIs described here. They do not receive arbitrary filesystem access, process launching, registry access, raw sockets, unrestricted CLR access, or unrestricted Internet access.
 
-Scripts are still code. A sandbox is a boundary, not a certificate of good intentions. Read a script before loading it, inspect the permissions it requests, and grant `irc` or `localnetwork` only when you trust what it does.
+Scripts are still code. A sandbox is a boundary, not a certificate of good intentions. Read a script before loading it, inspect the permissions it requests, and grant `irc`, `raw`, or `localnetwork` only when you trust what it does.
 
 ## Installing and Managing Scripts
 
@@ -61,6 +61,7 @@ A complete manifest looks like this:
     "output",
     "storage",
     "irc",
+    "raw",
     "localnetwork",
     "secrets",
     "ui"
@@ -85,7 +86,7 @@ clircs executes one classic JavaScript entry file. It does not expose Node.js, a
 
 ## Permissions
 
-A manifest must request a permission before the corresponding API can be used. Requesting a capability and being granted it are separate things for the two permissions that can act outside the script itself. Loading fails if the entry file immediately calls an API whose permission is not granted.
+A manifest must request a permission before the corresponding API can be used. Requesting a capability and being granted it are separate things for the three permissions that can act outside the script itself. Loading fails if the entry file immediately calls an API whose permission is not granted.
 
 | Permission | API or capability |
 | --- | --- |
@@ -95,18 +96,22 @@ A manifest must request a permission before the corresponding API can be used. R
 | `output` | Print sanitized text in clircs. |
 | `storage` | Read and write private durable string settings. |
 | `irc` | Queue an existing clircs slash command through the normal command lane. |
+| `raw` | Allow `/raw` and `/quote` through `clircs.run()`; also requires `irc`. |
 | `localnetwork` | Open text WebSockets restricted to the local machine. |
 | `secrets` | Prompt for and store values protected for the current Windows user. |
 | `ui` | Contribute constrained items to the window header. |
 
-Requested `commands`, `events`, `timers`, `output`, `storage`, `secrets`, and `ui` permissions are granted when a script is first loaded. The more powerful `irc` and `localnetwork` permissions are denied until the user explicitly grants them:
+Requested `commands`, `events`, `timers`, `output`, `storage`, `secrets`, and `ui` permissions are granted when a script is first loaded. The more powerful `irc`, `raw`, and `localnetwork` permissions are denied until the user explicitly grants them:
 
 ```text
 /script permissions my-script irc on
+/script permissions my-script raw on
 /script permissions my-script localnetwork on
 ```
 
-The `irc` permission controls `clircs.run()`. It opens a controlled route through the client, not around it. It permits only host-approved IRC automation commands, including messaging, channel operations, moderation, server queries, and services commands. Command aliases resolve to the same permission as their canonical commands. Raw protocol access, DCC, filesystem operations, configuration changes, credential management, connection management, and application administration are not available through `clircs.run()`. Unknown and unapproved commands fail closed. Allowed commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts never receive direct access to an IRC socket.
+The `irc` permission controls `clircs.run()`. With `irc` alone, it permits host-approved IRC automation commands, including messaging, channel operations, moderation, server queries, and services commands. Granting `raw` in addition permits `/raw` and its `/quote` alias, allowing arbitrary IRC protocol commands over the existing network connection. Both permissions must be requested in the manifest and explicitly granted.
+
+clircs commands for DCC, filesystem operations, configuration changes, credential management, connection management, and application administration remain unavailable through `clircs.run()`. Unknown and unapproved clircs commands fail closed. Allowed commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts never receive direct access to an IRC socket.
 
 Local means local here. The `localnetwork` permission permits only `ws://` and `wss://` WebSockets whose host is `localhost` or a loopback IP address. It does not permit general HTTP requests or connections to external hosts.
 
@@ -236,9 +241,10 @@ One script may register at most 256 event handlers.
 
 ```javascript
 clircs.run("/notice Nick hello");
+clircs.run("/quote VERSION"); // Requires both irc and raw.
 ```
 
-Requires `irc`. Only slash commands are accepted. The command is queued asynchronously using the network and window context active for the script callback that requested it.
+Requires `irc`; `/raw` and `/quote` additionally require `raw`. Only slash commands are accepted. The command is queued asynchronously using the network and window context active for the script callback that requested it.
 
 Despite the name, `clircs.run()` runs a clircs command. It is not a Windows shell command and cannot launch an executable.
 

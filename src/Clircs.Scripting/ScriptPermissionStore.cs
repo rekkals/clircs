@@ -115,6 +115,7 @@ internal sealed class ScriptPermissionStore
     {
         var granted = requested.ToHashSet();
         granted.Remove(ScriptPermission.Irc);
+        granted.Remove(ScriptPermission.Raw);
         granted.Remove(ScriptPermission.LocalNetwork);
         return granted;
     }
