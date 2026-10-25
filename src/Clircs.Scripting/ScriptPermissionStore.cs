@@ -7,118 +7,181 @@ internal sealed class ScriptPermissionStore
 {
     private readonly string _path;
     private readonly DurableFileWriter _files;
-    private Dictionary<string, HashSet<ScriptPermission>> _grants;
+    private Dictionary<string, PermissionState> _permissions;
     private bool _preservedDamagedFile;
 
     public ScriptPermissionStore(string path, DurableFileWriter? files = null)
     {
         _path = Path.GetFullPath(path);
         _files = files ?? DurableFileWriter.Shared;
-        _grants = Load();
+        _permissions = Load();
     }
 
     public string? LoadError { get; private set; }
 
-    public HashSet<ScriptPermission> PreviewGranted(string scriptId, IEnumerable<ScriptPermission> requested)
-    {
-        var requestedSet = requested.ToHashSet();
-        if (!_grants.TryGetValue(scriptId, out var stored))
-        {
-            return DefaultGrants(requestedSet);
-        }
-
-        return stored.Where(requestedSet.Contains).ToHashSet();
-    }
-
-    public HashSet<ScriptPermission> GetOrCreateGranted(
+    public HashSet<ScriptPermission> PreviewGranted(
         string scriptId,
         IEnumerable<ScriptPermission> requested)
     {
         var requestedSet = requested.ToHashSet();
-        if (_grants.TryGetValue(scriptId, out var stored))
+        return _permissions.TryGetValue(scriptId, out var stored)
+            ? stored.Granted.Where(requestedSet.Contains).ToHashSet()
+            : [];
+    }
+
+    public HashSet<ScriptPermission> Unreviewed(
+        string scriptId,
+        IEnumerable<ScriptPermission> requested)
+    {
+        var unreviewed = requested.ToHashSet();
+        if (_permissions.TryGetValue(scriptId, out var stored))
         {
-            return stored.Where(requestedSet.Contains).ToHashSet();
+            unreviewed.ExceptWith(stored.Reviewed);
         }
 
-        var granted = DefaultGrants(requestedSet);
-        var candidate = CloneGrants();
-        candidate[scriptId] = granted;
+        return unreviewed;
+    }
+
+    public void Approve(string scriptId, IEnumerable<ScriptPermission> requested)
+    {
+        var requestedSet = requested.ToHashSet();
+        var candidate = ClonePermissions();
+        if (!candidate.TryGetValue(scriptId, out var values))
+        {
+            values = new PermissionState([], []);
+            candidate.Add(scriptId, values);
+        }
+
+        var unreviewed = requestedSet.Except(values.Reviewed).ToHashSet();
+        values.Granted.UnionWith(unreviewed);
+        values.Reviewed.UnionWith(requestedSet);
+
         Save(candidate);
-        _grants = candidate;
-        return granted.ToHashSet();
+        _permissions = candidate;
     }
 
     public void Set(string scriptId, ScriptPermission permission, bool granted)
     {
-        var candidate = CloneGrants();
+        var candidate = ClonePermissions();
         if (!candidate.TryGetValue(scriptId, out var values))
         {
-            values = [];
+            values = new PermissionState([], []);
             candidate.Add(scriptId, values);
         }
 
+        values.Reviewed.Add(permission);
         if (granted)
         {
-            values.Add(permission);
+            values.Granted.Add(permission);
         }
         else
         {
-            values.Remove(permission);
+            values.Granted.Remove(permission);
         }
 
         Save(candidate);
-        _grants = candidate;
+        _permissions = candidate;
     }
 
-    private Dictionary<string, HashSet<ScriptPermission>> Load()
+    private Dictionary<string, PermissionState> Load()
     {
+        var permissions = new Dictionary<string, PermissionState>(StringComparer.OrdinalIgnoreCase);
         if (!File.Exists(_path))
         {
-            return new Dictionary<string, HashSet<ScriptPermission>>(StringComparer.OrdinalIgnoreCase);
+            return permissions;
         }
 
         try
         {
-            var stored = JsonSerializer.Deserialize<Dictionary<string, string[]>>(File.ReadAllText(_path)) ?? [];
-            return stored.ToDictionary(
-                pair => pair.Key,
-                pair => pair.Value
-                    .Select(value => Enum.TryParse<ScriptPermission>(value, true, out var permission) ? permission : (ScriptPermission?)null)
-                    .Where(value => value.HasValue)
-                    .Select(value => value!.Value)
-                    .ToHashSet(),
-                StringComparer.OrdinalIgnoreCase);
+            using var document = JsonDocument.Parse(File.ReadAllText(_path));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException("The script permissions must be an object.");
+            }
+
+            foreach (var entry in document.RootElement.EnumerateObject())
+            {
+                PermissionState state;
+                if (entry.Value.ValueKind == JsonValueKind.Array)
+                {
+                    // Older files stored grants without permission-review history.
+                    state = new PermissionState([], ReadPermissions(entry.Value));
+                }
+                else if (entry.Value.ValueKind == JsonValueKind.Object &&
+                    entry.Value.TryGetProperty("Reviewed", out var reviewedElement) &&
+                    entry.Value.TryGetProperty("Granted", out var grantedElement))
+                {
+                    var reviewed = ReadPermissions(reviewedElement);
+                    var granted = ReadPermissions(grantedElement);
+                    state = new PermissionState(reviewed, granted);
+                }
+                else
+                {
+                    throw new InvalidDataException($"Invalid permissions for script '{entry.Name}'.");
+                }
+
+                if (!permissions.TryAdd(entry.Name, state))
+                {
+                    throw new InvalidDataException($"Duplicate permissions for script '{entry.Name}'.");
+                }
+            }
+
+            return permissions;
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException or InvalidDataException)
         {
             LoadError = $"Script permissions were not loaded: {exception.Message}";
-            return new Dictionary<string, HashSet<ScriptPermission>>(StringComparer.OrdinalIgnoreCase);
+            permissions.Clear();
+            return permissions;
         }
     }
 
-    private void Save(IReadOnlyDictionary<string, HashSet<ScriptPermission>> grants)
+    private static HashSet<ScriptPermission> ReadPermissions(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException("A script permission list must be an array.");
+        }
+
+        var permissions = new HashSet<ScriptPermission>();
+        foreach (var value in element.EnumerateArray())
+        {
+            if (value.ValueKind != JsonValueKind.String)
+            {
+                throw new InvalidDataException("Script permission names must be strings.");
+            }
+
+            if (Enum.TryParse<ScriptPermission>(value.GetString(), true, out var permission) &&
+                Enum.IsDefined(permission))
+            {
+                permissions.Add(permission);
+            }
+        }
+
+        return permissions;
+    }
+
+    private void Save(IReadOnlyDictionary<string, PermissionState> permissions)
     {
         PreserveDamagedFile();
-        var stored = grants.ToDictionary(
+        var stored = permissions.ToDictionary(
             pair => pair.Key,
-            pair => pair.Value.Select(value => value.ToString().ToLowerInvariant()).Order().ToArray(),
+            pair => new
+            {
+                Reviewed = FormatPermissions(pair.Value.Reviewed),
+                Granted = FormatPermissions(pair.Value.Granted)
+            },
             StringComparer.OrdinalIgnoreCase);
         _files.WriteText(_path, JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private Dictionary<string, HashSet<ScriptPermission>> CloneGrants() => _grants.ToDictionary(
+    private Dictionary<string, PermissionState> ClonePermissions() => _permissions.ToDictionary(
         pair => pair.Key,
-        pair => pair.Value.ToHashSet(),
+        pair => new PermissionState(pair.Value.Reviewed.ToHashSet(), pair.Value.Granted.ToHashSet()),
         StringComparer.OrdinalIgnoreCase);
 
-    private static HashSet<ScriptPermission> DefaultGrants(IEnumerable<ScriptPermission> requested)
-    {
-        var granted = requested.ToHashSet();
-        granted.Remove(ScriptPermission.Irc);
-        granted.Remove(ScriptPermission.Raw);
-        granted.Remove(ScriptPermission.LocalNetwork);
-        return granted;
-    }
+    private static string[] FormatPermissions(IEnumerable<ScriptPermission> permissions) =>
+        permissions.Select(value => value.ToString().ToLowerInvariant()).Order().ToArray();
 
     private void PreserveDamagedFile()
     {
@@ -128,4 +191,8 @@ internal sealed class ScriptPermissionStore
         File.Move(_path, preserved);
         _preservedDamagedFile = true;
     }
+
+    private sealed record PermissionState(
+        HashSet<ScriptPermission> Reviewed,
+        HashSet<ScriptPermission> Granted);
 }

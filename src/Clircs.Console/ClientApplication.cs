@@ -278,7 +278,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
                 SetScriptHeader,
                 ClearScriptHeader,
                 ClearScriptHeaders,
-                ReadScriptSecret),
+                ReadScriptSecret,
+                ConfirmScriptPermissions),
             System.IO.Path.Combine(AppContext.BaseDirectory, "scripts"));
         RegisterCommands();
     }

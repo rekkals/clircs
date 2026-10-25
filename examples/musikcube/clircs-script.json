@@ -6,7 +6,6 @@
   "entry": "main.js",
   "permissions": [
     "commands",
-    "irc",
     "localNetwork",
     "secrets",
     "storage",

@@ -349,7 +349,7 @@ TLS server validation is strict by default. `TlsCertificatePromptPolicy` may acc
 
 `ScriptManager` discovers manifests, owns load/unload/reload, persists desired load state and grants, and publishes semantic `SessionEvent` objects to loaded scripts. Each `ScriptInstance` owns a Jint engine and a serialized bounded callback queue.
 
-Scripts may register commands, observe scoped events, store private data, use Windows-protected secrets, create bounded timers, contribute constrained header items, and request IRC operations after permission is granted. The host does not expose arbitrary CLR access, process launch, registry access, raw sockets, unrestricted files, or external network access. The optional `localnetwork` permission is limited to loopback WebSockets. These are enforced boundaries, not polite suggestions in the documentation.
+Scripts may register commands, observe scoped events, store private data, use Windows-protected secrets, create bounded timers, contribute constrained header items, and request allowlisted IRC operations. The `raw` permission additionally permits arbitrary IRC protocol commands over an existing connection. The host does not expose arbitrary CLR access, process launch, registry access, raw sockets, unrestricted files, or external network access. The optional `localnetwork` permission is limited to loopback WebSockets. These are enforced boundaries, not polite suggestions in the documentation.
 
 Script commands return through the same command execution lane. Script IRC actions return through `IrcNetworkSession` and the same outbound scheduler as built-in behavior.
 

@@ -10,7 +10,6 @@ public enum ScriptPermission
     Timers,
     Output,
     Storage,
-    Irc,
     LocalNetwork,
     Secrets,
     Ui,
@@ -31,6 +30,14 @@ public sealed record ScriptCommandRegistration(
     string Summary,
     Func<CommandContext, IReadOnlyList<string>, CancellationToken, ValueTask<CommandResult>> Handler);
 
+public sealed record ScriptPermissionRequest(
+    string Id,
+    string Name,
+    string Version,
+    IReadOnlyList<ScriptPermission> RequestedPermissions,
+    IReadOnlyList<ScriptPermission> GrantedPermissions,
+    IReadOnlyList<ScriptPermission> NewPermissions);
+
 public sealed record ScriptHostServices(
     Action<string, string> Print,
     Func<ScriptCommandRegistration, IDisposable> RegisterCommand,
@@ -38,7 +45,8 @@ public sealed record ScriptHostServices(
     Action<string, ScriptHeaderContribution> SetHeader,
     Action<string, string> ClearHeader,
     Action<string> ClearHeaders,
-    Func<string, string, string?> ReadSecret);
+    Func<string, string, string?> ReadSecret,
+    Func<ScriptPermissionRequest, bool> ConfirmPermissions);
 
 public sealed record ScriptInfo(
     string Id,

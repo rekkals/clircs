@@ -863,6 +863,29 @@ internal sealed partial class ClientApplication
         RefreshWindowChrome();
     }
 
+    private bool ConfirmScriptPermissions(ScriptPermissionRequest request)
+    {
+        var context = _commandExecution.CurrentContext ?? CaptureCommandContext();
+        DisplayCommandResult(
+            CommandResult.Success(new PresentationBlock(
+                "Load Script",
+                [
+                    new("ID", request.Id),
+                    new("Name", request.Name),
+                    new("Version", request.Version),
+                    new("Requested", FormatPermissions(request.RequestedPermissions)),
+                    new("Granted", FormatPermissions(request.GrantedPermissions)),
+                    new("New", FormatPermissions(request.NewPermissions))
+                ])),
+            context);
+
+        var response = _presenter.ReadPrompt(
+            "Grant new permissions and load script? [y/N] ")?.Trim();
+
+        return string.Equals(response, "y", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(response, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
     private string? ReadScriptSecret(string scriptId, string label) =>
         _presenter.ReadSecret($"[{scriptId}] {TerminalTextSanitizer.Sanitize(label)} (Esc cancels): ");
 

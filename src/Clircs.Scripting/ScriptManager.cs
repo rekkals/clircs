@@ -91,7 +91,16 @@ public sealed partial class ScriptManager : IAsyncDisposable
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var loaded = LoadCore(scriptId);
+            lock (_loadedGate)
+            {
+                if (_loaded.ContainsKey(scriptId))
+                {
+                    throw new InvalidOperationException($"Script '{scriptId}' is already loaded.");
+                }
+            }
+
+            var (script, requested) = PrepareLoad(scriptId, cancellationToken);
+            var loaded = LoadCore(script, requested);
             _loadStateStore.SetLoaded(scriptId, loaded: true);
             return loaded;
         }
@@ -123,9 +132,13 @@ public sealed partial class ScriptManager : IAsyncDisposable
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _loadStateStore.SetLoaded(scriptId, loaded: true);
+            var (script, requested) = PrepareLoad(scriptId, cancellationToken);
             await UnloadCoreAsync(scriptId).ConfigureAwait(false);
-            return LoadCore(scriptId);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var loaded = LoadCore(script, requested);
+            _loadStateStore.SetLoaded(scriptId, loaded: true);
+            return loaded;
         }
         finally
         {
@@ -142,7 +155,7 @@ public sealed partial class ScriptManager : IAsyncDisposable
         }
         if (_permissionStore.LoadError is not null)
         {
-            failures.Add(_permissionStore.LoadError + " Requested IRC and local-network permissions were denied");
+            failures.Add(_permissionStore.LoadError);
         }
 
         foreach (var scriptId in _loadStateStore.DesiredLoaded)
@@ -168,29 +181,40 @@ public sealed partial class ScriptManager : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         scriptId = NormalizeId(scriptId);
-        var discovered = Discover();
-        if (!discovered.TryGetValue(scriptId, out var script))
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new FileNotFoundException($"Script '{scriptId}' was not found.");
-        }
+            var discovered = Discover();
+            if (!discovered.TryGetValue(scriptId, out var script))
+            {
+                throw new FileNotFoundException($"Script '{scriptId}' was not found.");
+            }
 
-        var requested = ParsePermissions(script.Manifest);
-        if (!requested.Contains(permission))
-        {
-            throw new InvalidOperationException($"Script '{scriptId}' does not request '{permission.ToString().ToLowerInvariant()}'.");
-        }
+            var requested = ParsePermissions(script.Manifest);
+            if (!requested.Contains(permission))
+            {
+                throw new InvalidOperationException($"Script '{scriptId}' does not request '{permission.ToString().ToLowerInvariant()}'.");
+            }
 
-        _ = _permissionStore.GetOrCreateGranted(scriptId, requested);
-        _permissionStore.Set(scriptId, permission, granted);
-        bool isLoaded;
-        lock (_loadedGate)
-        {
-            isLoaded = _loaded.ContainsKey(scriptId);
-        }
+            cancellationToken.ThrowIfCancellationRequested();
+            _permissionStore.Set(scriptId, permission, granted);
 
-        if (isLoaded)
+            bool isLoaded;
+            lock (_loadedGate)
+            {
+                isLoaded = _loaded.ContainsKey(scriptId);
+            }
+
+            if (isLoaded)
+            {
+                await UnloadCoreAsync(scriptId).ConfigureAwait(false);
+                var (replacement, replacementRequested) = PrepareLoad(scriptId, cancellationToken);
+                _ = LoadCore(replacement, replacementRequested);
+            }
+        }
+        finally
         {
-            await ReloadAsync(scriptId, cancellationToken).ConfigureAwait(false);
+            _lifecycle.Release();
         }
     }
 
@@ -268,15 +292,11 @@ public sealed partial class ScriptManager : IAsyncDisposable
         return scripts;
     }
 
-    private ScriptInfo LoadCore(string scriptId)
+    private (DiscoveredScript Script, HashSet<ScriptPermission> Requested) PrepareLoad(
+        string scriptId,
+        CancellationToken cancellationToken)
     {
-        lock (_loadedGate)
-        {
-            if (_loaded.ContainsKey(scriptId))
-            {
-                throw new InvalidOperationException($"Script '{scriptId}' is already loaded.");
-            }
-        }
+        cancellationToken.ThrowIfCancellationRequested();
 
         var discovered = Discover();
         if (!discovered.TryGetValue(scriptId, out var script))
@@ -285,7 +305,35 @@ public sealed partial class ScriptManager : IAsyncDisposable
         }
 
         var requested = ParsePermissions(script.Manifest);
-        var granted = _permissionStore.GetOrCreateGranted(scriptId, requested);
+        var unreviewed = _permissionStore.Unreviewed(scriptId, requested);
+        if (unreviewed.Count > 0)
+        {
+            var request = new ScriptPermissionRequest(
+                scriptId,
+                script.Manifest.Name,
+                script.Manifest.Version,
+                requested.Order().ToArray(),
+                _permissionStore.PreviewGranted(scriptId, requested).Order().ToArray(),
+                unreviewed.Order().ToArray());
+
+            var approved = _services.ConfirmPermissions(request);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!approved)
+            {
+                throw new UnauthorizedAccessException($"Loading script '{scriptId}' canceled.");
+            }
+
+            _permissionStore.Approve(scriptId, requested);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return (script, requested);
+    }
+
+    private ScriptInfo LoadCore(DiscoveredScript script, HashSet<ScriptPermission> requested)
+    {
+        var scriptId = script.Manifest.Id;
+        var granted = _permissionStore.PreviewGranted(scriptId, requested);
         ScriptInstance instance;
         try
         {

@@ -370,7 +370,6 @@ internal sealed class ScriptInstance : IAsyncDisposable
 
     private void QueueCommand(string commandLine)
     {
-        Demand(ScriptPermission.Irc);
         if (!commandLine.StartsWith("/", StringComparison.Ordinal))
         {
             throw new InvalidOperationException("clircs.run accepts slash commands only.");

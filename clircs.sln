@@ -23,6 +23,15 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		SCRIPTING.md = SCRIPTING.md
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{67DF7F93-ABC9-4553-B4D9-9AF14A1FC912}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "musikcube", "musikcube", "{6999419D-9273-47DA-AE39-062750C54197}"
+	ProjectSection(SolutionItems) = preProject
+		examples\musikcube\clircs-script.json = examples\musikcube\clircs-script.json
+		examples\musikcube\main.js = examples\musikcube\main.js
+		examples\musikcube\README.md = examples\musikcube\README.md
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -56,6 +65,10 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{67DF7F93-ABC9-4553-B4D9-9AF14A1FC912} = {3AF939DC-B2A5-420F-A6D1-2DBEF5D6A340}
+		{6999419D-9273-47DA-AE39-062750C54197} = {67DF7F93-ABC9-4553-B4D9-9AF14A1FC912}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7FE24A61-31EE-4D9A-B0F2-AB075D5667C6}

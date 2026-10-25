@@ -257,9 +257,6 @@ clircs.registerCommand("song", [], "Send musikcube's current track; use --local 
   if (context.args[0] === "--local") {
     return text;
   }
-  if (!clircs.permissions.has("irc")) {
-    return "musikcube needs permission: /script permissions musikcube irc on";
-  }
   clircs.run(`/say ${text}`);
   return null;
 });

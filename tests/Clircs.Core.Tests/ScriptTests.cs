@@ -19,12 +19,18 @@ internal static class ScriptTests
     {
         suite.Add("scripts register commands, receive scoped events, and persist private storage", LifecycleAndStorageAsync);
         suite.Add("loaded script state survives restart and unload", LoadedStatePersistsAsync);
-        suite.Add("one missing remembered script does not block other restores", RestoreFailuresAreIsolatedAsync);
+        suite.Add("missing or declined scripts do not block other startup restores", RestoreFailuresAreIsolatedAsync);
         suite.Add("damaged script load state is preserved before replacement", DamagedLoadStateIsPreservedAsync);
-        suite.Add("damaged script permissions do not prevent startup or grant IRC access", DamagedPermissionsFailClosedAsync);
+        suite.Add("damaged script permissions require approval before recovery", DamagedPermissionsFailClosedAsync);
+        suite.Add("first-load approval precedes script execution and grants the requested permissions together", FirstLoadPermissionApprovalAsync);
+        suite.Add("script approval survives reload, version changes, and startup restoration", PermissionApprovalPersistsAsync);
+        suite.Add("new permissions are reviewed before replacing a running script", AdditionalPermissionsRequireApprovalAsync);
+        suite.Add("approving additional permissions preserves explicit revocations across restart", AdditionalApprovalPreservesRevocationsAsync);
+        suite.Add("script approval must be saved before execution", PermissionSaveFailurePreventsExecutionAsync);
+        suite.Add("revocation takes effect when replacement approval is canceled", RevocationSurvivesCanceledReloadAsync);
         suite.Add("scripts cannot use undeclared capabilities", UndeclaredCapabilityFailsAsync);
-        suite.Add("IRC command permission requires an explicit grant", IrcPermissionRequiresGrantAsync);
-        suite.Add("raw command requests require IRC access and carry only explicitly granted raw access", RawPermissionRequiresGrantAsync);
+        suite.Add("normal IRC commands do not require a permission", NormalIrcCommandsDoNotRequirePermissionAsync);
+        suite.Add("raw command requests carry only explicitly granted raw access", RawPermissionRequiresGrantAsync);
         suite.Add("raw permission survives restart and remains revoked after restart", RawPermissionPersistsAndRevokesAsync);
         suite.Add("local network permission requires an explicit grant", LocalNetworkPermissionRequiresGrantAsync);
         suite.Add("script command policy allows raw only with its explicit grant", ScriptCommandRequestsAreRestricted);
@@ -138,12 +144,11 @@ internal static class ScriptTests
               return `hello ${context.args.join(" ")} (${count})`;
             });
             clircs.on("message", event => clircs.print(`${event.kind}:${event.networkId}:${event.text}:${event.fields.actor}`));
-            """, ["commands", "events", "timers", "output", "storage", "irc"]);
+            """, ["commands", "events", "timers", "output", "storage"]);
 
         var host = new TestScriptHost();
         await using (var manager = new ScriptManager(directory.Path, host.Services))
         {
-            await manager.SetPermissionAsync("greeter", ScriptPermission.Irc, granted: true);
             var loaded = await manager.LoadAsync("greeter");
             Assert.Equal("loaded", loaded.Status);
             Assert.True(host.Commands.TryGetValue("hello", out var command));
@@ -221,6 +226,10 @@ internal static class ScriptTests
     private static async ValueTask RestoreFailuresAreIsolatedAsync()
     {
         using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "aaa-declined", """
+            clircs.run("/version");
+            clircs.registerCommand("declined", [], "Must not load.", () => "no");
+            """, ["commands"]);
         WriteScript(directory.Path, "available", """
             clircs.registerCommand("available", [], "Still loads.", () => "yes");
             """, ["commands"]);
@@ -229,16 +238,28 @@ internal static class ScriptTests
             """
             {
               "SchemaVersion": 1,
-              "Loaded": [ "available", "missing" ]
+              "Loaded": [ "aaa-declined", "available", "missing" ]
             }
             """);
 
-        var host = new TestScriptHost();
+        var host = new TestScriptHost
+        {
+            PermissionApproval = request => request.Id != "aaa-declined"
+        };
         await using var manager = new ScriptManager(directory.Path, host.Services);
         var failures = await manager.RestoreLoadedAsync();
+
         Assert.True(host.Commands.ContainsKey("available"));
-        Assert.Equal(1, failures.Count);
-        Assert.True(failures[0].Contains("missing", StringComparison.OrdinalIgnoreCase));
+        Assert.False(host.Commands.ContainsKey("declined"));
+        Assert.True(host.CommandRequests.IsEmpty);
+        Assert.Equal(2, host.PermissionRequests.Count);
+        Assert.Equal(2, failures.Count);
+        Assert.True(failures.Any(failure =>
+            failure.Contains("aaa-declined", StringComparison.OrdinalIgnoreCase)));
+        Assert.True(failures.Any(failure =>
+            failure.Contains("missing", StringComparison.OrdinalIgnoreCase)));
+        Assert.Equal(0, manager.Errors.Count);
+
         Assert.True(await manager.UnloadAsync("missing"));
         Assert.False(File.ReadAllText(Path.Combine(directory.Path, "script-load-state.json"))
             .Contains("missing", StringComparison.OrdinalIgnoreCase));
@@ -266,15 +287,351 @@ internal static class ScriptTests
     private static async ValueTask DamagedPermissionsFailClosedAsync()
     {
         using var directory = new TemporaryDirectory();
-        WriteScript(directory.Path, "permission-recovery", "clircs.run('/whois tester');", ["irc"]);
-        File.WriteAllText(Path.Combine(directory.Path, "script-permissions.json"), "{ broken");
+        WriteScript(directory.Path, "permission-recovery", """
+            clircs.run("/version");
+            clircs.registerCommand("recovered", [], "Recovered script.", () => "ready");
+            """, ["commands", "raw", "localNetwork"]);
 
-        var host = new TestScriptHost();
+        const string damaged = "{ broken";
+        var permissionsPath = Path.Combine(directory.Path, "script-permissions.json");
+        File.WriteAllText(permissionsPath, damaged);
+
+        var host = new TestScriptHost { PermissionApproval = _ => false };
         await using var manager = new ScriptManager(directory.Path, host.Services);
+
         var failures = await manager.RestoreLoadedAsync();
         Assert.Equal(1, failures.Count);
         Assert.True(failures[0].Contains("permissions", StringComparison.OrdinalIgnoreCase));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.LoadAsync("permission-recovery").AsTask());
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => manager.LoadAsync("permission-recovery").AsTask());
+
+        Assert.True(host.CommandRequests.IsEmpty);
+        Assert.False(host.Commands.ContainsKey("recovered"));
+        Assert.Equal(damaged, File.ReadAllText(permissionsPath));
+        Assert.Equal(0, manager.Errors.Count);
+
+        host.PermissionApproval = _ => true;
+        var loaded = await manager.LoadAsync("permission-recovery");
+
+        Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+        Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.LocalNetwork));
+        Assert.True(host.Commands.ContainsKey("recovered"));
+        Assert.Equal(2, host.PermissionRequests.Count);
+
+        var preserved = Directory.GetFiles(directory.Path, "script-permissions.json.invalid-*");
+        Assert.Equal(1, preserved.Length);
+        Assert.Equal(damaged, File.ReadAllText(preserved[0]));
+    }
+
+    private static async ValueTask FirstLoadPermissionApprovalAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "approval", """
+            clircs.run("/version");
+            clircs.storage.set("loaded", "yes");
+            clircs.registerCommand("approved", [], "Approval test.", () => "ready");
+            clircs.ui.setHeader("approval", "loaded", { scope: "all" });
+            clircs.run("/quote VERSION");
+            """, ["commands", "storage", "ui", "raw", "localNetwork"]);
+
+        var storagePath = Path.Combine(directory.Path, "script-data", "approval.json");
+        var host = new TestScriptHost { PermissionApproval = _ => false };
+        await using var manager = new ScriptManager(directory.Path, host.Services);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => manager.LoadAsync("approval").AsTask());
+
+        var review = host.PermissionRequests.Single();
+        Assert.Equal("approval", review.Id);
+        Assert.Equal("approval", review.Name);
+        Assert.Equal("1.0.0", review.Version);
+        Assert.Equal(5, review.RequestedPermissions.Count);
+        Assert.Equal(0, review.GrantedPermissions.Count);
+        Assert.True(review.NewPermissions.ToHashSet().SetEquals(review.RequestedPermissions));
+
+        Assert.True(host.CommandRequests.IsEmpty);
+        Assert.Equal(0, host.Commands.Count);
+        Assert.Equal(0, host.Headers.Count);
+        Assert.False(File.Exists(storagePath));
+        Assert.False(File.Exists(Path.Combine(directory.Path, "script-permissions.json")));
+        Assert.False(File.Exists(Path.Combine(directory.Path, "script-load-state.json")));
+        Assert.Equal("unloaded", manager.List().Single().Status);
+        Assert.Equal(0, manager.Errors.Count);
+
+        host.PermissionApproval = _ =>
+        {
+            Assert.True(host.CommandRequests.IsEmpty);
+            Assert.Equal(0, host.Commands.Count);
+            Assert.False(File.Exists(storagePath));
+            Thread.Sleep(400);
+            return true;
+        };
+
+        var loaded = await manager.LoadAsync("approval");
+        Assert.Equal("loaded", loaded.Status);
+        Assert.True(loaded.GrantedPermissions.ToHashSet().SetEquals(review.RequestedPermissions));
+        Assert.Equal(2, host.PermissionRequests.Count);
+        Assert.True(host.Commands.ContainsKey("approved"));
+        Assert.Equal(1, host.Headers.Count);
+        Assert.True(File.Exists(storagePath));
+
+        Assert.True(host.CommandRequests.TryDequeue(out var normal));
+        Assert.Equal("/version", normal.CommandLine);
+        Assert.True(host.CommandRequests.TryDequeue(out var raw));
+        Assert.Equal("/quote VERSION", raw.CommandLine);
+        Assert.True(raw.AllowRaw);
+        Assert.True(host.CommandRequests.IsEmpty);
+    }
+
+    private static async ValueTask PermissionApprovalPersistsAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        const string source = """
+            clircs.registerCommand("approved", [], "Approval persistence test.", () => "ready");
+            """;
+        WriteScript(directory.Path, "approval-persist", source, ["commands"]);
+
+        var firstHost = new TestScriptHost();
+        await using (var first = new ScriptManager(directory.Path, firstHost.Services))
+        {
+            await first.LoadAsync("approval-persist");
+
+            WriteScript(
+                directory.Path, "approval-persist", source, ["commands"], version: "1.0.1");
+            var reloaded = await first.ReloadAsync("approval-persist");
+            Assert.Equal("1.0.1", reloaded.Version);
+
+            Assert.True(await first.UnloadAsync("approval-persist"));
+            await first.LoadAsync("approval-persist");
+            Assert.Equal(1, firstHost.PermissionRequests.Count);
+        }
+
+        var secondHost = new TestScriptHost
+        {
+            PermissionApproval = _ =>
+                throw new InvalidOperationException("Saved approval was requested again.")
+        };
+        await using var second = new ScriptManager(directory.Path, secondHost.Services);
+        var failures = await second.RestoreLoadedAsync();
+
+        Assert.Equal(0, failures.Count);
+        Assert.True(secondHost.Commands.ContainsKey("approved"));
+        Assert.True(secondHost.PermissionRequests.IsEmpty);
+        Assert.Equal("1.0.1", second.List().Single().Version);
+
+        var result = await secondHost.Commands["approved"].Handler(
+            new CommandContext(null, null), [], CancellationToken.None);
+        Assert.True(result.Succeeded);
+        Assert.Equal("ready", result.Message!);
+    }
+
+    private static async ValueTask AdditionalPermissionsRequireApprovalAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "permission-update", """
+            clircs.registerCommand("updated", [], "Original script.", () => "original");
+            """, ["commands"]);
+
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(directory.Path, host.Services);
+        await manager.LoadAsync("permission-update");
+
+        var original = host.Commands["updated"];
+        var permissionsPath = Path.Combine(directory.Path, "script-permissions.json");
+        var savedPermissions = File.ReadAllText(permissionsPath);
+
+        WriteScript(directory.Path, "permission-update", """
+            clircs.run("/version");
+            clircs.registerCommand("updated", [], "Updated script.", () => {
+              clircs.run("/quote VERSION");
+              return "updated";
+            });
+            """, ["commands", "raw"], version: "1.0.1");
+
+        host.PermissionApproval = _ => false;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => manager.ReloadAsync("permission-update").AsTask());
+
+        Assert.Equal(2, host.PermissionRequests.Count);
+        var review = host.PermissionRequests.Last();
+        Assert.Equal(ScriptPermission.Raw, review.NewPermissions.Single());
+        Assert.Equal(ScriptPermission.Commands, review.GrantedPermissions.Single());
+        Assert.Equal(savedPermissions, File.ReadAllText(permissionsPath));
+        Assert.True(ReferenceEquals(original, host.Commands["updated"]));
+        Assert.True(host.CommandRequests.IsEmpty);
+        Assert.Equal("loaded", manager.List().Single().Status);
+        Assert.Equal(0, manager.Errors.Count);
+
+        var originalResult = await original.Handler(
+            new CommandContext(null, null), [], CancellationToken.None);
+        Assert.True(originalResult.Succeeded);
+        Assert.Equal("original", originalResult.Message!);
+
+        host.PermissionApproval = _ => true;
+        var updated = await manager.ReloadAsync("permission-update");
+        Assert.Equal("1.0.1", updated.Version);
+        Assert.True(updated.GrantedPermissions.Contains(ScriptPermission.Raw));
+        Assert.Equal(3, host.PermissionRequests.Count);
+        Assert.False(ReferenceEquals(original, host.Commands["updated"]));
+
+        var updatedResult = await host.Commands["updated"].Handler(
+            new CommandContext(null, null), [], CancellationToken.None);
+        Assert.True(updatedResult.Succeeded);
+        Assert.Equal("updated", updatedResult.Message!);
+
+        Assert.True(host.CommandRequests.TryDequeue(out var normal));
+        Assert.Equal("/version", normal.CommandLine);
+        Assert.True(host.CommandRequests.TryDequeue(out var raw));
+        Assert.Equal("/quote VERSION", raw.CommandLine);
+        Assert.True(raw.AllowRaw);
+        Assert.True(host.CommandRequests.IsEmpty);
+    }
+
+    private static async ValueTask AdditionalApprovalPreservesRevocationsAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        const string source = """
+            if (clircs.permissions.has("storage")) {
+              clircs.storage.set("approved", "yes");
+            }
+            clircs.registerCommand("checkpermissions", [], "Inspect permissions.", () => {
+              clircs.run("/quote VERSION");
+              return clircs.permissions.has("storage") ? "storage granted" : "storage denied";
+            });
+            """;
+        WriteScript(directory.Path, "permission-revocation", source, ["commands", "raw"]);
+
+        var host = new TestScriptHost();
+        await using (var manager = new ScriptManager(directory.Path, host.Services))
+        {
+            await manager.LoadAsync("permission-revocation");
+            await manager.SetPermissionAsync(
+                "permission-revocation", ScriptPermission.Raw, granted: false);
+            Assert.Equal(1, host.PermissionRequests.Count);
+
+            WriteScript(
+                directory.Path, "permission-revocation", source,
+                ["commands", "raw", "storage"], version: "1.0.1");
+
+            var reloaded = await manager.ReloadAsync("permission-revocation");
+            Assert.Equal(2, host.PermissionRequests.Count);
+            var review = host.PermissionRequests.Last();
+            Assert.Equal(ScriptPermission.Storage, review.NewPermissions.Single());
+            Assert.False(review.GrantedPermissions.Contains(ScriptPermission.Raw));
+            Assert.True(reloaded.GrantedPermissions.Contains(ScriptPermission.Storage));
+            Assert.False(reloaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+            Assert.True(File.Exists(Path.Combine(
+                directory.Path, "script-data", "permission-revocation.json")));
+
+            var result = await host.Commands["checkpermissions"].Handler(
+                new CommandContext(null, null), [], CancellationToken.None);
+            Assert.True(result.Succeeded);
+            Assert.Equal("storage granted", result.Message!);
+            Assert.True(host.CommandRequests.TryDequeue(out var request));
+            Assert.Equal("/quote VERSION", request.CommandLine);
+            Assert.False(request.AllowRaw);
+            Assert.True(host.CommandRequests.IsEmpty);
+        }
+
+        var secondHost = new TestScriptHost { PermissionApproval = _ => false };
+        await using var second = new ScriptManager(directory.Path, secondHost.Services);
+        var failures = await second.RestoreLoadedAsync();
+
+        Assert.Equal(0, failures.Count);
+        Assert.True(secondHost.PermissionRequests.IsEmpty);
+        Assert.True(secondHost.Commands.ContainsKey("checkpermissions"));
+        var restored = second.List().Single();
+        Assert.True(restored.GrantedPermissions.Contains(ScriptPermission.Storage));
+        Assert.False(restored.GrantedPermissions.Contains(ScriptPermission.Raw));
+    }
+
+    private static async ValueTask PermissionSaveFailurePreventsExecutionAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "save-failure", """
+            clircs.run("/version");
+            clircs.registerCommand("saved", [], "Saved approval.", () => "ready");
+            """, ["commands"]);
+
+        var permissionsPath = Path.Combine(directory.Path, "script-permissions.json");
+        Directory.CreateDirectory(permissionsPath);
+
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(directory.Path, host.Services);
+        var failure = await Assert.ThrowsAsync<Exception>(
+            () => manager.LoadAsync("save-failure").AsTask());
+
+        Assert.True(failure is IOException or UnauthorizedAccessException);
+        Assert.Equal(1, host.PermissionRequests.Count);
+        Assert.True(host.CommandRequests.IsEmpty);
+        Assert.False(host.Commands.ContainsKey("saved"));
+        Assert.Equal("unloaded", manager.List().Single().Status);
+        Assert.Equal(0, manager.List().Single().GrantedPermissions.Count);
+        Assert.Equal(0, manager.Errors.Count);
+        Assert.False(File.Exists(Path.Combine(directory.Path, "script-load-state.json")));
+
+        Directory.Delete(permissionsPath);
+        await manager.LoadAsync("save-failure");
+
+        Assert.Equal(2, host.PermissionRequests.Count);
+        Assert.True(host.Commands.ContainsKey("saved"));
+        Assert.True(host.CommandRequests.TryDequeue(out var request));
+        Assert.Equal("/version", request.CommandLine);
+        Assert.True(host.CommandRequests.IsEmpty);
+    }
+
+    private static async ValueTask RevocationSurvivesCanceledReloadAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        const string source = """
+            clircs.registerCommand("privileged", [], "Raw permission test.", () => {
+              clircs.run("/quote VERSION");
+            });
+            """;
+        WriteScript(directory.Path, "revoked-reload", source, ["commands", "raw"]);
+
+        var host = new TestScriptHost();
+        await using (var manager = new ScriptManager(directory.Path, host.Services))
+        {
+            await manager.LoadAsync("revoked-reload");
+            var original = host.Commands["privileged"];
+
+            WriteScript(
+                directory.Path, "revoked-reload", source,
+                ["commands", "raw", "storage"], version: "1.0.1");
+            host.PermissionApproval = _ => false;
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                manager.SetPermissionAsync(
+                    "revoked-reload", ScriptPermission.Raw, granted: false).AsTask());
+
+            Assert.Equal(2, host.PermissionRequests.Count);
+            var review = host.PermissionRequests.Last();
+            Assert.Equal(ScriptPermission.Storage, review.NewPermissions.Single());
+            Assert.False(review.GrantedPermissions.Contains(ScriptPermission.Raw));
+            Assert.False(host.Commands.ContainsKey("privileged"));
+
+            var unloaded = manager.List().Single();
+            Assert.Equal("unloaded", unloaded.Status);
+            Assert.False(unloaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+
+            var staleResult = await original.Handler(
+                new CommandContext(null, null), [], CancellationToken.None);
+            Assert.False(staleResult.Succeeded);
+            Assert.True(host.CommandRequests.IsEmpty);
+        }
+
+        var secondHost = new TestScriptHost();
+        await using var second = new ScriptManager(directory.Path, secondHost.Services);
+        var failures = await second.RestoreLoadedAsync();
+
+        Assert.Equal(0, failures.Count);
+        var nextReview = secondHost.PermissionRequests.Single();
+        Assert.Equal(ScriptPermission.Storage, nextReview.NewPermissions.Single());
+        Assert.False(nextReview.GrantedPermissions.Contains(ScriptPermission.Raw));
+        Assert.True(secondHost.Commands.ContainsKey("privileged"));
+        Assert.False(second.List().Single().GrantedPermissions.Contains(ScriptPermission.Raw));
     }
 
     private static async ValueTask UndeclaredCapabilityFailsAsync()
@@ -314,72 +671,55 @@ internal static class ScriptTests
         Assert.False(host.Commands.ContainsKey("spin"));
     }
 
-    private static async ValueTask IrcPermissionRequiresGrantAsync()
+    private static async ValueTask NormalIrcCommandsDoNotRequirePermissionAsync()
     {
         using var directory = new TemporaryDirectory();
         WriteScript(directory.Path, "networking", """
             clircs.run("/version");
-            """, ["irc"]);
+            """, []);
+
         var host = new TestScriptHost();
         await using var manager = new ScriptManager(directory.Path, host.Services);
 
-        var denied = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.LoadAsync("networking").AsTask());
-        Assert.True(denied.Message.Contains("not granted", StringComparison.OrdinalIgnoreCase));
-        Assert.True(host.CommandRequests.IsEmpty);
-
-        await manager.SetPermissionAsync("networking", ScriptPermission.Irc, granted: true);
-        await manager.LoadAsync("networking");
+        var loaded = await manager.LoadAsync("networking");
+        Assert.Equal("loaded", loaded.Status);
+        Assert.Equal(0, loaded.RequestedPermissions.Count);
+        Assert.Equal(0, loaded.GrantedPermissions.Count);
         Assert.True(host.CommandRequests.TryDequeue(out var request));
-        Assert.Equal("/version", request!.CommandLine);
+        Assert.Equal("/version", request.CommandLine);
+        Assert.False(request.AllowRaw);
+        Assert.True(host.CommandRequests.IsEmpty);
     }
 
     private static async ValueTask RawPermissionRequiresGrantAsync()
     {
-        (bool Irc, bool Raw)[] cases =
-        [
-            (false, false),
-            (true, false),
-            (false, true),
-            (true, true)
-        ];
-
-        foreach (var item in cases)
+        foreach (var allowRaw in new[] { false, true })
         {
             using var directory = new TemporaryDirectory();
             WriteScript(directory.Path, "raw-check", """
                 clircs.registerCommand("rawcheck", [], "Test raw IRC.", () => {
                   clircs.run("/quote PRIVMSG Nick :hello  world");
                 });
-                """, ["commands", "irc", "raw"]);
+                """, ["commands", "raw"]);
 
             var host = new TestScriptHost();
             await using var manager = new ScriptManager(directory.Path, host.Services);
 
-            if (item.Irc)
-                await manager.SetPermissionAsync("raw-check", ScriptPermission.Irc, granted: true);
-            if (item.Raw)
-                await manager.SetPermissionAsync("raw-check", ScriptPermission.Raw, granted: true);
+            await manager.SetPermissionAsync("raw-check", ScriptPermission.Raw, granted: allowRaw);
 
             var loaded = await manager.LoadAsync("raw-check");
-            Assert.Equal(item.Irc, loaded.GrantedPermissions.Contains(ScriptPermission.Irc));
-            Assert.Equal(item.Raw, loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
+            Assert.Equal(allowRaw, loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
 
             var context = new CommandContext(NetworkSessionId.New(), BufferId.New());
             var result = await host.Commands["rawcheck"].Handler(
                 context, [], CancellationToken.None);
 
-            Assert.Equal(item.Irc, result.Succeeded);
-            if (!item.Irc)
-            {
-                Assert.True(host.CommandRequests.IsEmpty);
-                continue;
-            }
-
+            Assert.True(result.Succeeded);
             Assert.True(host.CommandRequests.TryDequeue(out var request));
             Assert.Equal("raw-check", request.ScriptId);
             Assert.Equal(context, request.Context);
             Assert.Equal("/quote PRIVMSG Nick :hello  world", request.CommandLine);
-            Assert.Equal(item.Raw, request.AllowRaw);
+            Assert.Equal(allowRaw, request.AllowRaw);
             Assert.True(host.CommandRequests.IsEmpty);
         }
     }
@@ -391,15 +731,13 @@ internal static class ScriptTests
             clircs.registerCommand("rawpersist", [], "Test saved raw access.", () => {
               clircs.run("/raw VERSION");
             });
-            """, ["commands", "irc", "raw"]);
+            """, ["commands", "raw"]);
 
         var host = new TestScriptHost();
         var context = new CommandContext(null, null);
 
         await using (var manager = new ScriptManager(directory.Path, host.Services))
         {
-            await manager.SetPermissionAsync("raw-persist", ScriptPermission.Irc, granted: true);
-            await manager.SetPermissionAsync("raw-persist", ScriptPermission.Raw, granted: true);
             await manager.LoadAsync("raw-persist");
         }
 
@@ -426,7 +764,6 @@ internal static class ScriptTests
         await using (var manager = new ScriptManager(directory.Path, host.Services))
         {
             var loaded = await manager.LoadAsync("raw-persist");
-            Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.Irc));
             Assert.False(loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
 
             var result = await host.Commands["rawpersist"].Handler(
@@ -435,6 +772,8 @@ internal static class ScriptTests
             Assert.True(host.CommandRequests.TryDequeue(out var revoked));
             Assert.False(revoked.AllowRaw);
         }
+
+        Assert.Equal(1, host.PermissionRequests.Count);
     }
 
     private static async ValueTask LocalNetworkPermissionRequiresGrantAsync()
@@ -446,6 +785,7 @@ internal static class ScriptTests
         var host = new TestScriptHost();
         await using var manager = new ScriptManager(directory.Path, host.Services);
 
+        await manager.SetPermissionAsync("localnet", ScriptPermission.LocalNetwork, granted: false);
         var denied = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.LoadAsync("localnet").AsTask());
         Assert.True(denied.Message.Contains("not granted", StringComparison.OrdinalIgnoreCase));
         await manager.SetPermissionAsync("localnet", ScriptPermission.LocalNetwork, granted: true);
@@ -618,6 +958,7 @@ internal static class ScriptTests
         var examples = Path.Combine(Directory.GetCurrentDirectory(), "examples");
         var host = new TestScriptHost();
         await using var manager = new ScriptManager(directory.Path, host.Services, examples);
+        await manager.SetPermissionAsync("musikcube", ScriptPermission.LocalNetwork, granted: false);
         var loaded = await manager.LoadAsync("musikcube");
         Assert.Equal("loaded", loaded.Status);
         Assert.True(host.Commands.ContainsKey("song"));
@@ -746,10 +1087,9 @@ internal static class ScriptTests
 
         var host = new TestScriptHost();
         await using var manager = new ScriptManager(directory.Path, host.Services);
-        await manager.SetPermissionAsync("musikcube", ScriptPermission.LocalNetwork, granted: true);
-        Assert.True(manager.List().Single(script => script.Id == "musikcube")
-            .GrantedPermissions.Contains(ScriptPermission.LocalNetwork));
-        await manager.LoadAsync("musikcube");
+        var loaded = await manager.LoadAsync("musikcube");
+        Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.LocalNetwork));
+        Assert.Equal(1, host.PermissionRequests.Count);
         var initialStatus = await host.Commands["music"].Handler(
             new CommandContext(null, null), ["status"], CancellationToken.None);
         ScriptHeaderContribution header;
@@ -916,7 +1256,12 @@ internal static class ScriptTests
         }
     }
 
-    private static void WriteScript(string root, string id, string source, string[] permissions)
+    private static void WriteScript(
+        string root,
+        string id,
+        string source,
+        string[] permissions,
+        string version = "1.0.0")
     {
         var scriptDirectory = System.IO.Path.Combine(root, "scripts", id);
         Directory.CreateDirectory(scriptDirectory);
@@ -925,7 +1270,7 @@ internal static class ScriptTests
             schemaVersion = 1,
             id,
             name = id,
-            version = "1.0.0",
+            version,
             entry = "main.js",
             permissions
         };
@@ -985,6 +1330,11 @@ internal static class ScriptTests
                         Thread.Sleep(SecretDelay);
                     }
                     return SecretValue;
+                },
+                request =>
+                {
+                    PermissionRequests.Enqueue(request);
+                    return PermissionApproval(request);
                 });
         }
 
@@ -995,6 +1345,10 @@ internal static class ScriptTests
         public ConcurrentDictionary<(string ScriptId, string ItemId), ScriptHeaderContribution> Headers { get; } = new();
 
         public ScriptHostServices Services { get; }
+
+        public ConcurrentQueue<ScriptPermissionRequest> PermissionRequests { get; } = new();
+
+        public Func<ScriptPermissionRequest, bool> PermissionApproval { get; set; } = _ => true;
 
         public string? SecretValue { get; init; }
 

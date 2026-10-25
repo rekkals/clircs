@@ -1,24 +1,25 @@
 # musikcube integration
 
-This is the first serious clircs addon. It controls a local musikcube instance
-through musikcube's bundled WebSocket server plugin.
+This script controls a local musikcube instance through musikcube's bundled
+WebSocket server plugin.
 
 In musikcube, enable the metadata/WebSocket server in Settings > Server Setup.
 The default port is `7905`. Set a password unless you have an unusually
 compelling reason not to.
 
-The script is installed with clircs but is not loaded automatically:
+Copy this directory to `%APPDATA%\clircs\scripts\musikcube`, then load it:
 
 ```text
-/script permissions musikcube localnetwork on
-/script permissions musikcube irc on
 /script load musikcube
+```
+
+Approve the requested permissions when prompted, then configure the password:
+
+```text
 /music password
 ```
 
-The `localnetwork` permission is required to connect to musikcube. The `irc`
-permission is required only when `/song` sends track information to IRC;
-`/song --local` remains local.
+The `localnetwork` permission is required to connect to musikcube. `/song` sends track information to IRC; `/song --local` displays it locally. Sending through `/song` requires no additional permission.
 
 Playback broadcasts update the shared buffer header immediately. The addon
 also requests a fresh overview every two seconds so a missed broadcast does

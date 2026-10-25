@@ -4,7 +4,7 @@ clircs scripting is a deliberately small extension system built on the embedded 
 
 It is narrower than mIRC scripting, a browser, Node.js, or unrestricted .NET on purpose. Scripts receive only the `clircs` APIs described here. They do not receive arbitrary filesystem access, process launching, registry access, raw sockets, unrestricted CLR access, or unrestricted Internet access.
 
-Scripts are still code. A sandbox is a boundary, not a certificate of good intentions. Read a script before loading it, inspect the permissions it requests, and grant `irc`, `raw`, or `localnetwork` only when you trust what it does.
+Scripts are still code. A sandbox is a boundary, not a certificate of good intentions. Read a script before loading it, inspect the permissions it requests, and approve them only when you trust what it does.
 
 ## Installing and Managing Scripts
 
@@ -37,9 +37,11 @@ Use `/script list` to inspect installed scripts. The complete management command
 /script permissions <id> <permission> on|off
 ```
 
-Loading and unloading are remembered immediately. A script that was loaded when clircs closed is loaded again at the next startup. One broken addon does not get to keep the others from loading.
+Successful loads and explicit unloads are remembered immediately. clircs restores remembered scripts at startup, and failed or declined restores do not block the others.
 
-Changing a permission reloads the script when it is already loaded. `/script errors` shows the 20 most recent recorded errors from the current clircs process.
+Changing a permission saves the decision immediately and reloads the script if it is loaded. If approval for additional permissions is declined during that reload, the permission change remains saved and the script stays unloaded.
+
+`/script errors` shows the 20 most recent recorded errors from the current clircs process.
 
 ## Manifest
 
@@ -51,7 +53,7 @@ A complete manifest looks like this:
 {
   "schemaVersion": 1,
   "id": "my-script",
-  "name": "My script",
+  "name": "My Script",
   "version": "1.0.0",
   "entry": "main.js",
   "permissions": [
@@ -60,7 +62,6 @@ A complete manifest looks like this:
     "timers",
     "output",
     "storage",
-    "irc",
     "raw",
     "localnetwork",
     "secrets",
@@ -86,7 +87,7 @@ clircs executes one classic JavaScript entry file. It does not expose Node.js, a
 
 ## Permissions
 
-A manifest must request a permission before the corresponding API can be used. Requesting a capability and being granted it are separate things for the three permissions that can act outside the script itself. Loading fails if the entry file immediately calls an API whose permission is not granted.
+The permissions below must be requested in the manifest and granted before their APIs can be used. Loading fails if the entry file immediately uses a capability whose permission has been revoked.
 
 | Permission | API or capability |
 | --- | --- |
@@ -95,21 +96,24 @@ A manifest must request a permission before the corresponding API can be used. R
 | `timers` | Create and cancel bounded one-shot timers. |
 | `output` | Print sanitized text in clircs. |
 | `storage` | Read and write private durable string settings. |
-| `irc` | Queue an existing clircs slash command through the normal command lane. |
-| `raw` | Allow `/raw` and `/quote` through `clircs.run()`; also requires `irc`. |
+| `raw` | Allow `/raw` and `/quote` through `clircs.run()`. |
 | `localnetwork` | Open text WebSockets restricted to the local machine. |
 | `secrets` | Prompt for and store values protected for the current Windows user. |
 | `ui` | Contribute constrained items to the window header. |
 
-Requested `commands`, `events`, `timers`, `output`, `storage`, `secrets`, and `ui` permissions are granted when a script is first loaded. The more powerful `irc`, `raw`, and `localnetwork` permissions are denied until the user explicitly grants them:
+On first load, clircs displays the script's identity and requested permissions, then asks for one approval in the input bar before executing any script code. Enter `y` or `yes` to approve. Any other response, an empty response, or Escape cancels loading.
+
+Approval is saved across reloads and restarts. Additional requested permissions require another approval; a version change alone does not. Approving new permissions preserves earlier revocations. Declining approval during `/script reload` leaves the existing instance running. A script requesting no permissions loads without an approval prompt.
+
+Use the permission commands to inspect grants or change individual permissions:
 
 ```text
-/script permissions my-script irc on
+/script permissions my-script
+/script permissions my-script raw off
 /script permissions my-script raw on
-/script permissions my-script localnetwork on
 ```
 
-The `irc` permission controls `clircs.run()`. With `irc` alone, it permits host-approved IRC automation commands, including messaging, channel operations, moderation, server queries, and services commands. Granting `raw` in addition permits `/raw` and its `/quote` alias, allowing arbitrary IRC protocol commands over the existing network connection. Both permissions must be requested in the manifest and explicitly granted.
+Normal allowlisted IRC automation commands through `clircs.run()` require no additional permission. The `raw` permission permits `/raw` and its `/quote` alias to send arbitrary IRC protocol commands over the existing network connection.
 
 clircs commands for DCC, filesystem operations, configuration changes, credential management, connection management, and application administration remain unavailable through `clircs.run()`. Unknown and unapproved clircs commands fail closed. Allowed commands still pass through the ordinary parser, validation, captured network/window context, command execution lane, and outbound scheduler. Scripts never receive direct access to an IRC socket.
 
@@ -151,7 +155,7 @@ clircs.registerCommand(
 );
 ```
 
-Then load and use it:
+Then load it, approve the requested permission, and use it:
 
 ```text
 /script load hello
@@ -241,10 +245,10 @@ One script may register at most 256 event handlers.
 
 ```javascript
 clircs.run("/notice Nick hello");
-clircs.run("/quote VERSION"); // Requires both irc and raw.
+clircs.run("/quote VERSION"); // Requires raw.
 ```
 
-Requires `irc`; `/raw` and `/quote` additionally require `raw`. Only slash commands are accepted. The command is queued asynchronously using the network and window context active for the script callback that requested it.
+Normal allowlisted commands require no additional permission. `/raw` and `/quote` require `raw`. Only slash commands are accepted. The command is queued asynchronously using the network and window context active for the script callback that requested it.
 
 Despite the name, `clircs.run()` runs a clircs command. It is not a Windows shell command and cannot launch an executable.
 
