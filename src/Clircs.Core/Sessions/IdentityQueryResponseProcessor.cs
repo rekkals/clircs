@@ -110,6 +110,9 @@ internal sealed class IdentityQueryResponseProcessor
             case "314":
                 CollectWhowas(message);
                 break;
+            case "406":
+                // The following 369 completes the WHOWAS
+                break;
             case "369":
                 var whowas = CompleteWhowas(message, now);
                 if (whowas is not null) results.Add(whowas);
@@ -429,13 +432,19 @@ internal sealed class IdentityQueryResponseProcessor
         if (message.Parameters.Count < 2) return null;
         var nick = message.Parameters[1];
         _whowasResults.Remove(nick, out var results);
-        results ??= [];
-        PresentationBlock presentation;
-        if (results.Count == 0)
+        if (results is null || results.Count == 0)
         {
-            presentation = new PresentationBlock("WHOWAS:", Summary: "No history found.", TitleHighlight: nick);
+            return _events.Status(
+                SessionEventKind.Error,
+                $"No WHOWAS history found: {nick}",
+                now,
+                SessionEventBuilder.Fields(
+                    ("outputFamily", "whowas"), ("outputTarget", nick),
+                    ("numeric", "369"), ("outputEnd", "true")));
         }
-        else if (results.Count == 1)
+
+        PresentationBlock presentation;
+        if (results.Count == 1)
         {
             var result = results[0];
             var fields = new List<PresentationField>

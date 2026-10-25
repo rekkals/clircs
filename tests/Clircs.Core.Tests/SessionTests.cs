@@ -1,3 +1,4 @@
+using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Protocol;
 using Clircs.Protocol.Testing;
@@ -73,6 +74,7 @@ internal static class SessionTests
         suite.Add("failed WHOIS does not produce an empty trailing box", FailedWhoisHasNoTrailingBox);
         suite.Add("channel forwarding and URLs are formatted without raw numerics", ForwardAndChannelUrlAreFormatted);
         suite.Add("WHOWAS replies produce a formatted result without raw numerics", WhowasIsFormatted);
+        suite.Add("missing WHOWAS history produces one routed error without an information box", MissingWhowasIsFormatted);
         suite.Add("716 and 717 combine into one routed message-guard notice", MessageGuardNumericsCombine);
         suite.Add("ordinary notices carry configurable notice routing", OrdinaryNoticesAreTagged);
         suite.Add("WALLOPS carries configurable routing and sender identity", WallopsIsFormattedAndTagged);
@@ -1686,6 +1688,37 @@ internal static class SessionTests
         Assert.Equal("lithium.libera.chat",
             completed[0].Presentation!.Fields!.Single(field => field.Label == "Server").Value);
         Assert.False(completed[0].Text.Contains("369", StringComparison.Ordinal));
+    }
+
+    private static void MissingWhowasIsFormatted()
+    {
+        var (state, processor) = CreateProcessor();
+        var routing = new OutputRoutingCoordinator();
+
+        foreach (var nickname in new[] { "me", "Nobody" })
+        {
+            var destination = BufferId.New();
+            routing.SetFamily(state.Id, "whowas", destination);
+
+            var missing = processor.Process(IrcMessageParser.Parse(
+                $":server 406 me {nickname} :There was no such nickname"));
+            Assert.Equal(0, missing.Count);
+
+            var completed = processor.Process(IrcMessageParser.Parse(
+                $":server 369 me {nickname} :End of WHOWAS"));
+            Assert.Equal(1, completed.Count);
+
+            var result = completed[0];
+            Assert.Equal(SessionEventKind.Error, result.Kind);
+            Assert.Equal($"No WHOWAS history found: {nickname}", result.Text);
+            Assert.True(result.Presentation is null);
+            Assert.Equal("whowas", result.Fields!["outputFamily"]!);
+            Assert.Equal(nickname, result.Fields!["outputTarget"]!);
+
+            Assert.True(routing.TryResolve(result, out var routed));
+            Assert.Equal(destination, routed);
+            Assert.False(routing.TryResolve(result, out _));
+        }
     }
 
     private static void OrdinaryNoticesAreTagged()
