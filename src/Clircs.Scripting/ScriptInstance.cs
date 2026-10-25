@@ -14,12 +14,19 @@ internal sealed class ScriptInstance : IAsyncDisposable
     private const int MaximumPendingCallbacks = 512;
     private const int MaximumTimers = 256;
     private const int MaximumWebSockets = 16;
+    private const int MaximumHelpJsonLength = 65_536;
+    private const int MaximumHelpFields = 32;
+    private const int MaximumHelpTopics = 64;
+    private const int MaximumHelpTextLength = 4096;
+    private const int MaximumHelpNameLength = 64;
     private const string Bootstrap = """
         globalThis.clircs = Object.freeze({
           print: text => __clirc_print(String(text)),
           on: (eventName, handler) => __clirc_on(String(eventName), handler),
-          registerCommand: (name, aliases, summary, handler) =>
-            __clirc_register_command(String(name), Array.isArray(aliases) ? aliases.join(',') : String(aliases || ''), String(summary || ''), handler),
+          registerCommand: (name, aliases, summary, handler, help = null) =>
+            __clirc_register_command(
+              String(name), Array.isArray(aliases) ? aliases.join(',') : String(aliases || ''),
+              String(summary || ''), handler, JSON.stringify(help)),
           run: commandLine => __clirc_run(String(commandLine)),
           setTimeout: (handler, milliseconds) => __clirc_set_timeout(handler, Number(milliseconds)),
           clearTimeout: timerId => __clirc_clear_timeout(Number(timerId)),
@@ -253,7 +260,7 @@ internal sealed class ScriptInstance : IAsyncDisposable
     {
         _engine.SetValue("__clirc_print", new Action<string>(Print));
         _engine.SetValue("__clirc_on", new Action<string, JsValue>(RegisterEvent));
-        _engine.SetValue("__clirc_register_command", new Action<string, string, string, JsValue>(RegisterCommand));
+        _engine.SetValue("__clirc_register_command", new Action<string, string, string, JsValue, string>(RegisterCommand));
         _engine.SetValue("__clirc_run", new Action<string>(QueueCommand));
         _engine.SetValue("__clirc_set_timeout", new Func<JsValue, double, int>(SetTimeout));
         _engine.SetValue("__clirc_clear_timeout", new Action<double>(ClearTimeout));
@@ -312,13 +319,21 @@ internal sealed class ScriptInstance : IAsyncDisposable
         _eventHandlerCount++;
     }
 
-    private void RegisterCommand(string name, string aliases, string summary, JsValue handler)
+    private void RegisterCommand(string name, string aliases, string summary, JsValue handler, string helpJson)
     {
         Demand(ScriptPermission.Commands);
         if (!handler.IsCallable())
         {
             throw new InvalidOperationException("clircs.registerCommand requires a function.");
         }
+
+        if (summary.Length > MaximumHelpTextLength)
+        {
+            throw new InvalidOperationException(
+                $"Command summaries cannot exceed {MaximumHelpTextLength} characters.");
+        }
+
+        var help = ReadCommandHelp(helpJson);
 
         name = CommandLineParser.NormalizeName(name);
         var parsedAliases = aliases.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -346,7 +361,8 @@ internal sealed class ScriptInstance : IAsyncDisposable
                 name,
                 parsedAliases,
                 string.IsNullOrWhiteSpace(summary) ? $"Command supplied by {_script.Manifest.Name}." : summary,
-                (context, arguments, cancellationToken) => InvokeCommandAsync(name, context, arguments, cancellationToken));
+                (context, arguments, cancellationToken) => InvokeCommandAsync(name, context, arguments, cancellationToken),
+                help);
             var ownedRegistration = _services.RegisterCommand(registration);
             lock (_resourceGate)
             {
@@ -366,6 +382,136 @@ internal sealed class ScriptInstance : IAsyncDisposable
             }
             throw;
         }
+    }
+
+    private static ScriptCommandHelp? ReadCommandHelp(string helpJson)
+    {
+        if (helpJson is null || helpJson.Length > MaximumHelpJsonLength)
+        {
+            throw new InvalidOperationException(
+                $"Command help must be JSON text of at most {MaximumHelpJsonLength} characters.");
+        }
+
+        using var document = JsonDocument.Parse(helpJson);
+        var root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Command help must be an object or null.");
+        }
+
+        var usage = ReadHelpText(root, "usage", MaximumHelpTextLength);
+        var fields = ReadHelpFields(root);
+        var topics = new Dictionary<string, ScriptCommandHelpTopic>(StringComparer.OrdinalIgnoreCase);
+        if (root.TryGetProperty("topics", out var topicsElement) &&
+            topicsElement.ValueKind != JsonValueKind.Null)
+        {
+            if (topicsElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException("Command help 'topics' must be an object.");
+            }
+
+            foreach (var topic in topicsElement.EnumerateObject())
+            {
+                if (topics.Count >= MaximumHelpTopics)
+                {
+                    throw new InvalidOperationException(
+                        $"Command help cannot contain more than {MaximumHelpTopics} topics.");
+                }
+
+                var name = topic.Name.ToLowerInvariant();
+                if (name.Length is < 1 or > MaximumHelpNameLength ||
+                    name.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
+                {
+                    throw new InvalidOperationException(
+                        $"Help topic names must be single tokens of 1-{MaximumHelpNameLength} characters.");
+                }
+                if (topic.Value.ValueKind != JsonValueKind.Object)
+                {
+                    throw new InvalidOperationException($"Help topic '{name}' must be an object.");
+                }
+
+                var topicUsage = ReadHelpText(topic.Value, "usage", MaximumHelpTextLength);
+                var description = ReadHelpText(
+                    topic.Value, "description", MaximumHelpTextLength, required: true)!;
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    throw new InvalidOperationException(
+                        $"Help topic '{name}' requires a nonempty description.");
+                }
+
+                if (!topics.TryAdd(name, new ScriptCommandHelpTopic(
+                    topicUsage, description, ReadHelpFields(topic.Value))))
+                {
+                    throw new InvalidOperationException($"Duplicate help topic '{name}'.");
+                }
+            }
+        }
+
+        return new ScriptCommandHelp(usage, fields, topics);
+    }
+
+    private static IReadOnlyList<PresentationField> ReadHelpFields(JsonElement element)
+    {
+        if (!element.TryGetProperty("fields", out var fields) ||
+            fields.ValueKind == JsonValueKind.Null)
+        {
+            return [];
+        }
+        if (fields.ValueKind != JsonValueKind.Array || fields.GetArrayLength() > MaximumHelpFields)
+        {
+            throw new InvalidOperationException(
+                $"Command help 'fields' must be an array of at most {MaximumHelpFields} fields.");
+        }
+
+        var result = new List<PresentationField>();
+        foreach (var field in fields.EnumerateArray())
+        {
+            if (field.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException("Each command help field must be an object.");
+            }
+
+            var label = ReadHelpText(field, "label", MaximumHelpNameLength, required: true)!;
+            var value = ReadHelpText(field, "value", MaximumHelpTextLength, required: true)!;
+            result.Add(new PresentationField(label, value));
+        }
+
+        return result.ToArray();
+    }
+
+    private static string? ReadHelpText(
+        JsonElement element,
+        string propertyName,
+        int maximumLength,
+        bool required = false)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind == JsonValueKind.Null)
+        {
+            if (required)
+            {
+                throw new InvalidOperationException($"Command help requires '{propertyName}' text.");
+            }
+
+            return null;
+        }
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException($"Command help '{propertyName}' must be text.");
+        }
+
+        var text = value.GetString()!;
+        if (text.Length > maximumLength)
+        {
+            throw new InvalidOperationException(
+                $"Command help '{propertyName}' cannot exceed {maximumLength} characters.");
+        }
+
+        return text;
     }
 
     private void QueueCommand(string commandLine)

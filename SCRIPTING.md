@@ -190,7 +190,8 @@ Requires `commands`. Arguments are:
 1. canonical command name;
 2. array of aliases;
 3. help summary;
-4. command handler.
+4. command handler;
+5. optional help object.
 
 The handler receives:
 
@@ -206,6 +207,68 @@ The handler receives:
 Returning `null` or `undefined` succeeds silently. Returning `false` reports command failure. Any other returned value is converted to text and displayed as a successful command result.
 
 Script commands participate in the ordinary command registry, appear in `/help`, and are removed when the script unloads or faults. A script may register at most 64 commands.
+
+#### Command Help
+
+The optional fifth argument supplies usage text, additional fields, and topics for the regular `/help` command. It requires no permission beyond `commands`.
+
+```javascript
+clircs.registerCommand("greet", ["gr"], "Greet somebody.", context => {
+  const target = context.args[0] || "everybody";
+  return `Hello, ${target}.`;
+}, {
+  usage: "/greet [nick]",
+  fields: [
+    { label: "Default", value: "Greet everybody when no nickname is supplied." }
+  ],
+  topics: {
+    examples: {
+      usage: "",
+      description: "Examples of using the greeting command.",
+      fields: [
+        { label: "Named greeting", value: "/greet Alice" },
+        { label: "Default greeting", value: "/greet" },
+        { label: "Alias", value: "/gr Alice" }
+      ]
+    }
+  }
+});
+```
+
+Users can read this help with:
+
+```text
+/help greet
+/help greet examples
+/help gr examples
+```
+
+The command summary supplies the root Description field. clircs adds the script ID and, when topics exist, an alphabetical topic list automatically. Aliases resolve to the same help, and topic lookup ignores case.
+
+The help object supports:
+
+| Property | Meaning |
+| --- | --- |
+| `usage` | Usage text. Omitted or `null` uses `/<command> [arguments]`; an empty string hides the Usage field. |
+| `fields` | Optional array of `{ label, value }` text fields, displayed in the supplied order. |
+| `topics` | Optional object mapping topic names to help objects. Each topic requires a nonempty `description` and may provide its own `usage` and `fields`. |
+
+A topic's omitted or `null` usage defaults to `/<command> <topic> [arguments]`. An empty string hides it, as in the examples topic above.
+
+Topics describe the command; they do not add subcommands or validate arguments. The command handler remains responsible for interpreting its arguments.
+
+Help is captured when the command registers. Changing the original JavaScript object afterward does not change the registered help. Reading `/help` does not execute the script's handler. Reloading replaces the help with the new registration; unloading or faulting removes it with the command.
+
+Help limits are:
+
+- 65,536 characters for the complete JSON-serialized help object;
+- 64 topics, with names containing 1–64 characters and no whitespace or control characters;
+- topic names must be unique when compared without case;
+- 32 custom fields on the root help and on each topic;
+- 64 characters per field label;
+- 4,096 characters per command summary, usage string, topic description, or field value.
+
+Invalid help rejects the command registration. If that error escapes the entry file during loading, the load fails and its earlier registrations are removed.
 
 ### Observing Events
 

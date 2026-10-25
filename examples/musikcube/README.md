@@ -25,6 +25,9 @@ Playback broadcasts update the shared buffer header immediately. The addon
 also requests a fresh overview every two seconds so a missed broadcast does
 not leave an old song there forever.
 
+Use `/help music` or `/help song` for command help. Individual musikcube
+operations have their own help topics, such as `/help music volume`.
+
 Commands:
 
 ```text
@@ -34,8 +37,8 @@ Commands:
 /music disconnect
 /music password
 /music address [host]
-/music port [number]
-/music bar <on|off>
+/music port <1-65535>
+/music bar [on|off]
 /music play
 /music pause
 /music stop

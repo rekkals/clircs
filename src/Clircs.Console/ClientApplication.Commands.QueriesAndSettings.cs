@@ -773,14 +773,59 @@ internal sealed partial class ClientApplication
 
     private IDisposable RegisterScriptCommand(ScriptCommandRegistration registration)
     {
-        var definition = new CommandDefinition(
-            registration.Name,
-            registration.Aliases,
-            $"/{registration.Name} [arguments]",
-            $"{registration.Summary} [script: {registration.ScriptId}]",
-            (context, input, cancellationToken) => registration.Handler(context, input.Arguments, cancellationToken));
+        var definition = CreateScriptCommandDefinition(registration);
         _commands.Register(definition);
         return new CallbackDisposable(() => _commands.Unregister(definition));
+    }
+
+    internal static CommandDefinition CreateScriptCommandDefinition(ScriptCommandRegistration registration)
+    {
+        var name = CommandLineParser.NormalizeName(registration.Name);
+        var fields = new List<PresentationField>
+        {
+            new("Script", registration.ScriptId)
+        };
+        var topics = new Dictionary<string, PresentationBlock>(StringComparer.OrdinalIgnoreCase);
+        var help = registration.Help;
+        if (help is not null)
+        {
+            fields.AddRange(help.Fields);
+            foreach (var topic in help.Topics)
+            {
+                var usage = topic.Value.Usage ?? $"/{name} {topic.Key} [arguments]";
+                var topicFields = new List<PresentationField>();
+                if (usage.Length > 0)
+                {
+                    topicFields.Add(new PresentationField("Usage", usage));
+                }
+                topicFields.Add(new PresentationField("Description", topic.Value.Description));
+                topicFields.Add(new PresentationField("Script", registration.ScriptId));
+                topicFields.AddRange(topic.Value.Fields);
+
+                topics.Add(topic.Key, new PresentationBlock(
+                    "HELP:",
+                    topicFields,
+                    TitleHighlight: $"/{name} {topic.Key}"));
+            }
+        }
+
+        if (topics.Count > 0)
+        {
+            fields.Add(new PresentationField(
+                "Topics",
+                string.Join(", ", topics.Keys.Order(StringComparer.OrdinalIgnoreCase))));
+        }
+
+        return new CommandDefinition(
+            name,
+            registration.Aliases,
+            help?.Usage ?? $"/{name} [arguments]",
+            registration.Summary,
+            (context, input, cancellationToken) => registration.Handler(context, input.Arguments, cancellationToken),
+            extendedHelp: fields,
+            topicHelp: topics.Count == 0
+                ? null
+                : requested => topics.GetValueOrDefault(requested));
     }
 
     private void QueueScriptCommand(

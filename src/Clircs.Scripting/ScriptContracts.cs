@@ -23,12 +23,23 @@ public sealed record ScriptHeaderContribution(
     int Priority,
     int MinimumWidth);
 
+public sealed record ScriptCommandHelp(
+    string? Usage,
+    IReadOnlyList<PresentationField> Fields,
+    IReadOnlyDictionary<string, ScriptCommandHelpTopic> Topics);
+
+public sealed record ScriptCommandHelpTopic(
+    string? Usage,
+    string Description,
+    IReadOnlyList<PresentationField> Fields);
+
 public sealed record ScriptCommandRegistration(
     string ScriptId,
     string Name,
     IReadOnlyList<string> Aliases,
     string Summary,
-    Func<CommandContext, IReadOnlyList<string>, CancellationToken, ValueTask<CommandResult>> Handler);
+    Func<CommandContext, IReadOnlyList<string>, CancellationToken, ValueTask<CommandResult>> Handler,
+    ScriptCommandHelp? Help = null);
 
 public sealed record ScriptPermissionRequest(
     string Id,

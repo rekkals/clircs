@@ -17,6 +17,10 @@ internal static class ScriptTests
 {
     public static void Register(TestSuite suite)
     {
+        suite.Add("script help reaches core command metadata without executing handlers", ScriptHelpUsesCoreCommandsAsync);
+        suite.Add("script help is replaced on reload and removed on disposal", ScriptHelpFollowsLifecycleAsync);
+        suite.Add("invalid script help rejects the load and rolls back registered commands", InvalidScriptHelpIsRejectedAsync);
+        suite.Add("script help accepts its size boundaries and rejects oversized data", ScriptHelpSizeLimitsAsync);
         suite.Add("scripts register commands, receive scoped events, and persist private storage", LifecycleAndStorageAsync);
         suite.Add("loaded script state survives restart and unload", LoadedStatePersistsAsync);
         suite.Add("missing or declined scripts do not block other startup restores", RestoreFailuresAreIsolatedAsync);
@@ -129,6 +133,265 @@ internal static class ScriptTests
             var command = (CommandInput)CommandLineParser.Parse(commandLine);
             Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command));
             Assert.True(ScriptCommandRequestPolicy.IsAllowed(commands, command, allowRaw: true));
+        }
+    }
+
+    private static async ValueTask ScriptHelpUsesCoreCommandsAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "help-metadata", """
+            const help = {
+              usage: "/helpdemo <operation>",
+              fields: [{ label: "Default", value: "Shows status." }],
+              topics: {
+                Volume: {
+                  usage: "/helpdemo volume <0-100>",
+                  description: "Set playback volume.",
+                  fields: [{ label: "Example", value: "/helpdemo volume 50" }]
+                },
+                status: { description: "Show playback status." }
+              }
+            };
+            let calls = 0;
+            clircs.registerCommand("helpdemo", ["hd"], "Control test playback.", context => {
+              clircs.run("/version");
+              return `${context.name}:${++calls}:${context.args.join(" ")}`;
+            }, help);
+            clircs.registerCommand("legacyhelp", [], "Simple script command.", () => "simple");
+
+            help.usage = "/changed";
+            help.fields[0].value = "changed";
+            help.topics.Volume.description = "changed";
+            help.topics.extra = { description: "Added too late." };
+            """, ["commands"]);
+
+        var host = new TestScriptHost();
+        var registry = new CommandRegistry();
+        await using var manager = new ScriptManager(
+            directory.Path, WithCoreCommandRegistry(host, registry));
+        await manager.LoadAsync("help-metadata");
+
+        var command = registry.Definitions.Single(definition => definition.Name == "helpdemo");
+        Assert.True(registry.TryResolve("HD", out var alias));
+        Assert.True(ReferenceEquals(command, alias));
+        Assert.Equal("/helpdemo <operation>", command.Usage);
+        Assert.Equal("Control test playback.", command.Description);
+        Assert.Equal("help-metadata",
+            command.ExtendedHelp.Single(field => field.Label == "Script").Value);
+        Assert.Equal("Shows status.",
+            command.ExtendedHelp.Single(field => field.Label == "Default").Value);
+        Assert.Equal("status, volume",
+            command.ExtendedHelp.Single(field => field.Label == "Topics").Value);
+
+        var volume = command.TopicHelp?.Invoke("VoLuMe")
+            ?? throw new InvalidOperationException("Expected volume help.");
+        Assert.Equal("/helpdemo volume", volume.TitleHighlight!);
+        Assert.Equal("/helpdemo volume <0-100>",
+            volume.Fields!.Single(field => field.Label == "Usage").Value);
+        Assert.Equal("Set playback volume.",
+            volume.Fields!.Single(field => field.Label == "Description").Value);
+        Assert.Equal("/helpdemo volume 50",
+            volume.Fields!.Single(field => field.Label == "Example").Value);
+
+        var status = command.TopicHelp!.Invoke("status")
+            ?? throw new InvalidOperationException("Expected status help.");
+        Assert.Equal("/helpdemo status [arguments]",
+            status.Fields!.Single(field => field.Label == "Usage").Value);
+        Assert.True(command.TopicHelp!.Invoke("missing") is null);
+        Assert.True(command.TopicHelp!.Invoke("extra") is null);
+
+        var simple = registry.Definitions.Single(definition => definition.Name == "legacyhelp");
+        Assert.Equal("/legacyhelp [arguments]", simple.Usage);
+        Assert.True(simple.TopicHelp is null);
+        Assert.True(host.CommandRequests.IsEmpty);
+
+        var context = new CommandContext(NetworkSessionId.New(), BufferId.New());
+        var result = await registry.ExecuteAsync(
+            context, (CommandInput)CommandLineParser.Parse("/HD volume 25"));
+        Assert.True(result.Succeeded);
+        Assert.Equal("helpdemo:1:volume 25", result.Message!);
+        Assert.True(host.CommandRequests.TryDequeue(out var request));
+        Assert.Equal(context, request.Context);
+        Assert.Equal("/version", request.CommandLine);
+        Assert.False(request.AllowRaw);
+        Assert.True(host.CommandRequests.IsEmpty);
+
+        Assert.True(await manager.UnloadAsync("help-metadata"));
+        Assert.Equal(0, registry.Definitions.Count);
+        Assert.False(registry.TryResolve("helpdemo", out _));
+        Assert.False(registry.TryResolve("hd", out _));
+        Assert.False(registry.TryResolve("legacyhelp", out _));
+    }
+
+    private static async ValueTask ScriptHelpFollowsLifecycleAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "help-reload", """
+            clircs.registerCommand("changinghelp", ["ch"], "Original description.", () => "original", {
+              usage: "/changinghelp first",
+              topics: { first: { description: "Original topic." } }
+            });
+            """, ["commands"]);
+
+        var host = new TestScriptHost();
+        var registry = new CommandRegistry();
+        await using (var manager = new ScriptManager(
+            directory.Path, WithCoreCommandRegistry(host, registry)))
+        {
+            await manager.LoadAsync("help-reload");
+            var first = registry.Definitions.Single();
+            Assert.True(first.TopicHelp!.Invoke("first") is not null);
+
+            WriteScript(directory.Path, "help-reload", """
+                clircs.registerCommand("changinghelp", ["ch"], "Updated description.", () => "updated", {
+                  usage: "/changinghelp second",
+                  topics: { second: { description: "Updated topic." } }
+                });
+                """, ["commands"], version: "1.0.1");
+            await manager.ReloadAsync("help-reload");
+
+            var second = registry.Definitions.Single();
+            Assert.False(ReferenceEquals(first, second));
+            Assert.True(registry.TryResolve("ch", out var alias));
+            Assert.True(ReferenceEquals(second, alias));
+            Assert.Equal("/changinghelp second", second.Usage);
+            Assert.Equal("Updated description.", second.Description);
+            Assert.True(second.TopicHelp!.Invoke("first") is null);
+
+            var topic = second.TopicHelp!.Invoke("second")
+                ?? throw new InvalidOperationException("Expected replacement help.");
+            Assert.Equal("Updated topic.",
+                topic.Fields!.Single(field => field.Label == "Description").Value);
+        }
+
+        Assert.Equal(0, registry.Definitions.Count);
+        Assert.False(registry.TryResolve("changinghelp", out _));
+        Assert.False(registry.TryResolve("ch", out _));
+    }
+
+    private static async ValueTask InvalidScriptHelpIsRejectedAsync()
+    {
+        (string Call, string Message)[] cases =
+        [
+            ("register([])", "object or null"),
+            ("register({usage:7})", "'usage' must be text"),
+            ("register({fields:{}})", "'fields' must be an array"),
+            ("register({fields:[null]})", "field must be an object"),
+            ("register({fields:[{label:'Example'}]})", "requires 'value'"),
+            ("register({topics:[]})", "'topics' must be an object"),
+            ("register({topics:{volume:[]}})", "topic 'volume' must be an object"),
+            ("register({topics:{volume:{}}})", "requires 'description'"),
+            ("register({topics:{volume:{description:' '}}})", "nonempty description"),
+            ("register({topics:{'two words':{description:'x'}}})", "single tokens"),
+            ("register({topics:{volume:{description:'x'},Volume:{description:'y'}}})", "Duplicate help topic"),
+            ("register({topics:{volume:{description:'x',fields:[{label:'Example',value:false}]}}})", "'value' must be text"),
+            ("register(null, 'x'.repeat(4097))", "summaries")
+        ];
+
+        foreach (var item in cases)
+        {
+            using var directory = new TemporaryDirectory();
+            WriteScript(directory.Path, "invalid-help", $$"""
+                clircs.registerCommand("before", [], "Before failure.", () => "ready");
+                function register(help, summary = "Invalid help.") {
+                  clircs.registerCommand("badhelp", ["bh"], summary, () => "bad", help);
+                }
+                {{item.Call}};
+                """, ["commands"]);
+
+            var host = new TestScriptHost();
+            var registry = new CommandRegistry();
+            await using var manager = new ScriptManager(
+                directory.Path, WithCoreCommandRegistry(host, registry));
+
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => manager.LoadAsync("invalid-help").AsTask());
+            Assert.True(failure.Message.Contains(item.Message, StringComparison.OrdinalIgnoreCase),
+                $"Unexpected failure for {item.Call}: {failure.Message}");
+            Assert.Equal(0, registry.Definitions.Count);
+            Assert.False(registry.TryResolve("before", out _));
+            Assert.False(registry.TryResolve("badhelp", out _));
+            Assert.False(registry.TryResolve("bh", out _));
+            Assert.Equal("unloaded", manager.List().Single().Status);
+        }
+    }
+
+    private static async ValueTask ScriptHelpSizeLimitsAsync()
+    {
+        (string Name, int Limit, Func<int, object> Help, string Message)[] cases =
+        [
+            ("usage text", 4096,
+                length => new { usage = new string('x', length) },
+                "'usage'"),
+            ("field labels", 64,
+                length => new
+                {
+                    fields = new[] { new { label = new string('x', length), value = "x" } }
+                },
+                "'label'"),
+            ("field count", 32,
+                count => new
+                {
+                    fields = Enumerable.Range(0, count)
+                        .Select(_ => new { label = "Example", value = "x" }).ToArray()
+                },
+                "32 fields"),
+            ("topic count", 64,
+                count => new
+                {
+                    topics = Enumerable.Range(0, count)
+                        .ToDictionary(index => $"topic{index}", _ => new { description = "Topic." })
+                },
+                "64 topics"),
+            ("topic names", 64,
+                length => new
+                {
+                    topics = new Dictionary<string, object>
+                    {
+                        [new string('x', length)] = new { description = "Topic." }
+                    }
+                },
+                "single tokens"),
+            ("total help size", 15,
+                count => new
+                {
+                    fields = Enumerable.Range(0, count)
+                        .Select(_ => new { label = "Data", value = new string('x', 4096) }).ToArray()
+                },
+                "65536")
+        ];
+
+        foreach (var item in cases)
+        {
+            foreach (var size in new[] { item.Limit, item.Limit + 1 })
+            {
+                using var directory = new TemporaryDirectory();
+                var helpJson = JsonSerializer.Serialize(item.Help(size));
+                WriteScript(directory.Path, "help-limits", $$"""
+                    clircs.registerCommand("limited", ["lim"], "Limit test.", () => "ready", {{helpJson}});
+                    """, ["commands"]);
+
+                var host = new TestScriptHost();
+                var registry = new CommandRegistry();
+                await using var manager = new ScriptManager(
+                    directory.Path, WithCoreCommandRegistry(host, registry));
+
+                if (size == item.Limit)
+                {
+                    await manager.LoadAsync("help-limits");
+                    Assert.True(registry.TryResolve("lim", out _),
+                        $"Valid {item.Name} boundary was not registered.");
+                }
+                else
+                {
+                    var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+                        () => manager.LoadAsync("help-limits").AsTask());
+                    Assert.True(failure.Message.Contains(item.Message, StringComparison.OrdinalIgnoreCase),
+                        $"Unexpected {item.Name} failure: {failure.Message}");
+                    Assert.Equal(0, registry.Definitions.Count);
+                    Assert.False(registry.TryResolve("lim", out _));
+                }
+            }
         }
     }
 
@@ -652,23 +915,36 @@ internal static class ScriptTests
     {
         using var directory = new TemporaryDirectory();
         WriteScript(directory.Path, "runaway", """
-            clircs.registerCommand("spin", [], "Attempt an infinite loop.", () => {
+            clircs.registerCommand("spin", ["sp"], "Attempt an infinite loop.", () => {
               while (true) { }
+            }, {
+              usage: "/spin",
+              topics: { limits: { description: "Exercise the script execution limit." } }
             });
             """, ["commands"]);
+
         var host = new TestScriptHost();
-        await using var manager = new ScriptManager(directory.Path, host.Services);
+        var registry = new CommandRegistry();
+        await using var manager = new ScriptManager(
+            directory.Path, WithCoreCommandRegistry(host, registry));
         await manager.LoadAsync("runaway");
-        var command = host.Commands["spin"];
+
+        var command = registry.Definitions.Single();
+        Assert.True(command.TopicHelp!.Invoke("limits") is not null);
 
         var stopwatch = Stopwatch.StartNew();
-        var result = await command.Handler(new CommandContext(null, null), [], CancellationToken.None);
+        var result = await registry.ExecuteAsync(
+            new CommandContext(null, null),
+            (CommandInput)CommandLineParser.Parse("/sp"));
         stopwatch.Stop();
 
         Assert.False(result.Succeeded);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Runaway script exceeded its execution budget.");
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            "Runaway script exceeded its execution budget.");
         Assert.Equal("faulted", manager.List().Single(script => script.Id == "runaway").Status);
-        Assert.False(host.Commands.ContainsKey("spin"));
+        Assert.Equal(0, registry.Definitions.Count);
+        Assert.False(registry.TryResolve("spin", out _));
+        Assert.False(registry.TryResolve("sp", out _));
     }
 
     private static async ValueTask NormalIrcCommandsDoNotRequirePermissionAsync()
@@ -1255,6 +1531,19 @@ internal static class ScriptTests
             File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
         }
     }
+
+    private static ScriptHostServices WithCoreCommandRegistry(
+        TestScriptHost host,
+        CommandRegistry registry) =>
+        host.Services with
+        {
+            RegisterCommand = registration =>
+            {
+                var definition = ClientApplication.CreateScriptCommandDefinition(registration);
+                registry.Register(definition);
+                return new CallbackDisposable(() => registry.Unregister(definition));
+            }
+        };
 
     private static void WriteScript(
         string root,

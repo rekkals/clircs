@@ -241,7 +241,7 @@ function musicStatus() {
   return `musikcube${version}: connected to ${endpoint()}${playing ? `; ${playing}` : "; nothing playing"}`;
 }
 
-clircs.registerCommand("song", [], "Send musikcube's current track; use --local to display it only in clircs: /song [--local]", context => {
+clircs.registerCommand("song", [], "Send musikcube's current track to the active chat.", context => {
   if (context.args.length > 1 ||
       (context.args.length === 1 && context.args[0] !== "--local")) {
     return "Usage: /song [--local]";
@@ -259,9 +259,14 @@ clircs.registerCommand("song", [], "Send musikcube's current track; use --local 
   }
   clircs.run(`/say ${text}`);
   return null;
+}, {
+  usage: "/song [--local]",
+  fields: [
+    { label: "Local", value: "Use --local to display the track only in clircs." }
+  ]
 });
 
-clircs.registerCommand("music", [], "Inspect, configure, or control musikcube playback: /music <operation> [arguments]", context => {
+clircs.registerCommand("music", [], "Inspect, configure, or control musikcube playback.", context => {
   const args = context.args;
   const operation = (args[0] || "status").toLowerCase();
 
@@ -351,6 +356,89 @@ clircs.registerCommand("music", [], "Inspect, configure, or control musikcube pl
   }
 
   return "Usage: /music status|connect|disconnect|password|address [host]|port [number]|bar <on|off>|play|pause|stop|next|previous|volume <0-100>";
+}, {
+  usage: "/music [operation] [arguments]",
+  fields: [
+    { label: "Default", value: "/music status" },
+    {
+      label: "Setup",
+      value: "Enable musikcube's metadata/WebSocket server in Settings > Server Setup, then use /music password."
+    },
+    { label: "Details", value: "/help music <topic>" }
+  ],
+  topics: {
+    status: {
+      usage: "/music status",
+      description: "Show the connection status and current track. If connected, also request a fresh playback overview."
+    },
+    connect: {
+      usage: "/music connect",
+      description: "Connect or reconnect to musikcube using the saved address, port, and password."
+    },
+    disconnect: {
+      usage: "/music disconnect",
+      description: "Disconnect from musikcube and clear its header bar."
+    },
+    password: {
+      usage: "/music password",
+      description: "Prompt for and save the musikcube password, then reconnect.",
+      fields: [
+        {
+          label: "Storage",
+          value: "The password is protected with the current Windows user's credentials."
+        }
+      ]
+    },
+    address: {
+      usage: "/music address [host]",
+      description: "Show or change musikcube's address. Changing it reconnects.",
+      fields: [
+        { label: "Default", value: "127.0.0.1" },
+        { label: "Addresses", value: "Connections are restricted to localhost." }
+      ]
+    },
+    port: {
+      usage: "/music port <1-65535>",
+      description: "Set musikcube's WebSocket server port and reconnect.",
+      fields: [
+        { label: "Default", value: "7905" }
+      ]
+    },
+    bar: {
+      usage: "/music bar [on|off]",
+      description: "Show or change whether musikcube's current track appears in the shared header bar.",
+      fields: [
+        { label: "Default", value: "on" }
+      ]
+    },
+    play: {
+      usage: "/music play",
+      description: "Start or resume playback."
+    },
+    pause: {
+      usage: "/music pause",
+      description: "Pause playback."
+    },
+    stop: {
+      usage: "/music stop",
+      description: "Stop playback."
+    },
+    next: {
+      usage: "/music next",
+      description: "Skip to the next track."
+    },
+    previous: {
+      usage: "/music previous",
+      description: "Return to the previous track."
+    },
+    volume: {
+      usage: "/music volume <0-100>",
+      description: "Set the playback volume as a percentage.",
+      fields: [
+        { label: "Example", value: "/music volume 50" }
+      ]
+    }
+  }
 });
 
 if (clircs.permissions.has("localNetwork")) {
