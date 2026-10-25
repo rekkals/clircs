@@ -16,7 +16,7 @@ public enum SessionEventKind
     Topic,
     ChannelInfo,
     ChannelSync,
-    MessageGuard,
+    CallerId,
     Mode,
     Protection,
     Error,

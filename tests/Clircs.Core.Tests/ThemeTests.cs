@@ -1357,7 +1357,7 @@ internal static class ThemeTests
         var store = new AppearanceSettingsStore(Path.Combine(temporary.Path, "missing.json"));
         Assert.Equal("active", store.Load().OutputRoutes["ctcp"]);
         Assert.Equal("active", store.Load().OutputRoutes["notice"]);
-        Assert.Equal("active", store.Load().OutputRoutes["messageguard"]);
+        Assert.Equal("active", store.Load().OutputRoutes["callerid"]);
         Assert.True(store.Load().HighlightNickname);
         Assert.Equal("host", store.Load().DefaultBanmask);
         Assert.True(store.Load().CloneDetection);

@@ -22,12 +22,12 @@ internal sealed class OutputRoutingCoordinator
             ["links"] = OutputDestination.Status,
             ["list"] = OutputDestination.Dedicated,
             ["dns"] = OutputDestination.Active,
-            ["messageguard"] = OutputDestination.Active
+            ["callerid"] = OutputDestination.Active
         };
 
     public static readonly IReadOnlyList<string> SettingOrder =
     [
-        "who", "whois", "whowas", "ctcp", "notice", "wallops", "invite", "links", "list", "dns", "messageguard"
+        "who", "whois", "whowas", "ctcp", "notice", "wallops", "invite", "links", "list", "dns", "callerid"
     ];
 
     private readonly object _gate = new();

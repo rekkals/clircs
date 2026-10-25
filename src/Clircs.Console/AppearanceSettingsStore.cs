@@ -152,7 +152,7 @@ internal sealed class AppearanceSettingsStore
             ["links"] = "status",
             ["list"] = "dedicated",
             ["dns"] = "active",
-            ["messageguard"] = "active"
+            ["callerid"] = "active"
         });
 
     private static string? EmptyToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;

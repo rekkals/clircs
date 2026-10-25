@@ -14,7 +14,7 @@ public sealed class IrcSessionProcessor
     private readonly ChannelListResponseProcessor _channelLists;
     private readonly ChannelQueryRequestTracker _channelQueries;
     private readonly List<string> _acceptResults = [];
-    private PendingMessageGuard? _pendingMessageGuard;
+    private PendingCallerId? _pendingCallerId;
     private AutomaticVersionProbeState _automaticVersionProbeState;
     private bool _automaticUserModeQueryPending;
     private bool _operAttemptPending;
@@ -45,7 +45,7 @@ public sealed class IrcSessionProcessor
         _channelLists.Reset();
         _channelQueries.Reset();
         _acceptResults.Clear();
-        _pendingMessageGuard = null;
+        _pendingCallerId = null;
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
         _automaticUserModeQueryPending = false;
         _operAttemptPending = false;
@@ -139,10 +139,10 @@ public sealed class IrcSessionProcessor
             message.Parameters.Count >= 2 ? message.Parameters[1] : null);
         ObserveConnectionMetadata(message);
 
-        if (_pendingMessageGuard is { } pending && message.Command != "717")
+        if (_pendingCallerId is { } pending && message.Command != "717")
         {
-            events.Add(MessageGuardEvent(pending.Target, pending.Text, notified: false, now));
-            _pendingMessageGuard = null;
+            events.Add(CallerIdEvent(pending.Target, pending.Text, notified: false, now));
+            _pendingCallerId = null;
         }
 
         if (_identityQueries.TryProcess(message, now, out var identityEvents))
@@ -1084,22 +1084,22 @@ public sealed class IrcSessionProcessor
             case "716":
                 if (message.Parameters.Count >= 2)
                 {
-                    _pendingMessageGuard = new PendingMessageGuard(message.Parameters[1], Last(message));
+                    _pendingCallerId = new PendingCallerId(message.Parameters[1], Last(message));
                 }
                 break;
             case "717":
                 var guardTarget = message.Parameters.Count >= 2
                     ? message.Parameters[1]
-                    : _pendingMessageGuard?.Target ?? "unknown";
-                var pairedGuard = _pendingMessageGuard is { } pendingGuard &&
+                    : _pendingCallerId?.Target ?? "unknown";
+                var pairedGuard = _pendingCallerId is { } pendingGuard &&
                     new IrcNameComparer(_state.CaseMapping).Equals(pendingGuard.Target, guardTarget);
-                if (_pendingMessageGuard is { } unpairedGuard && !pairedGuard)
+                if (_pendingCallerId is { } unpairedGuard && !pairedGuard)
                 {
-                    events.Add(MessageGuardEvent(unpairedGuard.Target, unpairedGuard.Text, notified: false, now));
+                    events.Add(CallerIdEvent(unpairedGuard.Target, unpairedGuard.Text, notified: false, now));
                 }
-                var guardText = pairedGuard ? _pendingMessageGuard!.Text : Last(message);
-                events.Add(MessageGuardEvent(guardTarget, guardText, pairedGuard, now, notificationOnly: !pairedGuard));
-                _pendingMessageGuard = null;
+                var guardText = pairedGuard ? _pendingCallerId!.Text : Last(message);
+                events.Add(CallerIdEvent(guardTarget, guardText, pairedGuard, now, notificationOnly: !pairedGuard));
+                _pendingCallerId = null;
                 break;
             case "718":
                 var blockedSender = message.Parameters.Count >= 2 ? message.Parameters[1] : "Someone";
@@ -1108,10 +1108,10 @@ public sealed class IrcSessionProcessor
                     ? blockedSender
                     : $"{blockedSender} [{blockedSenderAddress}]";
                 events.Add(Status(
-                    SessionEventKind.MessageGuard,
+                    SessionEventKind.CallerId,
                     $"{blockedSenderLabel} tried to message you while you have user mode +{Features.CallerIdMode}",
                     now,
-                    Fields(("numeric", "718"), ("outputFamily", "messageguard"),
+                    Fields(("numeric", "718"), ("outputFamily", "callerid"),
                         ("nick", blockedSender), ("address", blockedSenderAddress),
                         ("serverText", Last(message)), ("routeConfigured", "true"))));
                 break;
@@ -1423,7 +1423,7 @@ public sealed class IrcSessionProcessor
         PresentationBlock? presentation = null) =>
         _eventBuilder.Status(kind, text, now, fields, presentation);
 
-    private SessionEvent MessageGuardEvent(
+    private SessionEvent CallerIdEvent(
         string target,
         string serverText,
         bool notified,
@@ -1435,10 +1435,10 @@ public sealed class IrcSessionProcessor
             : $"Message to {target} was blocked by server-side ignore (+{Features.CallerIdMode})" +
               (notified ? "; they were notified" : string.Empty);
         return Status(
-            SessionEventKind.MessageGuard,
+            SessionEventKind.CallerId,
             text,
             now,
-            Fields(("outputFamily", "messageguard"), ("target", target),
+            Fields(("outputFamily", "callerid"), ("target", target),
                 ("serverText", serverText), ("routeConfigured", "true")));
     }
 
@@ -1469,7 +1469,7 @@ public sealed class IrcSessionProcessor
         return detail.Length == 0 ? null : detail;
     }
 
-    private sealed record PendingMessageGuard(string Target, string Text);
+    private sealed record PendingCallerId(string Target, string Text);
 
     private enum AutomaticVersionProbeState
     {

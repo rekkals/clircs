@@ -75,7 +75,7 @@ internal static class SessionTests
         suite.Add("channel forwarding and URLs are formatted without raw numerics", ForwardAndChannelUrlAreFormatted);
         suite.Add("WHOWAS replies produce a formatted result without raw numerics", WhowasIsFormatted);
         suite.Add("missing WHOWAS history produces one routed error without an information box", MissingWhowasIsFormatted);
-        suite.Add("716 and 717 combine into one routed message-guard notice", MessageGuardNumericsCombine);
+        suite.Add("716 and 717 combine into one routed caller-ID notice", CallerIdNumericsCombine);
         suite.Add("ordinary notices carry configurable notice routing", OrdinaryNoticesAreTagged);
         suite.Add("WALLOPS carries configurable routing and sender identity", WallopsIsFormattedAndTagged);
         suite.Add("channel notices remain routed to their channel", ChannelNoticesRemainInChannel);
@@ -1193,9 +1193,9 @@ internal static class SessionTests
             ":server 718 me Alice ~alice@example.test :is messaging you, and you have umode +R."));
 
         Assert.Equal(1, events.Count);
-        Assert.Equal(SessionEventKind.MessageGuard, events[0].Kind);
+        Assert.Equal(SessionEventKind.CallerId, events[0].Kind);
         Assert.Equal("Alice [~alice@example.test] tried to message you while you have user mode +R", events[0].Text);
-        Assert.Equal("messageguard", events[0].Fields!["outputFamily"]!);
+        Assert.Equal("callerid", events[0].Fields!["outputFamily"]!);
         Assert.Equal("true", events[0].Fields!["routeConfigured"]!);
         Assert.Equal("718", events[0].Fields!["numeric"]!);
     }
@@ -1800,7 +1800,7 @@ internal static class SessionTests
         Assert.Equal("+i", state.UserModes);
     }
 
-    private static void MessageGuardNumericsCombine()
+    private static void CallerIdNumericsCombine()
     {
         var (_, processor) = CreateProcessor();
         processor.Process(IrcMessageParser.Parse(":server 005 me CALLERID=R ACCEPT=20 :supported"));
@@ -1811,9 +1811,9 @@ internal static class SessionTests
 
         Assert.Equal(0, blocked.Count);
         Assert.Equal(1, notified.Count);
-        Assert.Equal(SessionEventKind.MessageGuard, notified[0].Kind);
+        Assert.Equal(SessionEventKind.CallerId, notified[0].Kind);
         Assert.Equal("Message to Alice was blocked by server-side ignore (+R); they were notified", notified[0].Text);
-        Assert.Equal("messageguard", notified[0].Fields!["outputFamily"]!);
+        Assert.Equal("callerid", notified[0].Fields!["outputFamily"]!);
         Assert.Equal("true", notified[0].Fields!["routeConfigured"]!);
     }
 

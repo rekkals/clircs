@@ -240,7 +240,7 @@ internal sealed partial class ClientApplication
             fields.AddRange(OutputRoutingCoordinator.SettingOrder
                 .Where(_outputRouting.Supports)
                 .Select(key => new PresentationField(
-                    key == "messageguard" ? "messageguard" : $"{key}.output",
+                    $"{key}.output",
                     FormatOutputDestination(
                         _outputRouting.DestinationFor(key),
                         key is "notice" or "wallops"))));
@@ -431,7 +431,7 @@ internal sealed partial class ClientApplication
             case "links.output":
             case "list.output":
             case "dns.output":
-            case "messageguard":
+            case "callerid.output":
                 if (!TryParseOutputDestination(value, out var destination))
                 {
                     return ValueTask.FromResult(CommandResult.Failure(
@@ -441,7 +441,7 @@ internal sealed partial class ClientApplication
                 }
 
                 _outputRouting.TrySetDestination(
-                    setting == "messageguard" ? setting : setting[..^".output".Length],
+                    setting[..^".output".Length],
                     destination);
                 break;
             case "hostmasks":

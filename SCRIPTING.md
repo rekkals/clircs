@@ -282,7 +282,7 @@ Requires `events`. Use `"*"` to observe every semantic event kind. Current event
 
 ```text
 status server message highlight notice action join part nick topic
-channelinfo channelsync messageguard mode protection error diagnostic
+channelinfo channelsync callerid mode protection error diagnostic
 ```
 
 Each event contains:

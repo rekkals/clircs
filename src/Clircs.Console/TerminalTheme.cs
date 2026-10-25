@@ -53,7 +53,7 @@ internal sealed record TerminalTheme(
         SessionEventKind.Topic => Accent,
         SessionEventKind.ChannelInfo => Accent,
         SessionEventKind.ChannelSync => Label,
-        SessionEventKind.MessageGuard => Notice,
+        SessionEventKind.CallerId => Notice,
         SessionEventKind.Mode => Mode,
         SessionEventKind.Protection => Warning,
         SessionEventKind.Error => Error,

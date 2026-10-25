@@ -254,7 +254,7 @@ internal sealed partial class ClientApplication
             new("Network", "usermodes, network.reconnect, kill.reconnect"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
-            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, wallops.output, invite.output, links.output, list.output, dns.output, messageguard")
+            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
         ],
         "cprot" =>
         [
@@ -373,9 +373,11 @@ internal sealed partial class ClientApplication
                 ("<active|status|window>", "active", "Selects the window used for ordinary incoming notices.", "/set notice.output window"),
             "wallops.output" =>
                 ("<active|status|window>", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
+            "callerid.output" =>
+                ("<active|status|dedicated>", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output dedicated"),
             "list.output" =>
                 ("<active|status|dedicated>", "dedicated", "Selects the window used for channel-list results.", "/set list.output dedicated"),
-            _ when setting.EndsWith(".output", StringComparison.Ordinal) || setting == "messageguard" =>
+            _ when setting.EndsWith(".output", StringComparison.Ordinal) =>
                 ("<active|status|dedicated>", setting == "links.output" ? "status" : "active", "Selects the window used for this family of server output.", $"/set {setting} active"),
             _ => default
         };
@@ -417,7 +419,6 @@ internal sealed partial class ClientApplication
         "hostmasks.join" => FormatHostmaskVisibility(_preferences.JoinHostmasks),
         "hostmasks.part" => FormatHostmaskVisibility(_preferences.PartHostmasks),
         "hostmasks.quit" => FormatHostmaskVisibility(_preferences.QuitHostmasks),
-        "messageguard" => FormatOutputDestination(_outputRouting.DestinationFor("messageguard")),
         _ when setting.EndsWith(".output", StringComparison.Ordinal) &&
             _outputRouting.TryGetDestination(setting[..^".output".Length], out var destination) =>
                 FormatOutputDestination(
