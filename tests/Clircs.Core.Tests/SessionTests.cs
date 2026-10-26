@@ -77,6 +77,10 @@ internal static class SessionTests
         suite.Add("missing WHOWAS history produces one routed error without an information box", MissingWhowasIsFormatted);
         suite.Add("716 and 717 combine into one routed caller-ID notice", CallerIdNumericsCombine);
         suite.Add("ordinary notices carry configurable notice routing", OrdinaryNoticesAreTagged);
+        suite.Add("server notices retain formatting and carry separate routing", ServerNoticesAreTagged);
+        suite.Add("bare server notice sources follow connection metadata", BareServerNoticeSourcesFollowMetadata);
+        suite.Add("CTCP replies remain separate from server notices", CtcpRepliesRemainSeparateFromServerNotices);
+        suite.Add("notice families retain independent connection-scoped routes", NoticeFamiliesRemainConnectionScoped);
         suite.Add("WALLOPS carries configurable routing and sender identity", WallopsIsFormattedAndTagged);
         suite.Add("channel notices remain routed to their channel", ChannelNoticesRemainInChannel);
         suite.Add("traditional IRC colors are parsed without leaking control parameters", IrcColorsAreParsed);
@@ -1724,12 +1728,178 @@ internal static class SessionTests
     private static void OrdinaryNoticesAreTagged()
     {
         var (_, processor) = CreateProcessor();
-        var notice = processor.Process(
-            IrcMessageParser.Parse(":NickServ!service@services NOTICE me :Registration complete"));
+        string[] prefixes =
+        [
+            "NickServ!service@services.example.test",
+            "NickServ@services.example.test",
+            "NickServ!service",
+            "NickServ",
+            "Alice!user@host.example.test",
+            "Alice"
+        ];
 
-        Assert.Equal(1, notice.Count);
-        Assert.Equal("notice", notice[0].Fields!["outputFamily"]!);
-        Assert.Equal("true", notice[0].Fields!["routeConfigured"]!);
+        foreach (var prefix in prefixes)
+        {
+            var notices = processor.Process(
+                IrcMessageParser.Parse(
+                    $":{prefix} NOTICE me :*** Server maintenance"));
+
+            Assert.Equal(1, notices.Count);
+            var notice = notices[0];
+            Assert.Equal(SessionEventKind.Notice, notice.Kind);
+            Assert.Equal("notice", notice.Fields!["outputFamily"]!);
+            Assert.Equal("true", notice.Fields["routeConfigured"]!);
+            Assert.Equal("true", notice.Fields["private"]!);
+            Assert.True(notice.Fields.GetValueOrDefault("serverNotice") is null);
+        }
+    }
+
+    private static void ServerNoticesAreTagged()
+    {
+        (string? Prefix, string Target)[] cases =
+        [
+            (null, "AUTH"),
+            ("irc.example.test", "AUTH"),
+            ("other.example.test", "me"),
+            ("lurker.bouncer", "me"),
+            ("bnc.irccloud.com", "me")
+        ];
+        var occurredAt = new DateTimeOffset(2026, 10, 26, 12, 0, 0, TimeSpan.Zero);
+
+        foreach (var item in cases)
+        {
+            var (state, processor) = CreateProcessor();
+            var source = item.Prefix is null ? string.Empty : $":{item.Prefix} ";
+            var notices = processor.Process(
+                IrcMessageParser.Parse(
+                    $"{source}NOTICE {item.Target} :\u0002Maintenance\u0002"),
+                occurredAt);
+
+            Assert.Equal(1, notices.Count);
+            var notice = notices[0];
+            Assert.Equal(state.StatusBuffer.Id, notice.BufferId);
+            Assert.Equal(SessionEventKind.Notice, notice.Kind);
+            Assert.Equal(occurredAt, notice.Timestamp);
+            Assert.Equal($"-{item.Prefix ?? "server"}- Maintenance", notice.Text);
+            Assert.Equal("Maintenance", notice.FormattedContent!.PlainText);
+            Assert.Equal("Maintenance", notice.Fields!["message"]!);
+            Assert.Equal("true", notice.Fields["serverNotice"]!);
+            Assert.Equal("snotice", notice.Fields["outputFamily"]!);
+            Assert.Equal("true", notice.Fields["routeConfigured"]!);
+            Assert.True(notice.Fields.GetValueOrDefault("private") is null);
+            Assert.True(notice.Fields.GetValueOrDefault("self") is null);
+        }
+    }
+
+    private static void BareServerNoticeSourcesFollowMetadata()
+    {
+        var (state, processor) = CreateProcessor();
+        var message = IrcMessageParser.Parse(":relay NOTICE me :Maintenance");
+
+        var unknown = processor.Process(message).Single();
+        Assert.Equal("notice", unknown.Fields!["outputFamily"]!);
+
+        processor.Process(IrcMessageParser.Parse(":relay 001 me :Welcome"));
+        var registered = processor.Process(
+            IrcMessageParser.Parse(":RELAY NOTICE me :Maintenance")).Single();
+        Assert.Equal("snotice", registered.Fields!["outputFamily"]!);
+
+        var user = processor.Process(
+            IrcMessageParser.Parse(
+                ":relay!user@host.example.test NOTICE me :Maintenance")).Single();
+        Assert.Equal("notice", user.Fields!["outputFamily"]!);
+
+        processor.Process(
+            IrcMessageParser.Parse(":relay 004 me relayalias ircd o o"));
+        var advertised = processor.Process(
+            IrcMessageParser.Parse(":relayalias NOTICE me :Maintenance")).Single();
+        Assert.Equal("snotice", advertised.Fields!["outputFamily"]!);
+
+        state.ResetForReconnect(clientTransportTls: false);
+        processor.ResetForReconnect("me");
+        var afterReset = processor.Process(
+            IrcMessageParser.Parse(":relayalias NOTICE me :Maintenance")).Single();
+        Assert.Equal("notice", afterReset.Fields!["outputFamily"]!);
+    }
+
+    private static void CtcpRepliesRemainSeparateFromServerNotices()
+    {
+        var (_, processor) = CreateProcessor();
+
+        foreach (var prefix in new[] { "Alice", "Alice!user@host.example.test" })
+        {
+            var replies = processor.Process(
+                IrcMessageParser.Parse(
+                    $":{prefix} NOTICE me :\u0001VERSION test\u0001"));
+
+            Assert.Equal(1, replies.Count);
+            Assert.Equal("ctcp", replies[0].Fields!["outputFamily"]!);
+            Assert.Equal("true", replies[0].Fields!["outputEnd"]!);
+            Assert.True(replies[0].Fields!.GetValueOrDefault("serverNotice") is null);
+        }
+
+        var serverNotice = processor.Process(
+            IrcMessageParser.Parse(
+                ":irc.example.test NOTICE me :\u0001VERSION test\u0001")).Single();
+        Assert.Equal("snotice", serverNotice.Fields!["outputFamily"]!);
+        Assert.Equal("true", serverNotice.Fields["serverNotice"]!);
+        Assert.True(serverNotice.Fields.GetValueOrDefault("outputEnd") is null);
+
+        var selfEcho = processor.Process(
+            IrcMessageParser.Parse(
+                ":me!user@host.example.test NOTICE Alice :\u0001VERSION test\u0001"));
+        Assert.Equal(0, selfEcho.Count);
+    }
+
+    private static void NoticeFamiliesRemainConnectionScoped()
+    {
+        var routing = new OutputRoutingCoordinator();
+        Assert.Equal(OutputDestination.Active, routing.DestinationFor("notice"));
+        Assert.Equal(OutputDestination.Status, routing.DestinationFor("snotice"));
+
+        Assert.True(routing.TrySetDestination("notice", OutputDestination.Dedicated));
+        Assert.True(routing.TrySetDestination("snotice", OutputDestination.Active));
+        var snapshot = routing.DestinationSnapshot();
+        Assert.Equal(OutputDestination.Dedicated, snapshot["notice"]);
+        Assert.Equal(OutputDestination.Active, snapshot["snotice"]);
+
+        var connections = new[] { CreateProcessor(), CreateProcessor() };
+        foreach (var connection in connections)
+        {
+            routing.SetFamily(
+                connection.State.Id,
+                "notice",
+                connection.State.GetOrCreateBuffer(BufferKind.Results, "=notice").Id);
+            routing.SetFamily(
+                connection.State.Id,
+                "snotice",
+                connection.State.GetOrCreateBuffer(BufferKind.Results, "=snotice").Id);
+        }
+
+        foreach (var connection in connections)
+        {
+            var userNotice = connection.Processor.Process(
+                IrcMessageParser.Parse(
+                    ":Alice!user@host.example.test NOTICE me :Hello")).Single();
+            var serverNotice = connection.Processor.Process(
+                IrcMessageParser.Parse(
+                    ":irc.example.test NOTICE me :Maintenance")).Single();
+
+            Assert.True(routing.TryResolve(userNotice, out var destination));
+            Assert.Equal(
+                connection.State.GetOrCreateBuffer(BufferKind.Results, "=notice").Id,
+                destination);
+
+            Assert.True(routing.TryResolve(serverNotice, out destination));
+            Assert.Equal(
+                connection.State.GetOrCreateBuffer(BufferKind.Results, "=snotice").Id,
+                destination);
+
+            Assert.True(routing.TryResolve(userNotice, out destination));
+            Assert.Equal(
+                connection.State.GetOrCreateBuffer(BufferKind.Results, "=notice").Id,
+                destination);
+        }
     }
 
     private static void WallopsIsFormattedAndTagged()
@@ -1755,14 +1925,27 @@ internal static class SessionTests
     private static void ChannelNoticesRemainInChannel()
     {
         var (state, processor) = CreateProcessor();
-        var notice = processor.Process(
-            IrcMessageParser.Parse(":service!service@example NOTICE #clircs :Channel announcement"));
+        string[] lines =
+        [
+            ":service!service@example NOTICE #clircs :Channel announcement",
+            ":irc.example.test NOTICE #clircs :Channel announcement",
+            "NOTICE #clircs :Channel announcement"
+        ];
 
-        Assert.Equal(1, notice.Count);
-        Assert.Equal(state.GetOrCreateBuffer(BufferKind.Channel, "#clircs").Id, notice[0].BufferId);
-        var fields = notice[0].Fields!;
-        Assert.True(fields.GetValueOrDefault("outputFamily") is null);
-        Assert.True(fields.GetValueOrDefault("routeConfigured") is null);
+        foreach (var line in lines)
+        {
+            var notices = processor.Process(IrcMessageParser.Parse(line));
+
+            Assert.Equal(1, notices.Count);
+            Assert.Equal(
+                state.GetOrCreateBuffer(BufferKind.Channel, "#clircs").Id,
+                notices[0].BufferId);
+            var fields = notices[0].Fields!;
+            Assert.Equal("#clircs", fields["channel"]!);
+            Assert.True(fields.GetValueOrDefault("private") is null);
+            Assert.True(fields.GetValueOrDefault("outputFamily") is null);
+            Assert.True(fields.GetValueOrDefault("routeConfigured") is null);
+        }
     }
 
     private static void FailedWhoisHasNoTrailingBox()

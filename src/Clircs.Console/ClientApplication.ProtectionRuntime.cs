@@ -15,7 +15,9 @@ internal sealed partial class ClientApplication
 {
     private void HandleProtectionMonitoring(SessionEvent sessionEvent)
     {
-        if (sessionEvent.Kind == SessionEventKind.Protection || FindSession(sessionEvent.NetworkSessionId) is not { } session)
+        if (sessionEvent.Kind == SessionEventKind.Protection ||
+            sessionEvent.Fields?.GetValueOrDefault("serverNotice") == "true" ||
+            FindSession(sessionEvent.NetworkSessionId) is not { } session)
         {
             return;
         }
@@ -149,6 +151,7 @@ internal sealed partial class ClientApplication
     private bool IsIgnoredCommunication(SessionEvent sessionEvent)
     {
         if (sessionEvent.Kind == SessionEventKind.Protection ||
+            sessionEvent.Fields?.GetValueOrDefault("serverNotice") == "true" ||
             FindSession(sessionEvent.NetworkSessionId) is not { } session ||
             sessionEvent.Fields is not { } fields)
         {

@@ -300,6 +300,8 @@ Each event contains:
 
 When present, `fields` is an object whose names depend on the event. IRC events commonly provide values such as `nick`, `user`, `host`, `channel`, `actor`, `reason`, `modes`, or request-routing identifiers. Field values are strings or `null`; scripts should check that `fields` and the particular field exist before using them.
 
+Server notices use the `notice` event kind with `fields.serverNotice` set to `"true"`. For notices outside channels, `fields.outputFamily` is `"snotice"` for server notices and `"notice"` for ordinary user notices. Channel notices retain their channel routing.
+
 Events are delivered after clircs has applied protocol state and application routing. Scripts observe semantic events rather than parsing themed terminal output, so changing a theme does not quietly break an addon. Stable IDs distinguish identical channel names on simultaneous networks.
 
 One script may register at most 256 event handlers.

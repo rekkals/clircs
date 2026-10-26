@@ -1358,12 +1358,15 @@ public sealed class IrcSessionProcessor
         }
 
         var target = Features.NormalizeMessageTarget(message.Parameters[0]);
-        var buffer = Features.IsChannel(target)
+        var noticeIsChannel = Features.IsChannel(target);
+        var noticeIsServer = IsServerNoticeSource(message.Prefix);
+        var buffer = noticeIsChannel
             ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
             : _state.StatusBuffer;
-        var selfMessage = IsCurrentNickname(sender);
+        var selfMessage = !noticeIsServer && IsCurrentNickname(sender);
         var text = message.Parameters[1];
-        if (text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
+        if (!noticeIsServer &&
+            text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
         {
             if (selfMessage)
             {
@@ -1397,7 +1400,6 @@ public sealed class IrcSessionProcessor
             return;
         }
 
-        var noticeIsChannel = Features.IsChannel(target);
         var noticeIdentity = ParsePrefix(message.Prefix);
         var formattedText = IrcTextFormatting.Parse(text);
         var displayedText = selfMessage
@@ -1408,11 +1410,29 @@ public sealed class IrcSessionProcessor
                 ("username", noticeIdentity.Username),
                 ("host", noticeIdentity.Host),
                 ("message", formattedText.PlainText),
+                ("serverNotice", noticeIsServer ? "true" : null),
                 ("channel", noticeIsChannel ? target : null),
-                ("private", noticeIsChannel ? null : "true"),
-                ("outputFamily", noticeIsChannel ? null : "notice"),
+                ("private", noticeIsChannel || noticeIsServer ? null : "true"),
+                ("outputFamily", noticeIsChannel ? null : noticeIsServer ? "snotice" : "notice"),
                 ("routeConfigured", noticeIsChannel ? null : "true")),
             formattedContent: formattedText));
+    }
+
+    private bool IsServerNoticeSource(string? prefix)
+    {
+        if (string.IsNullOrEmpty(prefix))
+        {
+            return true;
+        }
+
+        if (prefix.IndexOfAny(['!', '@']) >= 0)
+        {
+            return false;
+        }
+
+        // A bare source may be a nickname, so also check the known server name.
+        return prefix.Contains('.') ||
+            prefix.Equals(_state.ServerName, StringComparison.OrdinalIgnoreCase);
     }
 
     private SessionEvent Status(

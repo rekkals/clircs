@@ -254,7 +254,7 @@ internal sealed partial class ClientApplication
             new("Network", "usermodes, network.reconnect, kill.reconnect"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
-            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
+            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, snotice.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
         ],
         "cprot" =>
         [
@@ -370,15 +370,17 @@ internal sealed partial class ClientApplication
             _ when setting.StartsWith("hostmasks", StringComparison.Ordinal) =>
                 ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", $"/set {setting} host"),
             "notice.output" =>
-                ("<active|status|window>", "active", "Selects the window used for ordinary incoming notices.", "/set notice.output window"),
+                ("<active|status|window>", "active", "Selects the window used for notices from users.", "/set notice.output window"),
+            "snotice.output" =>
+                ("<active|status|window>", "status", "Selects the window used for server notices.", "/set snotice.output window"),
             "wallops.output" =>
                 ("<active|status|window>", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
             "callerid.output" =>
-                ("<active|status|dedicated>", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output dedicated"),
+                ("<active|status|window>", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output window"),
             "list.output" =>
-                ("<active|status|dedicated>", "dedicated", "Selects the window used for channel-list results.", "/set list.output dedicated"),
+                ("<active|status|window>", "window", "Selects the window used for channel-list results.", "/set list.output window"),
             _ when setting.EndsWith(".output", StringComparison.Ordinal) =>
-                ("<active|status|dedicated>", setting == "links.output" ? "status" : "active", "Selects the window used for this family of server output.", $"/set {setting} active"),
+                ("<active|status|window>", setting == "links.output" ? "status" : "active", "Selects the window used for this output.", $"/set {setting} active"),
             _ => default
         };
         if (detail == default) return null;
@@ -421,9 +423,7 @@ internal sealed partial class ClientApplication
         "hostmasks.quit" => FormatHostmaskVisibility(_preferences.QuitHostmasks),
         _ when setting.EndsWith(".output", StringComparison.Ordinal) &&
             _outputRouting.TryGetDestination(setting[..^".output".Length], out var destination) =>
-                FormatOutputDestination(
-                    destination,
-                    setting is "notice.output" or "wallops.output"),
+                FormatOutputDestination(destination),
         _ => null
     };
 

@@ -176,7 +176,9 @@ Recognized `/*serv` commands that require a password prompt do so without echoin
 
 Notify lists are network-specific and use `MONITOR` when available. Use `/notify add <nickname>`, `/notify remove <nickname>`, and `/notify list`. Servers without `MONITOR` get the old school `ISON` polling.
 
-`WHO`, `WHOIS`, `WHOWAS`, `CTCP`, `WALLOPS`, `notices`, `invites`, `links`, `list`, and `DNS` all have window routing settings. You can set up those events to go to the active, status, or a dedicated window. You'll find all the `*.output` settings in `/set`.
+`WHO`, `WHOIS`, `WHOWAS`, `CTCP`, `WALLOPS`, user notices, server notices, invites, links, channel lists, DNS, and caller-ID notifications have window routing settings. The destination values are `active`, `status`, and `window`. `active` uses that connection's active window; `window` uses a dedicated window for that output on each connection. You'll find all the `*.output` settings in `/set`.
+
+User notices follow `notice.output`, which defaults to `active`. Server notices follow `snotice.output`, which defaults to `status`. For example, `/set snotice.output window` routes server notices to `=snotice`. Channel notices remain in their channel.
 
 ## Channel Management and Protection
 

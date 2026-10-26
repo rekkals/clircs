@@ -18,6 +18,8 @@ internal static class ThemeTests
         suite.Add("startup logo and default text colors do not drift", StartupAndTextColorsAreStable);
         suite.Add("white theme uses a black-on-white topic bar", WhiteThemeUsesBlackOnWhiteTopicBar);
         suite.Add("contextual settings help is available", ContextualHelpIsAvailable);
+        suite.Add("output routing settings consistently display window terminology", OutputRoutingSettingsUseWindowTerminologyAsync);
+        suite.Add("server notice settings default and persist independently", ServerNoticeSettingsPersistIndependentlyAsync);
         suite.Add("fullscreen input disables mouse-wheel arrow translation", FullScreenDisablesAlternateScroll);
         suite.Add("startup presentations are measurable history entries", StartupPresentationIsHistoryReady);
         suite.Add("user themes inherit a constrained built-in palette", ThemeInheritance);
@@ -865,6 +867,120 @@ internal static class ThemeTests
         Assert.Equal(ConsoleColor.White, white.TopicBackground);
     }
 
+    private static async ValueTask OutputRoutingSettingsUseWindowTerminologyAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new AppearanceSettingsStore(
+            Path.Combine(temporary.Path, "appearance.json"));
+        var defaults = store.Load();
+        var previous = Environment.GetEnvironmentVariable("CLIRCS_DATA_DIR");
+        Environment.SetEnvironmentVariable("CLIRCS_DATA_DIR", temporary.Path);
+        try
+        {
+            foreach (var storedValue in new[] { "window", "dedicated" })
+            {
+                store.Save(defaults with
+                {
+                    OutputRoutes = OutputRoutingCoordinator.SettingOrder.ToDictionary(
+                        family => family,
+                        _ => storedValue,
+                        StringComparer.OrdinalIgnoreCase)
+                });
+
+                await using var application = new ClientApplication();
+                foreach (var family in OutputRoutingCoordinator.SettingOrder)
+                {
+                    var fields = application.SettingHelp($"{family}.output")!.Fields!;
+                    Assert.Equal(
+                        $"/set {family}.output <active|status|window>",
+                        fields.Single(field => field.Label == "Usage").Value);
+                    Assert.Equal(
+                        "window",
+                        fields.Single(field => field.Label == "Currently").Value);
+                    Assert.False(
+                        fields.Single(field => field.Label == "Example").Value
+                            .Contains("dedicated", StringComparison.OrdinalIgnoreCase));
+                }
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CLIRCS_DATA_DIR", previous);
+        }
+    }
+
+    private static async ValueTask ServerNoticeSettingsPersistIndependentlyAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new AppearanceSettingsStore(
+            Path.Combine(temporary.Path, "appearance.json"));
+        var defaults = store.Load();
+        Assert.Equal("active", defaults.OutputRoutes["notice"]);
+        Assert.Equal("status", defaults.OutputRoutes["snotice"]);
+
+        var previous = Environment.GetEnvironmentVariable("CLIRCS_DATA_DIR");
+        Environment.SetEnvironmentVariable("CLIRCS_DATA_DIR", temporary.Path);
+        try
+        {
+            store.Save(defaults with
+            {
+                OutputRoutes = new Dictionary<string, string>
+                {
+                    ["notice"] = "window"
+                }
+            });
+
+            await using (var application = new ClientApplication())
+            {
+                Assert.Equal(
+                    "window",
+                    application.SettingHelp("notice.output")!.Fields!
+                        .Single(field => field.Label == "Currently").Value);
+                Assert.Equal(
+                    "status",
+                    application.SettingHelp("snotice.output")!.Fields!
+                        .Single(field => field.Label == "Currently").Value);
+            }
+
+            (string Notice, string ServerNotice)[] cases =
+            [
+                ("window", "active"),
+                ("active", "status"),
+                ("status", "window")
+            ];
+            foreach (var item in cases)
+            {
+                store.Save(defaults with
+                {
+                    OutputRoutes = new Dictionary<string, string>
+                    {
+                        ["notice"] = item.Notice,
+                        ["snotice"] = item.ServerNotice
+                    }
+                });
+
+                var loaded = store.Load();
+                Assert.True(store.LoadError is null);
+                Assert.Equal(item.Notice, loaded.OutputRoutes["notice"]);
+                Assert.Equal(item.ServerNotice, loaded.OutputRoutes["snotice"]);
+
+                await using var application = new ClientApplication();
+                Assert.Equal(
+                    item.Notice,
+                    application.SettingHelp("notice.output")!.Fields!
+                        .Single(field => field.Label == "Currently").Value);
+                Assert.Equal(
+                    item.ServerNotice,
+                    application.SettingHelp("snotice.output")!.Fields!
+                        .Single(field => field.Label == "Currently").Value);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CLIRCS_DATA_DIR", previous);
+        }
+    }
+
     private static void ContextualHelpIsAvailable()
     {
         using var temporary = new TemporaryDirectory();
@@ -880,7 +996,7 @@ internal static class ThemeTests
             Assert.True(kickRejoin.Fields!.Any(field => field.Label == "Currently" && field.Value == "off"));
             Assert.Equal("/set list.output", application.SettingHelp("list.output")!.TitleHighlight!);
             Assert.True(application.SettingHelp("list.output")!.Fields!
-                .Any(field => field.Label == "Currently" && field.Value == "dedicated"));
+                .Any(field => field.Label == "Currently" && field.Value == "window"));
             Assert.Equal("/set hostmasks.join", application.SettingHelp("hostmasks.join")!.TitleHighlight!);
             Assert.True(application.SettingHelp("network.reconnect")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "on"));
@@ -1317,7 +1433,7 @@ internal static class ThemeTests
     {
         using var temporary = new TemporaryDirectory();
         var store = new AppearanceSettingsStore(Path.Combine(temporary.Path, "missing.json"));
-        Assert.Equal("dedicated", store.Load().OutputRoutes["list"]);
+        Assert.Equal("window", store.Load().OutputRoutes["list"]);
     }
 
     private static void DnsDefaultsAndFormatting()

@@ -148,9 +148,10 @@ internal sealed class AppearanceSettingsStore
             ["whowas"] = "active",
             ["ctcp"] = "active",
             ["notice"] = "active",
+            ["snotice"] = "status",
             ["invite"] = "active",
             ["links"] = "status",
-            ["list"] = "dedicated",
+            ["list"] = "window",
             ["dns"] = "active",
             ["callerid"] = "active"
         });

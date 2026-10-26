@@ -287,11 +287,11 @@ internal sealed partial class ClientApplication
         return false;
     }
 
-    private static string FormatOutputDestination(OutputDestination destination, bool callDedicatedWindow = false) => destination switch
+    private static string FormatOutputDestination(OutputDestination destination) => destination switch
     {
         OutputDestination.Active => "active",
         OutputDestination.Status => "status",
-        OutputDestination.Dedicated => callDedicatedWindow ? "window" : "dedicated",
+        OutputDestination.Dedicated => "window",
         _ => throw new ArgumentOutOfRangeException(nameof(destination))
     };
 
