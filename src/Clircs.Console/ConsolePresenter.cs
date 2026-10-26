@@ -420,8 +420,13 @@ internal sealed class ConsolePresenter
 
     public void EventRows(SessionEvent sessionEvent, string bufferName, int skipRows, int takeRows)
     {
+        if (takeRows <= 0) return;
+        skipRows = Math.Max(0, skipRows);
+
         var totalRows = MeasureEventRows(sessionEvent, bufferName);
-        if (skipRows <= 0 && takeRows >= totalRows)
+        if (skipRows >= totalRows) return;
+
+        if (skipRows == 0 && takeRows >= totalRows)
         {
             Event(sessionEvent, bufferName);
             return;
@@ -433,144 +438,13 @@ internal sealed class ConsolePresenter
             return;
         }
 
-        if (sessionEvent.Presentation is { Fields.Count: > 0, Table: not null } mixedBlock)
+        if (sessionEvent.Presentation is { } block)
         {
-            WriteMixedPresentationRows(sessionEvent, bufferName, mixedBlock, skipRows, takeRows);
+            WritePresentation(sessionEvent, bufferName, block, skipRows, takeRows);
             return;
         }
 
-        if (sessionEvent.Presentation?.Table is { } table)
-        {
-            var block = sessionEvent.Presentation;
-            const int titleAndHeaderRows = 2;
-            var selectedStart = Math.Max(0, skipRows - titleAndHeaderRows);
-            var selectedEnd = Math.Clamp(skipRows + takeRows - titleAndHeaderRows, 0, table.Rows.Count);
-            var includeSummary = !string.IsNullOrWhiteSpace(block.Summary) &&
-                skipRows + takeRows > titleAndHeaderRows + table.Rows.Count;
-            var fixedRows = titleAndHeaderRows + (includeSummary ? 1 : 0) +
-                (_theme.InfoBottom.Length > 0 ? 1 : 0);
-            var capacity = Math.Max(1, takeRows - fixedRows);
-            var availableRows = Math.Max(0, selectedEnd - selectedStart);
-            var selectedCount = Math.Min(capacity, availableRows);
-            if (includeSummary)
-            {
-                selectedStart = Math.Max(selectedStart, selectedEnd - selectedCount);
-            }
-
-            var slicedTable = table with
-            {
-                Rows = table.Rows.Skip(selectedStart).Take(selectedCount).ToArray(),
-                FormattedRows = table.FormattedRows.Skip(selectedStart).Take(selectedCount).ToArray()
-            };
-            WritePresentation(
-                sessionEvent,
-                bufferName,
-                block with
-                {
-                    Fields = null,
-                    Grid = null,
-                    Table = slicedTable,
-                    Summary = includeSummary ? block.Summary : null
-                });
-            return;
-        }
-
-        if (sessionEvent.Presentation?.Fields is { Count: > 0 } fields)
-        {
-            var block = sessionEvent.Presentation;
-            var consoleWidth = EffectiveWidth(null);
-            var prefix = EventPrefix(sessionEvent, bufferName);
-            var labelWidth = block.FieldLabelWidth ?? fields.Max(field => field.Label.Length);
-            var leading = new string(' ', prefix.Length + _theme.InfoSide.Length + labelWidth + 2);
-            var rows = new List<PresentationField>();
-            foreach (var field in fields)
-            {
-                var wrapped = TerminalWordWrapper.Wrap(leading, leading, field.Value, consoleWidth);
-                var formattedOffset = 0;
-                for (var index = 0; index < wrapped.Count; index++)
-                {
-                    IrcFormattedText? formattedRow = null;
-                    if (field.FormattedValue is { } formatted)
-                    {
-                        formattedOffset = FindWrappedTextOffset(formatted.PlainText, wrapped[index].Text, formattedOffset);
-                        formattedRow = SliceFormattedText(formatted, formattedOffset, wrapped[index].Text.Length);
-                        formattedOffset += wrapped[index].Text.Length;
-                    }
-                    rows.Add(new PresentationField(
-                        index == 0 ? field.Label : string.Empty,
-                        wrapped[index].Text,
-                        formattedRow));
-                }
-            }
-
-            var titleRows = RowsForLength(prefix.Length + _theme.InfoTop.Length + block.Title.Length, consoleWidth);
-            var selectedStart = Math.Max(0, skipRows - titleRows);
-            var selectedEnd = Math.Clamp(skipRows + takeRows - titleRows, 0, rows.Count);
-            var includeSummary = !string.IsNullOrWhiteSpace(block.Summary) &&
-                skipRows + takeRows > titleRows + rows.Count;
-            var fixedRows = titleRows + (includeSummary ? 1 : 0) + (_theme.InfoBottom.Length > 0 ? 1 : 0);
-            var capacity = Math.Max(1, takeRows - fixedRows);
-            var selectedCount = Math.Min(capacity, Math.Max(0, selectedEnd - selectedStart));
-            if (includeSummary) selectedStart = Math.Max(selectedStart, selectedEnd - selectedCount);
-
-            WritePresentation(sessionEvent, bufferName, block with
-            {
-                Fields = rows.Skip(selectedStart).Take(selectedCount).ToArray(),
-                Grid = null,
-                Table = null,
-                Summary = includeSummary ? block.Summary : null,
-                FieldLabelWidth = labelWidth
-            });
-            return;
-        }
-
-        if (sessionEvent.Presentation?.Grid is { Count: > 0 } grid)
-        {
-            var block = sessionEvent.Presentation;
-            var consoleWidth = EffectiveWidth(null);
-            var prefix = EventPrefix(sessionEvent, bufferName);
-            var (columnWidth, columns) = CalculateGridLayout(
-                grid,
-                prefix.Length,
-                consoleWidth,
-                block.BracketGridCells);
-            var titleRows = RowsForLength(
-                prefix.Length + _theme.InfoTop.Length + block.Title.Length,
-                consoleWidth);
-            var gridRows = (grid.Count + columns - 1) / columns;
-            var selectedStart = Math.Max(0, skipRows - titleRows);
-            var selectedEnd = Math.Clamp(skipRows + takeRows - titleRows, 0, gridRows);
-            var includeSummary = !string.IsNullOrWhiteSpace(block.Summary) &&
-                skipRows + takeRows > titleRows + gridRows;
-            var fixedRows = titleRows + (includeSummary ? 1 : 0) +
-                (_theme.InfoBottom.Length > 0 ? 1 : 0);
-            var capacity = Math.Max(1, takeRows - fixedRows);
-            var selectedCount = Math.Min(capacity, Math.Max(0, selectedEnd - selectedStart));
-            if (includeSummary)
-            {
-                selectedStart = Math.Max(selectedStart, selectedEnd - selectedCount);
-            }
-            var slicedGrid = grid
-                .Skip(selectedStart * columns)
-                .Take(selectedCount * columns)
-                .ToArray();
-            WritePresentation(
-                sessionEvent,
-                bufferName,
-                block with
-                {
-                    Fields = null,
-                    Table = null,
-                    Grid = slicedGrid,
-                    Summary = includeSummary ? block.Summary : null,
-                    GridColumns = columns,
-                    GridColumnWidth = columnWidth
-                });
-            return;
-        }
-
-        // Ordinary events are small. This fallback preserves their semantic
-        // formatting if a resize happens to place one across a viewport edge.
+        // Preserve ordinary event formatting at a viewport boundary.
         Event(sessionEvent, bufferName);
     }
 
@@ -592,89 +466,6 @@ internal sealed class ConsolePresenter
                 WriteLine(row.Leading + row.Text, _theme.EventColor(sessionEvent));
             }
         });
-    }
-
-    private void WriteMixedPresentationRows(
-        SessionEvent sessionEvent,
-        string bufferName,
-        PresentationBlock block,
-        int skipRows,
-        int takeRows)
-    {
-        var consoleWidth = EffectiveWidth(null);
-        var prefix = EventPrefix(sessionEvent, bufferName);
-        var labelWidth = block.FieldLabelWidth ?? block.Fields!.Max(field => field.Label.Length);
-        var fields = ExpandPresentationFields(block.Fields!, prefix, labelWidth, consoleWidth);
-        var table = block.Table!;
-        var titleRows = RowsForLength(
-            prefix.Length + _theme.InfoTop.Length + block.Title.Length +
-            (string.IsNullOrWhiteSpace(block.TitleHighlight) || TitleContainsHighlight(block)
-                ? 0
-                : 1 + block.TitleHighlight.Length),
-            consoleWidth);
-        var tableRows = 1 + table.Rows.Count;
-        var contentRows = fields.Count + tableRows;
-        var includeSummary = !string.IsNullOrWhiteSpace(block.Summary) &&
-            skipRows + takeRows > titleRows + contentRows;
-        var bottomRows = _theme.InfoBottom.Length > 0 ? 1 : 0;
-        var capacity = Math.Max(1, takeRows - titleRows - bottomRows - (includeSummary ? 1 : 0));
-        var contentSkip = Math.Max(0, skipRows - titleRows);
-
-        var selectedFields = contentSkip < fields.Count
-            ? fields.Skip(contentSkip).Take(capacity).ToArray()
-            : [];
-        var remaining = Math.Max(0, capacity - selectedFields.Length);
-        PresentationTable? selectedTable = null;
-        if (remaining > 0 && contentSkip < contentRows)
-        {
-            var tableOffset = Math.Max(0, contentSkip - fields.Count);
-            var rowOffset = Math.Max(0, tableOffset - 1);
-            var rowCapacity = Math.Max(0, remaining - 1);
-            selectedTable = table with
-            {
-                Rows = table.Rows.Skip(rowOffset).Take(rowCapacity).ToArray(),
-                FormattedRows = table.FormattedRows.Skip(rowOffset).Take(rowCapacity).ToArray()
-            };
-        }
-
-        WritePresentation(sessionEvent, bufferName, block with
-        {
-            Fields = selectedFields.Length == 0 ? null : selectedFields,
-            Grid = null,
-            Table = selectedTable,
-            Summary = includeSummary ? block.Summary : null,
-            FieldLabelWidth = labelWidth
-        });
-    }
-
-    private static IReadOnlyList<PresentationField> ExpandPresentationFields(
-        IReadOnlyList<PresentationField> fields,
-        string prefix,
-        int labelWidth,
-        int consoleWidth)
-    {
-        var leading = new string(' ', prefix.Length + labelWidth + 4);
-        var rows = new List<PresentationField>();
-        foreach (var field in fields)
-        {
-            var wrapped = TerminalWordWrapper.Wrap(leading, leading, field.Value, consoleWidth);
-            var formattedOffset = 0;
-            for (var index = 0; index < wrapped.Count; index++)
-            {
-                IrcFormattedText? formattedRow = null;
-                if (field.FormattedValue is { } formatted)
-                {
-                    formattedOffset = FindWrappedTextOffset(formatted.PlainText, wrapped[index].Text, formattedOffset);
-                    formattedRow = SliceFormattedText(formatted, formattedOffset, wrapped[index].Text.Length);
-                    formattedOffset += wrapped[index].Text.Length;
-                }
-                rows.Add(new PresentationField(
-                    index == 0 ? field.Label : string.Empty,
-                    wrapped[index].Text,
-                    formattedRow));
-            }
-        }
-        return rows;
     }
 
     public void Result(string message, bool success = true) =>
@@ -1180,42 +971,85 @@ internal sealed class ConsolePresenter
         }
 
         var prefix = EventPrefix(sessionEvent, bufferName);
+        var sideLength = prefix.Length + _theme.InfoSide.Length;
         var titleHighlightIsInline = TitleContainsHighlight(block);
-        var rows = RowsForLength(
+        var rows = PresentationRowsForLength(
             prefix.Length + _theme.InfoTop.Length + block.Title.Length +
-            (string.IsNullOrWhiteSpace(block.TitleHighlight) || titleHighlightIsInline ? 0 : 1 + block.TitleHighlight.Length),
+            (string.IsNullOrWhiteSpace(block.TitleHighlight) || titleHighlightIsInline
+                ? 0
+                : 1 + block.TitleHighlight.Length),
             consoleWidth);
+
         if (block.Fields is { Count: > 0 })
         {
             var labelWidth = block.FieldLabelWidth ?? block.Fields.Max(field => field.Label.Length);
-            var fieldLeading = new string(' ', prefix.Length + _theme.InfoSide.Length + labelWidth + 2);
-            rows += block.Fields.Sum(field => TerminalWordWrapper.Wrap(
-                fieldLeading,
-                fieldLeading,
-                field.Value,
-                consoleWidth).Count);
+            var fieldLeading = new string(' ', sideLength + labelWidth + 2);
+            foreach (var field in block.Fields)
+            {
+                var wrapped = TerminalWordWrapper.Wrap(
+                    fieldLeading, fieldLeading, field.Value, consoleWidth);
+                for (var index = 0; index < wrapped.Count; index++)
+                {
+                    var actualLabelWidth = index == 0
+                        ? Math.Max(labelWidth, field.Label.Length)
+                        : labelWidth;
+                    rows += PresentationRowsForLength(
+                        sideLength + actualLabelWidth + 2 + wrapped[index].Text.Length,
+                        consoleWidth);
+                }
+            }
         }
+
         if (block.Grid is { Count: > 0 } grid)
         {
-            var columns = block.GridColumns ??
-                CalculateGridLayout(grid, prefix.Length, consoleWidth, block.BracketGridCells).Columns;
-            rows += (grid.Count + columns - 1) / columns;
+            var calculated = CalculateGridLayout(
+                grid, prefix.Length, consoleWidth, block.BracketGridCells);
+            var columnWidth = block.GridColumnWidth ?? calculated.ColumnWidth;
+            var columns = block.GridColumns ?? calculated.Columns;
+            var bracketWidth = block.BracketGridCells
+                ? _theme.GridOpen.Length + _theme.GridClose.Length
+                : 0;
+
+            for (var offset = 0; offset < grid.Count; offset += columns)
+            {
+                var cells = Math.Min(columns, grid.Count - offset);
+                var length = sideLength;
+                if (block.BracketGridCells)
+                {
+                    length += cells * (Math.Max(1, columnWidth - bracketWidth) + bracketWidth);
+                }
+                else
+                {
+                    length += (cells - 1) * columnWidth +
+                        Math.Min(columnWidth, grid[offset + cells - 1].Length);
+                }
+                rows += PresentationRowsForLength(length, consoleWidth);
+            }
         }
+
         if (block.Table is { } table)
         {
-            var layout = CalculateTableLayout(table, Math.Max(20, consoleWidth - prefix.Length - _theme.InfoSide.Length - 1));
-            rows += 1 + table.Rows.Sum(row => TableRowHeight(row, layout));
+            var layout = CalculateTableLayout(
+                table, Math.Max(20, consoleWidth - sideLength - 1));
+            var rowLength = sideLength +
+                layout.VisibleColumns.Sum(index => layout.Widths[index] + 2);
+            rows += (table.Rows.Count + 1) *
+                PresentationRowsForLength(rowLength, consoleWidth);
         }
+
         if (!string.IsNullOrWhiteSpace(block.Summary))
         {
-            rows += RowsForLength(prefix.Length + _theme.InfoSide.Length + block.Summary.Length, consoleWidth);
+            rows += PresentationRowsForLength(sideLength + block.Summary.Length, consoleWidth);
         }
         if (_theme.InfoBottom.Length > 0)
         {
-            rows += RowsForLength(prefix.Length + _theme.InfoBottom.Length, consoleWidth);
+            rows += PresentationRowsForLength(prefix.Length + _theme.InfoBottom.Length, consoleWidth);
         }
         return rows;
     }
+
+    private static int PresentationRowsForLength(int length, int width) =>
+        length <= 0 ? 1 : (length - 1) / Math.Max(1, width - 1) + 1;
 
     private static int RowsForLength(int length, int width) => Math.Max(1, length / Math.Max(2, width) + 1);
 
@@ -1288,8 +1122,6 @@ internal sealed class ConsolePresenter
         return new TableLayout(visible, widths, preserved);
     }
 
-    private static int TableRowHeight(IReadOnlyList<string> row, TableLayout layout) => 1;
-
     internal sealed record TableLayout(
         IReadOnlyList<int> VisibleColumns,
         int[] Widths,
@@ -1347,36 +1179,45 @@ internal sealed class ConsolePresenter
         return value is null ? string.Empty : $" [{value}]";
     }
 
-    private void WritePresentation(SessionEvent sessionEvent, string bufferName, PresentationBlock block)
+    private void WritePresentation(
+        SessionEvent sessionEvent,
+        string bufferName,
+        PresentationBlock block,
+        int skipRows = 0,
+        int takeRows = int.MaxValue)
     {
+        if (takeRows <= 0) return;
+
         lock (_consoleLock)
         {
             BeginOutputUnsafe();
+            var consoleWidth = EffectiveWidth(null);
+            var writer = new PresentationRowWriter(this, consoleWidth, skipRows, takeRows);
             var prefix = EventPrefix(sessionEvent, bufferName);
-            WriteColoredUnsafe(prefix, _theme.Dim);
-            WriteColoredUnsafe(_theme.InfoTop, _theme.Label);
+
+            writer.Write(prefix, _theme.Dim);
+            writer.Write(_theme.InfoTop, _theme.Label);
             if (TitleContainsHighlight(block))
             {
                 var highlightStart = block.Title.IndexOf(block.TitleHighlight!, StringComparison.Ordinal);
-                WriteColoredUnsafe(block.Title[..highlightStart], _theme.Accent);
-                WriteColoredUnsafe(block.TitleHighlight!, ConsoleColor.White);
-                WriteColoredUnsafe(block.Title[(highlightStart + block.TitleHighlight!.Length)..], _theme.Accent);
+                writer.Write(block.Title[..highlightStart], _theme.Accent);
+                writer.Write(block.TitleHighlight!, ConsoleColor.White);
+                writer.Write(block.Title[(highlightStart + block.TitleHighlight!.Length)..], _theme.Accent);
             }
             else
             {
-                WriteColoredUnsafe(block.Title, _theme.Accent);
+                writer.Write(block.Title, _theme.Accent);
                 if (!string.IsNullOrWhiteSpace(block.TitleHighlight))
                 {
-                    Console.Write(' ');
-                    WriteColoredUnsafe(block.TitleHighlight, ConsoleColor.White);
+                    writer.Write(" ", _theme.Normal);
+                    writer.Write(block.TitleHighlight, ConsoleColor.White);
                 }
             }
-            Console.WriteLine();
+            writer.EndLine();
 
             if (block.Fields is { Count: > 0 })
             {
                 var labelWidth = block.FieldLabelWidth ?? block.Fields.Max(field => field.Label.Length);
-                var consoleWidth = EffectiveWidth(null);
                 foreach (var field in block.Fields)
                 {
                     var leading = new string(' ', prefix.Length + _theme.InfoSide.Length + labelWidth + 2);
@@ -1384,19 +1225,19 @@ internal sealed class ConsolePresenter
                     var formattedOffset = 0;
                     for (var index = 0; index < lines.Count; index++)
                     {
-                        WriteColoredUnsafe(prefix, _theme.Dim);
-                        WriteColoredUnsafe(_theme.InfoSide, _theme.Label);
-                        WriteColoredUnsafe(
+                        writer.Write(prefix, _theme.Dim);
+                        writer.Write(_theme.InfoSide, _theme.Label);
+                        writer.Write(
                             index == 0 ? field.Label.PadRight(labelWidth) : new string(' ', labelWidth),
                             _theme.Label);
-                        Console.Write("  ");
+                        writer.Write("  ", _theme.Normal);
                         if (field.FormattedValue is { } formattedValue)
                         {
                             formattedOffset = FindWrappedTextOffset(
                                 formattedValue.PlainText,
                                 lines[index].Text,
                                 formattedOffset);
-                            WriteIrcFormattedRangeUnsafe(
+                            writer.WriteFormatted(
                                 formattedValue,
                                 formattedOffset,
                                 lines[index].Text.Length,
@@ -1405,16 +1246,15 @@ internal sealed class ConsolePresenter
                         }
                         else
                         {
-                            WriteColoredUnsafe(lines[index].Text, _theme.Normal);
+                            writer.Write(lines[index].Text, _theme.Normal);
                         }
-                        Console.WriteLine();
+                        writer.EndLine();
                     }
                 }
             }
 
             if (block.Grid is { Count: > 0 } grid)
             {
-                var consoleWidth = EffectiveWidth(null);
                 var bracketWidth = block.BracketGridCells ? _theme.GridOpen.Length + _theme.GridClose.Length : 0;
                 var calculated = CalculateGridLayout(
                     grid, prefix.Length, consoleWidth, block.BracketGridCells);
@@ -1422,8 +1262,22 @@ internal sealed class ConsolePresenter
                 var columns = block.GridColumns ?? calculated.Columns;
                 for (var offset = 0; offset < grid.Count; offset += columns)
                 {
-                    WriteColoredUnsafe(prefix, _theme.Dim);
-                    WriteColoredUnsafe(_theme.InfoSide, _theme.Label);
+                    var cells = Math.Min(columns, grid.Count - offset);
+                    var rowLength = prefix.Length + _theme.InfoSide.Length;
+                    if (block.BracketGridCells)
+                    {
+                        rowLength += cells *
+                            (Math.Max(1, columnWidth - bracketWidth) + bracketWidth);
+                    }
+                    else
+                    {
+                        rowLength += (cells - 1) * columnWidth +
+                            Math.Min(columnWidth, grid[offset + cells - 1].Length);
+                    }
+                    if (writer.TrySkipLine(rowLength)) continue;
+
+                    writer.Write(prefix, _theme.Dim);
+                    writer.Write(_theme.InfoSide, _theme.Label);
                     for (var column = 0; column < columns && offset + column < grid.Count; column++)
                     {
                         var value = grid[offset + column];
@@ -1439,16 +1293,16 @@ internal sealed class ConsolePresenter
                             {
                                 value = innerWidth > 1 ? value[..(innerWidth - 1)] + "…" : value[..1];
                             }
-                            WriteColoredUnsafe(_theme.GridOpen, _theme.Label);
-                            WriteColoredUnsafe(value.PadRight(innerWidth), _theme.Normal);
-                            WriteColoredUnsafe(_theme.GridClose, _theme.Label);
+                            writer.Write(_theme.GridOpen, _theme.Label);
+                            writer.Write(value.PadRight(innerWidth), _theme.Normal);
+                            writer.Write(_theme.GridClose, _theme.Label);
                         }
                         else
                         {
-                            WriteColoredUnsafe(isLast ? value : value.PadRight(columnWidth), _theme.Normal);
+                            writer.Write(isLast ? value : value.PadRight(columnWidth), _theme.Normal);
                         }
                     }
-                    Console.WriteLine();
+                    writer.EndLine();
                 }
             }
 
@@ -1456,21 +1310,26 @@ internal sealed class ConsolePresenter
             {
                 var available = Math.Max(
                     20,
-                    EffectiveWidth(null) - prefix.Length - _theme.InfoSide.Length - 1);
+                    consoleWidth - prefix.Length - _theme.InfoSide.Length - 1);
                 var layout = CalculateTableLayout(table, available);
-                WriteColoredUnsafe(prefix, _theme.Dim);
-                WriteColoredUnsafe(_theme.InfoSide, _theme.Label);
+                var rowLength = prefix.Length + _theme.InfoSide.Length +
+                    layout.VisibleColumns.Sum(index => layout.Widths[index] + 2);
+                writer.Write(prefix, _theme.Dim);
+                writer.Write(_theme.InfoSide, _theme.Label);
                 foreach (var index in layout.VisibleColumns)
                 {
                     var heading = TruncateCell(table.Columns[index], layout.Widths[index]);
-                    WriteColoredUnsafe(heading.PadRight(layout.Widths[index] + 2), _theme.Label);
+                    writer.Write(heading.PadRight(layout.Widths[index] + 2), _theme.Label);
                 }
-                Console.WriteLine();
+                writer.EndLine();
+
                 for (var rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
                 {
+                    if (writer.TrySkipLine(rowLength)) continue;
+
                     var row = table.Rows[rowIndex];
-                    WriteColoredUnsafe(prefix, _theme.Dim);
-                    WriteColoredUnsafe(_theme.InfoSide, _theme.Label);
+                    writer.Write(prefix, _theme.Dim);
+                    writer.Write(_theme.InfoSide, _theme.Label);
                     foreach (var index in layout.VisibleColumns)
                     {
                         var value = index < row.Count ? row[index] : string.Empty;
@@ -1484,38 +1343,109 @@ internal sealed class ConsolePresenter
                         {
                             var sourceLength = Math.Min(formatted.PlainText.Length, value.Length);
                             if (formatted.PlainText.Length > layout.Widths[index] && sourceLength > 0) sourceLength--;
-                            WriteIrcFormattedRangeUnsafe(formatted, 0, sourceLength, _theme.Normal);
+                            writer.WriteFormatted(formatted, 0, sourceLength, _theme.Normal);
                             if (sourceLength < value.Length)
                             {
-                                WriteColoredUnsafe(value[sourceLength..], _theme.Normal);
+                                writer.Write(value[sourceLength..], _theme.Normal);
                             }
-                            WriteColoredUnsafe(
+                            writer.Write(
                                 new string(' ', layout.Widths[index] + 2 - value.Length),
                                 _theme.Normal);
                         }
                         else
                         {
-                            WriteColoredUnsafe(value.PadRight(layout.Widths[index] + 2), _theme.Normal);
+                            writer.Write(value.PadRight(layout.Widths[index] + 2), _theme.Normal);
                         }
                     }
-                    Console.WriteLine();
+                    writer.EndLine();
                 }
             }
 
             if (!string.IsNullOrWhiteSpace(block.Summary))
             {
-                WriteColoredUnsafe(prefix, _theme.Dim);
-                WriteColoredUnsafe(_theme.InfoSide, _theme.Label);
-                WriteColoredUnsafe(block.Summary, _theme.Dim);
-                Console.WriteLine();
+                writer.Write(prefix, _theme.Dim);
+                writer.Write(_theme.InfoSide, _theme.Label);
+                writer.Write(block.Summary, _theme.Dim);
+                writer.EndLine();
             }
             if (_theme.InfoBottom.Length > 0)
             {
-                WriteColoredUnsafe(prefix, _theme.Dim);
-                WriteColoredUnsafe(_theme.InfoBottom, _theme.Label);
-                Console.WriteLine();
+                writer.Write(prefix, _theme.Dim);
+                writer.Write(_theme.InfoBottom, _theme.Label);
+                writer.EndLine();
             }
             EndOutputUnsafe();
+        }
+    }
+
+    private sealed class PresentationRowWriter(
+        ConsolePresenter presenter,
+        int width,
+        int skipRows,
+        int takeRows)
+    {
+        private readonly int _lineWidth = Math.Max(1, width - 1);
+        private readonly int _skipRows = Math.Max(0, skipRows);
+        private readonly long _endRow = (long)Math.Max(0, skipRows) + Math.Max(0, takeRows);
+        private int _row;
+        private int _column;
+
+        private bool IncludeRow => _row >= _skipRows && _row < _endRow;
+
+        public void Write(string text, ConsoleColor color) =>
+            WriteRange(text, 0, text.Length, color, formatted: null);
+
+        public void WriteFormatted(
+            IrcFormattedText formatted,
+            int start,
+            int length,
+            ConsoleColor color) =>
+            WriteRange(formatted.PlainText, start, length, color, formatted);
+
+        public bool TrySkipLine(int length)
+        {
+            var rows = length <= 0 ? 1 : (length - 1) / _lineWidth + 1;
+            if (_row >= _endRow || (long)_row + rows <= _skipRows)
+            {
+                _row += rows;
+                return true;
+            }
+            return false;
+        }
+
+        public void EndLine()
+        {
+            if (IncludeRow) Console.WriteLine();
+            _row++;
+            _column = 0;
+        }
+
+        private void WriteRange(
+            string text,
+            int start,
+            int length,
+            ConsoleColor color,
+            IrcFormattedText? formatted)
+        {
+            while (length > 0)
+            {
+                if (_column == _lineWidth) EndLine();
+                var count = Math.Min(_lineWidth - _column, length);
+                if (IncludeRow)
+                {
+                    if (formatted is null)
+                    {
+                        WriteColoredUnsafe(text.Substring(start, count), color);
+                    }
+                    else
+                    {
+                        presenter.WriteIrcFormattedRangeUnsafe(formatted, start, count, color);
+                    }
+                }
+                _column += count;
+                start += count;
+                length -= count;
+            }
         }
     }
 

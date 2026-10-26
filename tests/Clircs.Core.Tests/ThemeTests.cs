@@ -46,6 +46,7 @@ internal static class ThemeTests
         suite.Add("viewport paging can move through one very large result", ViewportPagingSlicesLargeResults);
         suite.Add("viewport paging slices large NAMES grids instead of repeating them", ViewportPagingSlicesNamesGrid);
         suite.Add("viewport paging slices large field boxes instead of repeating them", ViewportPagingSlicesFieldBoxes);
+        suite.Add("viewport paging preserves the exact original presentation rows", ViewportPagingPreservesExactPresentationRows);
         suite.Add("viewport paging retains mixed fields and tables", ViewportPagingRetainsMixedPresentations);
         suite.Add("transient viewport events replace one history entry and become permanent", TransientViewportEventsReplaceInPlace);
         suite.Add("unread activity distinguishes parts, quits, and kicks", UnreadActivityDistinguishesDepartures);
@@ -1698,6 +1699,92 @@ internal static class ThemeTests
         Assert.Equal("who", string.Join(',', previous.Select(slice => slice.Item)));
         Assert.True(previous[0].SkipRows < bottom[0].SkipRows);
         Assert.Equal(25, previous[0].TakeRows);
+    }
+
+    private static void ViewportPagingPreservesExactPresentationRows()
+    {
+        var presenter = new ConsolePresenter();
+        var table = new PresentationTable(
+            ["Name", "Value"],
+            Enumerable.Range(0, 24)
+                .Select(index => (IReadOnlyList<string>)new[]
+                {
+                    $"row{index:00}", $"value{index:00}"
+                }).ToArray());
+
+        PresentationBlock[] blocks =
+        [
+            new("Client Settings",
+                Fields: Enumerable.Range(0, 35)
+                    .Select(index => new PresentationField(
+                        index == 34 ? "callerid.output" : $"setting{index:00}",
+                        index == 10 ? new string('x', 180) : $"value{index:00}"))
+                    .ToArray()),
+            new("Users",
+                Grid: Enumerable.Range(0, 160)
+                    .Select(index => $"nick{index:000}").ToArray(),
+                BracketGridCells: true),
+            new("Results", Table: table),
+            new("Mixed",
+                Fields:
+                [
+                    new PresentationField("State", "enabled"),
+                    new PresentationField("Action", "ignore")
+                ],
+                Table: table,
+                Summary: "End of results.")
+        ];
+
+        foreach (var block in blocks)
+        {
+            var sessionEvent = new SessionEvent(
+                NetworkSessionId.New(),
+                BufferId.New(),
+                SessionEventKind.Server,
+                block.Title,
+                DateTimeOffset.Now,
+                Presentation: block);
+            var originalRows = CaptureRows(() => presenter.Event(sessionEvent, "status"));
+
+            (int Skip, int Take)[] slices =
+            [
+                (Math.Max(0, originalRows.Length - 20), 20),
+                (0, 1),
+                (originalRows.Length / 2, 7),
+                (originalRows.Length - 1, 1),
+                (originalRows.Length, 3)
+            ];
+
+            foreach (var slice in slices)
+            {
+                var actual = CaptureRows(() => presenter.EventRows(
+                    sessionEvent, "status", slice.Skip, slice.Take));
+                var expected = originalRows.Skip(slice.Skip).Take(slice.Take);
+
+                Assert.True(actual.SequenceEqual(expected),
+                    $"Incorrect rows for '{block.Title}', skip {slice.Skip}, take {slice.Take}.");
+            }
+        }
+
+        static string[] CaptureRows(Action render)
+        {
+            var previous = Console.Out;
+            using var writer = new StringWriter();
+            try
+            {
+                Console.SetOut(writer);
+                render();
+            }
+            finally
+            {
+                Console.SetOut(previous);
+            }
+
+            var text = writer.ToString();
+            return text.Length == 0
+                ? []
+                : text.Split(Environment.NewLine)[..^1];
+        }
     }
 
     private static void ViewportPagingSlicesNamesGrid()
