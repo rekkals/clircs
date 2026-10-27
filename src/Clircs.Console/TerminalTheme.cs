@@ -41,6 +41,26 @@ internal sealed record TerminalTheme(
 
     public string HeaderSeparator { get; init; } = " | ";
 
+    public ConsoleColor RoleColor(TextColorRole role) => role switch
+    {
+        TextColorRole.Normal => Normal,
+        TextColorRole.Dim => Dim,
+        TextColorRole.Accent => Accent,
+        TextColorRole.Label => Label,
+        TextColorRole.Message => Message,
+        TextColorRole.Highlight => Highlight,
+        TextColorRole.Action => Action,
+        TextColorRole.Notice => Notice,
+        TextColorRole.Join => Join,
+        TextColorRole.Part => Part,
+        TextColorRole.Nick => Nick,
+        TextColorRole.Mode => Mode,
+        TextColorRole.Warning => Warning,
+        TextColorRole.Error => Error,
+        TextColorRole.Kick => Kick,
+        _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown text color role.")
+    };
+
     public ConsoleColor EventColor(SessionEventKind kind) => kind switch
     {
         SessionEventKind.Message => Message,

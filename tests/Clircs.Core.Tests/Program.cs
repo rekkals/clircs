@@ -13,6 +13,7 @@ SaslTests.Register(suite);
 TrustedCertificateStoreTests.Register(suite);
 NetworkProfileStoreTests.Register(suite);
 ScriptTests.Register(suite);
+ScriptWindowTests.Register(suite);
 UserDirectoryTests.Register(suite);
 ThemeTests.Register(suite);
 DateChangeTests.Register(suite);

@@ -1224,8 +1224,11 @@ internal sealed partial class ClientApplication
             {
                 BufferNumber(entry.Buffer.Id).ToString(),
                 _windowStates.IsActiveBuffer(entry.Buffer.Id) ? "*" : string.Empty,
-                entry.Session.Features.NetworkName ?? "unknown",
-                ProfileFor(entry.Session)?.DisplayName ?? "none",
+                entry.Session?.Features.NetworkName ??
+                    (entry.Session is null ? "none" : "unknown"),
+                entry.Session is { } session
+                    ? ProfileFor(session)?.DisplayName ?? "none"
+                    : "none",
                 WindowTarget(entry.Buffer),
                 ActivitySuffix(entry.Buffer.Id).Trim()
             }).ToArray();
@@ -1246,7 +1249,7 @@ internal sealed partial class ClientApplication
                     ]))));
         }
 
-        (IrcNetworkSession Session, BufferState Buffer)? selected = null;
+        (IrcNetworkSession? Session, BufferState Buffer)? selected = null;
         if (int.TryParse(input.Arguments[0], out var number) && number >= 1)
         {
             var match = entries.FirstOrDefault(entry => BufferNumber(entry.Buffer.Id) == number);
@@ -1305,7 +1308,17 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("No active window.");
         }
 
-        var session = ActiveSession()!;
+        var session = ActiveSession();
+        if (session is null)
+        {
+            if (active.Kind != BufferKind.Script)
+            {
+                return CommandResult.Failure("The local status window cannot be closed.");
+            }
+
+            CloseLocalBuffer(null, active);
+            return CommandResult.Success();
+        }
         if (active.Kind == BufferKind.Status)
         {
             var reconnecting = _liveSessions.IsReconnecting(session.State.Id);
@@ -1340,13 +1353,18 @@ internal sealed partial class ClientApplication
         return CommandResult.Success();
     }
 
-    private void CloseLocalBuffer(IrcNetworkSession session, BufferState buffer)
+    private void CloseLocalBuffer(IrcNetworkSession? session, BufferState buffer)
     {
         lock (_windowTransactionGate)
         {
-            SelectPreviousBufferUnsafe(buffer.Id, session);
+            if (_windowStates.IsActiveBuffer(buffer.Id))
+            {
+                SelectPreviousBufferUnsafe(buffer.Id, session);
+            }
+
             _windowStates.Remove(buffer.Id);
-            session.State.RemoveBuffer(buffer.Id);
+            session?.State.RemoveBuffer(buffer.Id);
+            _scriptWindows.Remove(buffer.Id);
         }
 
         _presenter.ForgetInputHistory(buffer.Id);
@@ -1385,27 +1403,45 @@ internal sealed partial class ClientApplication
         CloseLocalBuffer(session, buffer);
     }
 
-    private void SelectPreviousBufferUnsafe(BufferId closingBufferId, IrcNetworkSession fallbackSession)
+    private void SelectPreviousBufferUnsafe(
+        BufferId closingBufferId,
+        IrcNetworkSession? fallbackSession)
     {
         var closingNumber = _windowStates.NumberOr(closingBufferId, int.MaxValue);
-        var previous = _liveSessions.SessionSnapshot()
-            .SelectMany(candidateSession => candidateSession.State.Buffers
-                .Where(candidateBuffer => candidateBuffer.Id != closingBufferId)
-                .Select(candidateBuffer => (
-                    Session: candidateSession,
-                    Buffer: candidateBuffer,
-                    Number: AssignBufferNumberUnsafe(candidateBuffer.Id))))
+        var candidates = OrderedBuffers()
+            .Where(entry => entry.Buffer.Id != closingBufferId)
+            .Select(entry => (
+                entry.Session,
+                entry.Buffer,
+                Number: BufferNumber(entry.Buffer.Id)))
+            .ToArray();
+        var previous = candidates
             .Where(candidate => candidate.Number < closingNumber)
             .OrderByDescending(candidate => candidate.Number)
             .FirstOrDefault();
 
         if (previous.Buffer is not null)
         {
-            _windowStates.Activate(previous.Session.State.Id, previous.Buffer.Id);
+            ActivateWindowUnsafe(previous.Session, previous.Buffer);
             return;
         }
 
-        _windowStates.Activate(fallbackSession.State.Id, fallbackSession.State.StatusBuffer.Id);
+        if (fallbackSession is not null)
+        {
+            _windowStates.Activate(
+                fallbackSession.State.Id, fallbackSession.State.StatusBuffer.Id);
+            return;
+        }
+
+        var first = candidates.OrderBy(candidate => candidate.Number).FirstOrDefault();
+        if (first.Buffer is not null)
+        {
+            ActivateWindowUnsafe(first.Session, first.Buffer);
+        }
+        else
+        {
+            _windowStates.ActivateLocal(_localStatusBuffer.Id);
+        }
     }
 
     internal static int? PreviousBufferNumber(int closingNumber, IEnumerable<int> openNumbers) =>

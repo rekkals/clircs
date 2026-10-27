@@ -57,7 +57,8 @@ public sealed record ScriptHostServices(
     Action<string, string> ClearHeader,
     Action<string> ClearHeaders,
     Func<string, string, string?> ReadSecret,
-    Func<ScriptPermissionRequest, bool> ConfirmPermissions);
+    Func<ScriptPermissionRequest, bool> ConfirmPermissions,
+    ScriptWindowHostServices Windows);
 
 public sealed record ScriptInfo(
     string Id,

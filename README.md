@@ -4,7 +4,7 @@ Command line IRC software (for Windows)
 
 ![Screenshot](docs/images/screen-clircs.png)
 
-clircs is a traditional terminal IRC client written in C# for .NET 10. It runs in Windows Console without needing WSL or Cygwin underneath it.
+clircs is a traditional IRC client written in C# for .NET 10. It runs in Windows Console without needing WSL or Cygwin underneath it.
 
 It is also designed to be useful out of the box. I've always disliked what I've come to call "the WordPress approach," where you get supposedly amazing software, but it doesn't do much until you install a bunch of other shit. Yes, the beauty of IRC is that it's decentralized and extensible and customizable. That's why I love it. But two things can exist at the same time, and in this case, the other thing is that some people just want to chat without learning how to script or any of that nerd crap.
 

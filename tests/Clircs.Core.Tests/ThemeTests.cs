@@ -83,6 +83,9 @@ internal static class ThemeTests
         suite.Add("buffer headers share space without losing auxiliary content", BufferHeadersCompose);
         suite.Add("plain local results use dim text without sentence punctuation", LocalResultsAreDim);
         suite.Add("traditional IRC colors map to the Windows console palette", IrcColorsUseConsolePalette);
+        suite.Add("stored text roles follow the current theme", StoredTextRolesFollowCurrentTheme);
+        suite.Add("fixed text colors remain independent of themes", FixedTextColorsRemainIndependent);
+        suite.Add("IRC colors override text bases and resets restore them", IrcColorsOverrideTextBases);
         suite.Add("client-built information tables retain IRC styling", ClientTablesRetainIrcStyling);
     }
 
@@ -765,6 +768,146 @@ internal static class ThemeTests
         Assert.Equal(ConsoleColor.Blue, ConsolePresenter.IrcColor(60, ConsoleColor.Gray));
         Assert.Equal(ConsoleColor.Black, ConsolePresenter.IrcColor(88, ConsoleColor.Gray));
         Assert.Equal(ConsoleColor.White, ConsolePresenter.IrcColor(98, ConsoleColor.Gray));
+    }
+
+    private static void StoredTextRolesFollowCurrentTheme()
+    {
+        var formatted = new IrcFormattedText(
+            "warning notice highlight",
+            [
+                new IrcTextRun("warning ", new IrcTextStyle
+                {
+                    ForegroundRole = TextColorRole.Warning
+                }),
+                new IrcTextRun("notice ", new IrcTextStyle
+                {
+                    ForegroundRole = TextColorRole.Notice
+                }),
+                new IrcTextRun("highlight", new IrcTextStyle
+                {
+                    ForegroundRole = TextColorRole.Highlight
+                })
+            ]);
+
+        var states = new WindowStateRegistry();
+        var buffer = BufferId.New();
+        states.AppendHistory(new SessionEvent(
+            NetworkSessionId.New(),
+            buffer,
+            SessionEventKind.Status,
+            formatted.PlainText,
+            DateTimeOffset.Now,
+            FormattedContent: formatted));
+
+        var saved = states.HistorySnapshot(buffer).Single().FormattedContent!;
+        Assert.True(saved.HasFormatting);
+        Assert.Equal("warning notice highlight", saved.PlainText);
+
+        var first = TerminalTheme.BuiltIns["clircs"] with
+        {
+            Warning = ConsoleColor.DarkRed,
+            Notice = ConsoleColor.DarkCyan,
+            Highlight = ConsoleColor.Magenta
+        };
+        var second = first with
+        {
+            Warning = ConsoleColor.Blue,
+            Notice = ConsoleColor.Green,
+            Highlight = ConsoleColor.White
+        };
+
+        (TerminalTheme Theme, ConsoleColor[] Expected)[] cases =
+        [
+            (first, [ConsoleColor.DarkRed, ConsoleColor.DarkCyan, ConsoleColor.Magenta]),
+            (second, [ConsoleColor.Blue, ConsoleColor.Green, ConsoleColor.White])
+        ];
+
+        foreach (var item in cases)
+        {
+            for (var index = 0; index < saved.Runs.Count; index++)
+            {
+                Assert.Equal(
+                    item.Expected[index],
+                    ConsolePresenter.FormattedForeground(
+                        item.Theme, saved.Runs[index].Style, ConsoleColor.Gray));
+            }
+        }
+    }
+
+    private static void FixedTextColorsRemainIndependent()
+    {
+        var style = new IrcTextStyle
+        {
+            BaseForeground = ConsoleColor.DarkMagenta
+        };
+        var formatted = new IrcFormattedText(
+            "fixed color",
+            [new IrcTextRun("fixed color", style)]);
+
+        Assert.True(formatted.HasFormatting);
+
+        foreach (var theme in TerminalTheme.BuiltIns.Values)
+        {
+            Assert.Equal(
+                ConsoleColor.DarkMagenta,
+                ConsolePresenter.FormattedForeground(theme, style, theme.Normal));
+
+            Assert.Equal(
+                theme.Dim,
+                ConsolePresenter.FormattedForeground(
+                    theme, new IrcTextStyle(), theme.Dim));
+        }
+    }
+
+    private static void IrcColorsOverrideTextBases()
+    {
+        var theme = TerminalTheme.BuiltIns["clircs"] with
+        {
+            Notice = ConsoleColor.DarkCyan
+        };
+        var parsed = IrcTextFormatting.Parse(
+            "base \u000304red\u000f reset \u000399default\u0003 end");
+
+        Assert.Equal("base red reset default end", parsed.PlainText);
+        Assert.Equal(5, parsed.Runs.Count);
+
+        (IrcTextStyle Style, ConsoleColor Color)[] bases =
+        [
+            (new IrcTextStyle
+            {
+                ForegroundRole = TextColorRole.Notice
+            }, ConsoleColor.DarkCyan),
+            (new IrcTextStyle
+            {
+                BaseForeground = ConsoleColor.DarkMagenta
+            }, ConsoleColor.DarkMagenta)
+        ];
+
+        foreach (var baseline in bases)
+        {
+            ConsoleColor[] expected =
+            [
+                baseline.Color,
+                ConsoleColor.Red,
+                baseline.Color,
+                baseline.Color,
+                baseline.Color
+            ];
+
+            for (var index = 0; index < parsed.Runs.Count; index++)
+            {
+                var style = parsed.Runs[index].Style with
+                {
+                    ForegroundRole = baseline.Style.ForegroundRole,
+                    BaseForeground = baseline.Style.BaseForeground
+                };
+
+                Assert.Equal(
+                    expected[index],
+                    ConsolePresenter.FormattedForeground(
+                        theme, style, ConsoleColor.Gray));
+            }
+        }
     }
 
     private static void ClientTablesRetainIrcStyling()

@@ -444,8 +444,34 @@ internal sealed class ConsolePresenter
             return;
         }
 
+        if (sessionEvent.Fields?.GetValueOrDefault("event") == "script.output")
+        {
+            ScriptOutputRows(sessionEvent, bufferName, skipRows, takeRows);
+            return;
+        }
+
         // Preserve ordinary event formatting at a viewport boundary.
         Event(sessionEvent, bufferName);
+    }
+
+    internal void ScriptOutputRows(
+        SessionEvent sessionEvent,
+        string bufferName,
+        int skipRows,
+        int takeRows,
+        int? width = null)
+    {
+        if (takeRows <= 0) return;
+
+        var formatted = sessionEvent.FormattedContent
+            ?? IrcTextFormatting.Parse(sessionEvent.Text);
+        WriteWrappedFormattedEvent(
+            EventPrefix(sessionEvent, bufferName),
+            formatted,
+            _theme.EventColor(sessionEvent),
+            skipRows,
+            takeRows,
+            width);
     }
 
     internal void DateChangeRows(
@@ -1931,20 +1957,44 @@ internal sealed class ConsolePresenter
         }
     }
 
-    private void WriteWrappedFormattedEvent(string leading, IrcFormattedText formatted, ConsoleColor defaultColor)
+    private void WriteWrappedFormattedEvent(
+        string leading,
+        IrcFormattedText formatted,
+        ConsoleColor defaultColor,
+        int skipRows = 0,
+        int takeRows = int.MaxValue,
+        int? width = null)
     {
+        if (takeRows <= 0) return;
+        skipRows = Math.Max(0, skipRows);
+
         lock (_consoleLock)
         {
+            var lines = TerminalWordWrapper.Wrap(
+                leading, formatted.PlainText, EffectiveWidth(width));
+            if (skipRows >= lines.Count) return;
+
             BeginOutputUnsafe();
             var plainOffset = 0;
-            foreach (var line in TerminalWordWrapper.Wrap(leading, formatted.PlainText, EffectiveWidth(null)))
+            var end = (int)Math.Min(lines.Count, (long)skipRows + takeRows);
+
+            for (var index = 0; index < end; index++)
             {
-                WriteColoredUnsafe(line.Leading, defaultColor);
-                plainOffset = FindWrappedTextOffset(formatted.PlainText, line.Text, plainOffset);
-                WriteIrcFormattedRangeUnsafe(formatted, plainOffset, line.Text.Length, defaultColor);
+                var line = lines[index];
+                plainOffset = FindWrappedTextOffset(
+                    formatted.PlainText, line.Text, plainOffset);
+
+                if (index >= skipRows)
+                {
+                    WriteColoredUnsafe(line.Leading, defaultColor);
+                    WriteIrcFormattedRangeUnsafe(
+                        formatted, plainOffset, line.Text.Length, defaultColor);
+                    Console.WriteLine();
+                }
+
                 plainOffset += line.Text.Length;
-                Console.WriteLine();
             }
+
             EndOutputUnsafe();
         }
     }
@@ -1966,7 +2016,7 @@ internal sealed class ConsolePresenter
             var sliceEnd = Math.Min(end, runEnd);
             if (sliceEnd > sliceStart)
             {
-                var foreground = IrcColor(run.Style.Foreground, defaultColor);
+                var foreground = FormattedForeground(_theme, run.Style, defaultColor);
                 var background = IrcColor(run.Style.Background, defaultBackground);
                 if (run.Style.Reverse) (foreground, background) = (background, foreground);
                 if (run.Style.Bold) foreground = Brighten(foreground);
@@ -1989,6 +2039,18 @@ internal sealed class ConsolePresenter
         if (lineText.Length == 0) return Math.Min(start, plainText.Length);
         var found = plainText.IndexOf(lineText, Math.Min(start, plainText.Length), StringComparison.Ordinal);
         return found >= 0 ? found : Math.Min(start, plainText.Length);
+    }
+
+    internal static ConsoleColor FormattedForeground(
+        TerminalTheme theme,
+        IrcTextStyle style,
+        ConsoleColor fallback)
+    {
+        var baseColor = style.ForegroundRole is { } role
+            ? theme.RoleColor(role)
+            : style.BaseForeground ?? fallback;
+
+        return IrcColor(style.Foreground, baseColor);
     }
 
     internal static ConsoleColor IrcColor(int? color, ConsoleColor fallback)

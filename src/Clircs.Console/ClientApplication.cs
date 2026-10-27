@@ -180,6 +180,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     private readonly InboundResourceCircuitBreaker _inboundResourceCircuitBreaker = new();
     private readonly LiveNetworkSessionRegistry _liveSessions = new();
     private readonly WindowStateRegistry _windowStates = new();
+    private readonly ScriptWindowRegistry _scriptWindows = new();
     private readonly OutputRoutingCoordinator _outputRouting = new();
     private readonly ChannelSynchronizationCoordinator _channelSynchronization = new();
     private readonly SessionTransientState _sessionTransientState = new();
@@ -279,7 +280,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
                 ClearScriptHeader,
                 ClearScriptHeaders,
                 ReadScriptSecret,
-                ConfirmScriptPermissions),
+                ConfirmScriptPermissions,
+                CreateScriptWindowHostServices()),
             System.IO.Path.Combine(AppContext.BaseDirectory, "scripts"));
         RegisterCommands();
     }
@@ -491,10 +493,10 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             : result.Message ?? string.Empty;
 
         var local = context?.NetworkSessionId is null &&
-            context?.BufferId == _localStatusBuffer.Id;
+            context?.BufferId is not null;
         var session = local ? null : SessionFor(context?.NetworkSessionId);
         var buffer = local
-            ? _localStatusBuffer
+            ? ResolveWindowContext(context).Buffer
             : BufferFor(session, context?.BufferId);
         if (!local && session is not null && buffer is null)
         {
@@ -502,6 +504,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         }
         if (buffer is null)
         {
+            if (local) return;
             if (result.Presentation is not null) _presenter.Presentation(result.Presentation);
             else if (warning) _presenter.Warning(message);
             else if (result.Succeeded) _presenter.LocalResult(message);
@@ -530,15 +533,17 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         StoredWindowEvent stored;
         lock (_windowTransactionGate)
         {
-            var destinationExists = local ||
-                (session is not null && session.State.TryGetBuffer(buffer.Id, out _));
+            var destinationExists = local
+                ? buffer.Id == _localStatusBuffer.Id ||
+                    _scriptWindows.Find(buffer.Id) is not null
+                : session is not null && session.State.TryGetBuffer(buffer.Id, out _);
             stored = destinationExists
                 ? StoreWindowEventUnsafe(
                     sessionEvent,
                     buffer.Name,
                     isReplay: false,
                     trackUnread: false,
-                    assignNumber: !local)
+                    assignNumber: buffer.Id != _localStatusBuffer.Id)
                 : new StoredWindowEvent(false, false, false, false);
         }
         if (!stored.Stored) return;

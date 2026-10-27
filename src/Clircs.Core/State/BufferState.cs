@@ -10,7 +10,8 @@ public enum BufferKind
     Results,
     Diagnostics,
     DccChat,
-    DccTransfer
+    DccTransfer,
+    Script
 }
 
 public sealed record BufferState(BufferId Id, NetworkSessionId NetworkSessionId, BufferKind Kind, string Name);

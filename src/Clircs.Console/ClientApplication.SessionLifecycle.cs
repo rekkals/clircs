@@ -156,6 +156,7 @@ internal sealed partial class ClientApplication
                 SelectAfterSessionCloseUnsafe(session);
             }
             _liveSessions.Remove(session.State.Id);
+            _scriptWindows.RemoveSession(session.State.Id);
             closedBufferIds = session.State.Buffers.Select(buffer => buffer.Id).ToArray();
             foreach (var bufferId in closedBufferIds)
             {

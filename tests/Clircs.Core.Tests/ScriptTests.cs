@@ -37,6 +37,13 @@ internal static class ScriptTests
         suite.Add("raw command requests carry only explicitly granted raw access", RawPermissionRequiresGrantAsync);
         suite.Add("raw permission survives restart and remains revoked after restart", RawPermissionPersistsAndRevokesAsync);
         suite.Add("local network permission requires an explicit grant", LocalNetworkPermissionRequiresGrantAsync);
+        suite.Add("script window bindings preserve IDs scopes and return values", WindowBindingsPreserveContextAsync);
+        suite.Add("script window bindings copy text and presentation data", WindowBindingsPreserveOutputAsync);
+        suite.Add("script window operations require output permission", WindowBindingsRequireOutputAsync);
+        suite.Add("script window timestamps preserve offsets and fractional seconds", WindowBindingsPreserveTimestampsAsync);
+        suite.Add("script window bindings reject malformed lookup arguments", WindowBindingsRejectLookupArgumentsAsync);
+        suite.Add("script window bindings reject malformed output", WindowBindingsRejectOutputArgumentsAsync);
+        suite.Add("script window bindings enforce output boundaries", WindowBindingsEnforceOutputLimitsAsync);
         suite.Add("script command policy allows raw only with its explicit grant", ScriptCommandRequestsAreRestricted);
         suite.Add("script headers are removed when a script unloads", ScriptHeadersAreOwnedAsync);
         suite.Add("failed script loads roll back host resources", FailedLoadRollsBackResourcesAsync);
@@ -49,6 +56,356 @@ internal static class ScriptTests
         suite.Add("packaged musikcube addon loads without special core knowledge", MusikcubeAddonLoadsAsync);
         suite.Add("musikcube addon authenticates and controls a local protocol peer", MusikcubeAddonProtocolAsync);
         suite.Add("runaway scripts are bounded and faulted without blocking the host", RunawayScriptIsBoundedAsync);
+    }
+
+    private static async ValueTask WindowBindingsPreserveContextAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "window-context", """
+            clircs.registerCommand("windowprobe", [], "Inspect window bindings.", context => {
+              return JSON.stringify({
+                active: clircs.windows.active(),
+                status: clircs.windows.status(context.networkId),
+                localStatus: clircs.windows.status(),
+                found: clircs.windows.find("#room", context.networkId),
+                opened: clircs.windows.open("report", { networkId: context.networkId }),
+                local: clircs.windows.open("local"),
+                accepted: clircs.windows.write(context.bufferId, "context output")
+              });
+            });
+            """, ["commands", "output"]);
+
+        var visible = BufferId.New();
+        var status = BufferId.New();
+        var found = BufferId.New();
+        var windows = new WindowBindingHost
+        {
+            ActiveResult = visible,
+            StatusResult = status,
+            FindResult = found
+        };
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, host.Services with { Windows = windows.Services });
+        await manager.LoadAsync("window-context");
+
+        var network = NetworkSessionId.New();
+        var origin = BufferId.New();
+        var context = new CommandContext(network, origin);
+        var result = await host.Commands["windowprobe"].Handler(
+            context, [], CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        using var document = JsonDocument.Parse(result.Message!);
+        var root = document.RootElement;
+        Assert.Equal(visible.Value.ToString(), root.GetProperty("active").GetString()!);
+        Assert.Equal(status.Value.ToString(), root.GetProperty("status").GetString()!);
+        Assert.Equal(status.Value.ToString(), root.GetProperty("localStatus").GetString()!);
+        Assert.Equal(found.Value.ToString(), root.GetProperty("found").GetString()!);
+        Assert.Equal(windows.OpenResult.Value.ToString(), root.GetProperty("opened").GetString()!);
+        Assert.Equal(windows.OpenResult.Value.ToString(), root.GetProperty("local").GetString()!);
+        Assert.True(root.GetProperty("accepted").GetBoolean());
+
+        var statuses = windows.StatusRequests.ToArray();
+        Assert.Equal(2, statuses.Length);
+        Assert.True(statuses[0] == network);
+        Assert.True(statuses[1] is null);
+
+        var lookup = windows.Finds.Single();
+        Assert.Equal("#room", lookup.Name);
+        Assert.True(lookup.NetworkId == network);
+
+        var opens = windows.Opens.ToArray();
+        Assert.Equal(2, opens.Length);
+        Assert.Equal("window-context", opens[0].ScriptId);
+        Assert.Equal("report", opens[0].Name);
+        Assert.True(opens[0].NetworkId == network);
+        Assert.Equal("local", opens[1].Name);
+        Assert.True(opens[1].NetworkId is null);
+
+        var write = windows.Writes.Single();
+        Assert.Equal("window-context", write.ScriptId);
+        Assert.Equal(origin, write.BufferId);
+        Assert.Equal("context output", write.Output.Parts.Single().Text);
+
+        windows.ActiveResult = null;
+        windows.StatusResult = null;
+        windows.FindResult = null;
+        windows.WriteResult = false;
+
+        var missing = await host.Commands["windowprobe"].Handler(
+            context, [], CancellationToken.None);
+        Assert.True(missing.Succeeded);
+        using var missingDocument = JsonDocument.Parse(missing.Message!);
+        var missingRoot = missingDocument.RootElement;
+        Assert.Equal(JsonValueKind.Null, missingRoot.GetProperty("active").ValueKind);
+        Assert.Equal(JsonValueKind.Null, missingRoot.GetProperty("status").ValueKind);
+        Assert.Equal(JsonValueKind.Null, missingRoot.GetProperty("found").ValueKind);
+        Assert.False(missingRoot.GetProperty("accepted").GetBoolean());
+    }
+
+    private static async ValueTask WindowBindingsPreserveOutputAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "window-output", """
+            const target = "11111111-1111-1111-1111-111111111111";
+            const piece = clircs.style("WaRnInG", "\u0002warning\u000f");
+            if (!Object.isFrozen(piece) || piece.role !== "warning") {
+              throw new Error("Styled pieces must be frozen plain data.");
+            }
+            const parts = ["before ", piece, { text: " fixed", color: "GREEN" }, " after.  "];
+            const options = { role: "NOTICE" };
+            clircs.windows.write(target, parts, options);
+            parts[0] = "changed";
+            options.role = "error";
+            clircs.windows.write(target, "plain");
+            clircs.windows.write(target, "fixed", { color: "darkmagenta" });
+            """, ["output"]);
+
+        var windows = new WindowBindingHost();
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, host.Services with { Windows = windows.Services });
+        await manager.LoadAsync("window-output");
+
+        var writes = windows.Writes.ToArray();
+        Assert.Equal(3, writes.Length);
+        Assert.Equal("window-output", writes[0].ScriptId);
+        Assert.Equal(
+            new BufferId(Guid.Parse("11111111-1111-1111-1111-111111111111")),
+            writes[0].BufferId);
+
+        var output = writes[0].Output;
+        Assert.True(output.Style!.Role == TextColorRole.Notice);
+        Assert.True(output.Timestamp is null);
+        Assert.Equal(4, output.Parts.Count);
+        Assert.Equal("before ", output.Parts[0].Text);
+        Assert.Equal("\u0002warning\u000f", output.Parts[1].Text);
+        Assert.True(output.Parts[1].Style!.Role == TextColorRole.Warning);
+        Assert.True(output.Parts[2].Style!.Color == ConsoleColor.Green);
+        Assert.Equal(" after.  ", output.Parts[3].Text);
+
+        Assert.Equal("plain", writes[1].Output.Parts.Single().Text);
+        Assert.True(writes[1].Output.Style is null);
+        Assert.True(writes[2].Output.Style!.Color == ConsoleColor.DarkMagenta);
+    }
+
+    private static async ValueTask WindowBindingsRequireOutputAsync()
+    {
+        string[] operations =
+        [
+            """clircs.windows.active();""",
+            """clircs.windows.status(network);""",
+            """clircs.windows.find("#room", network);""",
+            """clircs.windows.open("report");""",
+            """clircs.windows.write(target, "text");""",
+            """clircs.style("warning", "text");"""
+        ];
+
+        foreach (var operation in operations)
+        {
+            await AssertWindowScriptRejectedAsync(operation, [], "output");
+        }
+    }
+
+    private static async ValueTask WindowBindingsPreserveTimestampsAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "window-timestamps", """
+            const target = "11111111-1111-1111-1111-111111111111";
+            for (const timestamp of [
+              "2026-10-27T12:34:56Z",
+              "2026-10-27T12:34:56.123Z",
+              "2026-10-27T12:34:56.1234567+05:30",
+              "2026-10-27T12:34:56-04:00"
+            ]) {
+              clircs.windows.write(target, "timestamp", { timestamp });
+            }
+            """, ["output"]);
+
+        var windows = new WindowBindingHost();
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, host.Services with { Windows = windows.Services });
+        await manager.LoadAsync("window-timestamps");
+
+        DateTimeOffset[] expected =
+        [
+            new DateTimeOffset(2026, 10, 27, 12, 34, 56, TimeSpan.Zero),
+            new DateTimeOffset(2026, 10, 27, 12, 34, 56, TimeSpan.Zero)
+                .AddMilliseconds(123),
+            new DateTimeOffset(2026, 10, 27, 12, 34, 56, new TimeSpan(5, 30, 0))
+                .AddTicks(1_234_567),
+            new DateTimeOffset(2026, 10, 27, 12, 34, 56, TimeSpan.FromHours(-4))
+        ];
+
+        var writes = windows.Writes.ToArray();
+        Assert.Equal(expected.Length, writes.Length);
+        for (var index = 0; index < expected.Length; index++)
+        {
+            var actual = writes[index].Output.Timestamp!.Value;
+            Assert.Equal(expected[index], actual);
+            Assert.Equal(expected[index].Offset, actual.Offset);
+        }
+    }
+
+    private static async ValueTask WindowBindingsRejectLookupArgumentsAsync()
+    {
+        string[] cases =
+        [
+            """clircs.windows.status(42);""",
+            """clircs.windows.status("not-an-id");""",
+            """clircs.windows.status("00000000-0000-0000-0000-000000000000");""",
+            """clircs.windows.find(null, network);""",
+            """clircs.windows.find(" ", network);""",
+            """clircs.windows.find(["#room"], network);""",
+            """clircs.windows.find("#room", false);""",
+            """clircs.windows.find("#room", "not-an-id");""",
+            """clircs.windows.open(42);""",
+            """clircs.windows.open(" ");""",
+            """clircs.windows.open("report", null);""",
+            """clircs.windows.open("report", []);""",
+            """clircs.windows.open("report", new Date());""",
+            """clircs.windows.open("report", { networkId: 42 });""",
+            """clircs.windows.open("report", { networkId: "not-an-id" });""",
+            """clircs.windows.open("report", { networkId: "00000000-0000-0000-0000-000000000000" });""",
+            """clircs.windows.open("report", { NetworkId: network });""",
+            """clircs.windows.open("report", { focus: true });""",
+            """clircs.windows.open("report", { [Symbol("unknown")]: network });""",
+            """clircs.windows.open("report", Object.create({ networkId: network }));"""
+        ];
+
+        foreach (var source in cases)
+        {
+            await AssertWindowScriptRejectedAsync(source, ["output"]);
+        }
+    }
+
+    private static async ValueTask WindowBindingsRejectOutputArgumentsAsync()
+    {
+        string[] cases =
+        [
+            """clircs.windows.write(null, "text");""",
+            """clircs.windows.write("not-an-id", "text");""",
+            """clircs.windows.write("00000000-0000-0000-0000-000000000000", "text");""",
+            """clircs.windows.write(target, 42);""",
+            """clircs.windows.write(target, null);""",
+            """clircs.windows.write(target, [["nested"]]);""",
+            """clircs.windows.write(target, new Array(1));""",
+            """clircs.windows.write(target, [{}]);""",
+            """clircs.windows.write(target, [{ text: 42 }]);""",
+            """clircs.windows.write(target, [{ text: "x", role: "unknown" }]);""",
+            """clircs.windows.write(target, [{ text: "x", color: "unknown" }]);""",
+            """clircs.windows.write(target, [{ text: "x", role: "warning", color: "red" }]);""",
+            """clircs.windows.write(target, [{ text: "x", scriptId: "other" }]);""",
+            """clircs.windows.write(target, "text", null);""",
+            """clircs.windows.write(target, "text", { role: "warning", color: "red" });""",
+            """clircs.windows.write(target, "text", { role: "1" });""",
+            """clircs.windows.write(target, "text", { color: "0" });""",
+            """clircs.windows.write(target, "text", { role: null });""",
+            """clircs.windows.write(target, "text", { scriptId: "other" });""",
+            """clircs.windows.write(target, "text", { [Symbol("unknown")]: "x" });""",
+            """clircs.windows.write(target, "text", { timestamp: 42 });""",
+            """clircs.windows.write(target, "text", { timestamp: "not-a-date" });""",
+            """clircs.windows.write(target, "text", { timestamp: "2026-10-27T12:34:56" });""",
+            """clircs.windows.write(target, "text", { timestamp: "2026-02-30T12:34:56Z" });""",
+            """clircs.windows.write(target, "text", { timestamp: "2026-10-27T12:34:56.Z" });""",
+            """clircs.style("unknown", "text");""",
+            """clircs.style("0", "text");""",
+            """clircs.style(42, "text");""",
+            """clircs.style("warning", null);""",
+            """__clirc_windows_write(target, '{"parts":["x"],"scriptId":"other"}');""",
+            """__clirc_windows_write(target, '{"parts":["x"],"role":1}');""",
+            """__clirc_windows_write(target, '{"parts":["x"],"role":"notice","role":"warning"}');"""
+        ];
+
+        foreach (var source in cases)
+        {
+            await AssertWindowScriptRejectedAsync(source, ["output"]);
+        }
+    }
+
+    private static async ValueTask WindowBindingsEnforceOutputLimitsAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "window-limits", """
+            const target = "11111111-1111-1111-1111-111111111111";
+            clircs.windows.write(target, "x".repeat(4096));
+            clircs.windows.write(target, Array(4096).fill(""));
+            clircs.style("highlight", "x".repeat(4096));
+            const payload = '{"parts":["x"]}';
+            __clirc_windows_write(
+              target, " ".repeat(262144 - payload.length) + payload);
+            """, ["output"]);
+
+        var windows = new WindowBindingHost();
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, host.Services with { Windows = windows.Services });
+        await manager.LoadAsync("window-limits");
+
+        var writes = windows.Writes.ToArray();
+        Assert.Equal(3, writes.Length);
+        Assert.Equal(new string('x', 4096), writes[0].Output.Parts.Single().Text);
+        Assert.Equal(4096, writes[1].Output.Parts.Count);
+        Assert.True(writes[1].Output.Parts.All(part => part.Text.Length == 0));
+        Assert.Equal("x", writes[2].Output.Parts.Single().Text);
+
+        string[] rejected =
+        [
+            """clircs.windows.write(target, "x".repeat(4097));""",
+            """clircs.windows.write(target, ["x".repeat(2048), "y".repeat(2049)]);""",
+            """clircs.windows.write(target, "\u0002".repeat(4097));""",
+            """clircs.windows.write(target, Array(4097).fill(""));""",
+            """clircs.style("warning", "x".repeat(4097));""",
+            """__clirc_windows_write(target, JSON.stringify({ parts: Array(4097).fill("") }));""",
+            """__clirc_windows_write(target, " ".repeat(262145) + '{"parts":["x"]}');"""
+        ];
+
+        foreach (var source in rejected)
+        {
+            await AssertWindowScriptRejectedAsync(source, ["output"]);
+        }
+    }
+
+    private static async ValueTask AssertWindowScriptRejectedAsync(
+        string source,
+        string[] permissions,
+        string? expectedMessage = null)
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "window-rejected", """
+            const target = "11111111-1111-1111-1111-111111111111";
+            const network = "22222222-2222-2222-2222-222222222222";
+            """ + Environment.NewLine + source, permissions);
+
+        var windows = new WindowBindingHost();
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, host.Services with { Windows = windows.Services });
+
+        InvalidOperationException exception;
+        try
+        {
+            exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => manager.LoadAsync("window-rejected").AsTask());
+        }
+        catch (Exception failure)
+        {
+            throw new InvalidOperationException(
+                $"Expected this script to be rejected: {source}", failure);
+        }
+
+        Assert.True(
+            windows.Calls.IsEmpty,
+            $"Rejected input reached the window host: {source}");
+
+        if (expectedMessage is not null)
+        {
+            Assert.True(
+                exception.Message.Contains(expectedMessage, StringComparison.OrdinalIgnoreCase),
+                $"Unexpected rejection for: {source}{Environment.NewLine}{exception.Message}");
+        }
     }
 
     private static void ScriptCommandRequestsAreRestricted()
@@ -1569,8 +1926,69 @@ internal static class ScriptTests
         File.WriteAllText(System.IO.Path.Combine(scriptDirectory, "main.js"), source);
     }
 
+    private sealed class WindowBindingHost
+    {
+        public WindowBindingHost()
+        {
+            Services = new ScriptWindowHostServices(
+                () =>
+                {
+                    Calls.Enqueue("active");
+                    return ActiveResult;
+                },
+                networkId =>
+                {
+                    Calls.Enqueue("status");
+                    StatusRequests.Enqueue(networkId);
+                    return StatusResult;
+                },
+                (name, networkId) =>
+                {
+                    Calls.Enqueue("find");
+                    Finds.Enqueue((name, networkId));
+                    return FindResult;
+                },
+                (scriptId, name, networkId) =>
+                {
+                    Calls.Enqueue("open");
+                    Opens.Enqueue((scriptId, name, networkId));
+                    return OpenResult;
+                },
+                (scriptId, bufferId, output) =>
+                {
+                    Calls.Enqueue("write");
+                    Writes.Enqueue((scriptId, bufferId, output));
+                    return WriteResult;
+                });
+        }
+
+        public BufferId? ActiveResult { get; set; } = BufferId.New();
+
+        public BufferId? StatusResult { get; set; } = BufferId.New();
+
+        public BufferId? FindResult { get; set; } = BufferId.New();
+
+        public BufferId OpenResult { get; } = BufferId.New();
+
+        public bool WriteResult { get; set; } = true;
+
+        public ConcurrentQueue<string> Calls { get; } = new();
+
+        public ConcurrentQueue<NetworkSessionId?> StatusRequests { get; } = new();
+
+        public ConcurrentQueue<(string Name, NetworkSessionId? NetworkId)> Finds { get; } = new();
+
+        public ConcurrentQueue<(string ScriptId, string Name, NetworkSessionId? NetworkId)> Opens { get; } = new();
+
+        public ConcurrentQueue<(string ScriptId, BufferId BufferId, ScriptWindowOutput Output)> Writes { get; } = new();
+
+        public ScriptWindowHostServices Services { get; }
+    }
+
     private sealed class TestScriptHost
     {
+        private static InvalidOperationException WindowServicesNotConfigured() =>
+            new("Window services were not configured for this test.");
         private readonly ConcurrentQueue<string> _output = new();
         private readonly SemaphoreSlim _outputAvailable = new(0);
         private readonly SemaphoreSlim _headerAvailable = new(0);
@@ -1624,7 +2042,13 @@ internal static class ScriptTests
                 {
                     PermissionRequests.Enqueue(request);
                     return PermissionApproval(request);
-                });
+                },
+                new ScriptWindowHostServices(
+                    () => throw WindowServicesNotConfigured(),
+                    _ => throw WindowServicesNotConfigured(),
+                    (_, _) => throw WindowServicesNotConfigured(),
+                    (_, _, _) => throw WindowServicesNotConfigured(),
+                    (_, _, _) => throw WindowServicesNotConfigured()));
         }
 
         public ConcurrentDictionary<string, ScriptCommandRegistration> Commands { get; } = new(StringComparer.OrdinalIgnoreCase);

@@ -8,7 +8,12 @@ public sealed record IrcTextStyle(
     bool Bold = false,
     bool Italic = false,
     bool Underline = false,
-    bool Reverse = false);
+    bool Reverse = false)
+{
+    public TextColorRole? ForegroundRole { get; init; }
+
+    public ConsoleColor? BaseForeground { get; init; }
+}
 
 public sealed record IrcTextRun(string Text, IrcTextStyle Style);
 

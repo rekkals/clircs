@@ -21,16 +21,28 @@ internal sealed partial class ClientApplication
         BufferKind.Status,
         "*");
     private readonly DateChangeClock _dateChangeClock = new(DateTimeOffset.Now);
-    private CommandResult SwitchTo(IrcNetworkSession session, BufferState buffer)
+    private CommandResult SwitchTo(IrcNetworkSession? session, BufferState buffer)
     {
         lock (_windowTransactionGate)
         {
-            _windowStates.Activate(session.State.Id, buffer.Id);
+            ActivateWindowUnsafe(session, buffer);
         }
 
         RedrawActiveBuffer(session, buffer, pendingEvent: null);
 
         return CommandResult.Success();
+    }
+
+    private void ActivateWindowUnsafe(IrcNetworkSession? session, BufferState buffer)
+    {
+        if (session is null)
+        {
+            _windowStates.ActivateLocal(buffer.Id);
+        }
+        else
+        {
+            _windowStates.Activate(session.State.Id, buffer.Id);
+        }
     }
 
     private (NetworkSessionId? SessionId, BufferId? BufferId) ActiveLocation()
@@ -191,20 +203,11 @@ internal sealed partial class ClientApplication
         return session;
     }
 
-    private IrcNetworkSession? ActiveSession()
-    {
-        var invocationSession = _commandExecution.CurrentContext?.NetworkSessionId;
-        return _windowStates.ResolveSession(_liveSessions, invocationSession);
-    }
+    private IrcNetworkSession? ActiveSession() =>
+        ResolveWindowContext(_commandExecution.CurrentContext).Session;
 
-    private BufferState? ActiveBuffer()
-    {
-        var invocation = _commandExecution.CurrentContext;
-        return _windowStates.ResolveBuffer(
-            _liveSessions,
-            invocation?.NetworkSessionId,
-            invocation?.BufferId);
-    }
+    private BufferState? ActiveBuffer() =>
+        ResolveWindowContext(_commandExecution.CurrentContext).Buffer;
 
     private CommandContext CaptureCommandContext()
     {
@@ -279,11 +282,17 @@ internal sealed partial class ClientApplication
         return DccStateText(request!.State);
     }
 
-    private IEnumerable<(IrcNetworkSession Session, BufferState Buffer)> OrderedBuffers()
+    private IEnumerable<(IrcNetworkSession? Session, BufferState Buffer)> OrderedBuffers()
     {
         var entries = SessionsSnapshot()
-            .SelectMany(session => session.State.Buffers.Select(buffer => (Session: session, Buffer: buffer)))
+            .SelectMany(session => session.State.Buffers.Select(buffer => (
+                Session: (IrcNetworkSession?)session,
+                Buffer: buffer)))
+            .Concat(_scriptWindows.LocalBuffersSnapshot().Select(buffer => (
+                Session: (IrcNetworkSession?)null,
+                Buffer: buffer)))
             .ToArray();
+
         foreach (var entry in entries)
         {
             BufferNumber(entry.Buffer.Id);
@@ -353,6 +362,7 @@ internal sealed partial class ClientApplication
         var buffers = SessionsSnapshot()
             .SelectMany(session => session.State.Buffers)
             .Where(buffer => _windowStates.HasNumber(buffer.Id))
+            .Concat(_scriptWindows.LocalBuffersSnapshot())
             .Append(_localStatusBuffer)
             .ToArray();
 
@@ -396,15 +406,31 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private (IrcNetworkSession? Session, BufferState? Buffer) ActiveDisplayWindowSnapshot()
+    private (IrcNetworkSession? Session, BufferState? Buffer) ActiveDisplayWindowSnapshot() =>
+        ResolveWindowContext(null);
+
+    private (IrcNetworkSession? Session, BufferState? Buffer) ResolveWindowContext(
+        CommandContext? context)
     {
-        var active = _windowStates.ActiveLocation();
-        if (active.SessionId is null && active.BufferId == _localStatusBuffer.Id)
+        var location = context is null ||
+            (context.NetworkSessionId is null && context.BufferId is null)
+                ? _windowStates.ActiveLocation()
+                : (SessionId: context.NetworkSessionId, BufferId: context.BufferId);
+
+        if (location.SessionId is { } sessionId)
+        {
+            var session = _liveSessions.Find(sessionId);
+            return (session, BufferFor(session, location.BufferId));
+        }
+
+        if (location.BufferId == _localStatusBuffer.Id)
         {
             return (null, _localStatusBuffer);
         }
 
-        return _windowStates.ResolveActive(_liveSessions);
+        return (null, location.BufferId is { } bufferId
+            ? _scriptWindows.FindLocal(bufferId)
+            : null);
     }
 
     private WindowChromeModel BuildWindowChrome(IrcNetworkSession? session, BufferState? buffer) =>
@@ -443,8 +469,16 @@ internal sealed partial class ClientApplication
         var fields = new List<string>();
         if (session is null || buffer is null)
         {
-            fields.Add(ProductInfo.DisplayName);
-            fields.Add("offline");
+            if (buffer is { Kind: BufferKind.Script })
+            {
+                fields.Add($"({BufferNumber(buffer.Id)}) {ProductInfo.DisplayName}");
+                fields.Add(buffer.Name);
+            }
+            else
+            {
+                fields.Add(ProductInfo.DisplayName);
+                fields.Add("offline");
+            }
         }
         else
         {
@@ -748,14 +782,15 @@ internal sealed partial class ClientApplication
             session.State.Id.ToString().StartsWith(selector, StringComparison.OrdinalIgnoreCase));
     }
 
-    private (IrcNetworkSession Session, BufferState Buffer)? FindBuffer(string selector)
+    private (IrcNetworkSession? Session, BufferState Buffer)? FindBuffer(string selector)
     {
         var separator = selector.IndexOf('/');
         if (separator > 0)
         {
             var sessions = SessionsSnapshot();
             var session = FindSession(selector[..separator], sessions);
-            if (session is not null && session.State.TryGetBuffer(selector[(separator + 1)..], out var qualified))
+            if (session is not null &&
+                session.State.TryGetBuffer(selector[(separator + 1)..], out var qualified))
             {
                 return (session, qualified!);
             }
@@ -764,9 +799,14 @@ internal sealed partial class ClientApplication
         }
 
         var active = ActiveSession();
-        return active is not null && active.State.TryGetBuffer(selector, out var buffer)
-            ? (active, buffer!)
-            : null;
+        if (active is not null &&
+            active.State.TryGetBuffer(selector, out var buffer))
+        {
+            return (active, buffer!);
+        }
+
+        var local = _scriptWindows.Find(selector, null);
+        return local is null ? null : ((IrcNetworkSession?)null, local);
     }
 
     private string UniqueDisplayName(string requested)
@@ -804,24 +844,26 @@ internal sealed partial class ClientApplication
         var closingNumber = _windowStates.ActiveBufferId is { } active
             ? _windowStates.NumberOr(active, int.MaxValue)
             : int.MaxValue;
-        var candidates = _liveSessions.SessionSnapshot()
-            .Where(session => session.State.Id != closingSession.State.Id)
-            .SelectMany(session => session.State.Buffers.Select(buffer => (
-                Session: session,
-                Buffer: buffer,
-                Number: AssignBufferNumberUnsafe(buffer.Id))))
+        var candidates = OrderedBuffers()
+            .Where(entry => entry.Session?.State.Id != closingSession.State.Id)
+            .Select(entry => (
+                entry.Session,
+                entry.Buffer,
+                Number: BufferNumber(entry.Buffer.Id)))
             .ToArray();
         var selected = candidates
             .Where(candidate => candidate.Number < closingNumber)
             .OrderByDescending(candidate => candidate.Number)
             .FirstOrDefault();
+
         if (selected.Buffer is null)
         {
             selected = candidates.OrderBy(candidate => candidate.Number).FirstOrDefault();
         }
+
         if (selected.Buffer is not null)
         {
-            _windowStates.Activate(selected.Session!.State.Id, selected.Buffer.Id);
+            ActivateWindowUnsafe(selected.Session, selected.Buffer);
         }
         else
         {

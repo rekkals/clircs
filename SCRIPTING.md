@@ -1,6 +1,8 @@
 # clircs Scripting Guide
 
-clircs scripting is a deliberately small extension system built on the embedded Jint JavaScript interpreter. An addon can add commands, observe semantic IRC events, keep private settings, use bounded timers, and contribute small items to the window header.
+clircs scripting is a deliberately small extension system built on the embedded Jint JavaScript interpreter. An addon can add commands, observe semantic IRC events, write local output to existing or script-created windows, keep private settings, use bounded timers, and contribute small items to the window header.
+
+Scripts extend clircs's behavior. Event handlers observe its normal processing and can add output; they cannot suppress, rewrite, or reroute the original event.
 
 It is narrower than mIRC scripting, a browser, Node.js, or unrestricted .NET on purpose. Scripts receive only the `clircs` APIs described here. They do not receive arbitrary filesystem access, process launching, registry access, raw sockets, unrestricted CLR access, or unrestricted Internet access.
 
@@ -94,7 +96,7 @@ The permissions below must be requested in the manifest and granted before their
 | `commands` | Register clircs commands and aliases. |
 | `events` | Observe semantic client and IRC events. |
 | `timers` | Create and cancel bounded one-shot timers. |
-| `output` | Print sanitized text in clircs. |
+| `output` | Print local output, look up or create windows, and write styled text to windows. |
 | `storage` | Read and write private durable string settings. |
 | `raw` | Allow `/raw` and `/quote` through `clircs.run()`. |
 | `localnetwork` | Open text WebSockets restricted to the local machine. |
@@ -175,6 +177,72 @@ clircs.print("hello");
 ```
 
 Requires `output`. Text is prefixed with the script ID when displayed, terminal controls are sanitized, and one call cannot exceed 4,096 characters.
+
+### Writing to Windows
+
+All functions below, including `clircs.style()`, require `output`.
+
+| Function | Behavior |
+| --- | --- |
+| `clircs.windows.active()` | Returns the currently visible window's ID, or `null` when unavailable. |
+| `clircs.windows.status(networkId = null)` | Returns that connection's status-window ID. Omitted or `null` selects the application's local status window. An unknown connection returns `null`. |
+| `clircs.windows.find(name, networkId = null)` | Looks up a complete window name in the specified connection or local scope. Returns its ID or `null`. It does not perform substring or wildcard searches. |
+| `clircs.windows.open(name, options = {})` | Creates or reuses a script-owned background window and returns its ID. The supported option is `networkId`; omitted or `null` creates a connection-independent window. |
+| `clircs.windows.write(windowId, text, options = {})` | Appends local output to that specific window. Returns `true` when stored, or `false` when the destination is unavailable or the client is shutting down. |
+
+Window IDs use the same format as `context.bufferId` and `event.bufferId`. Connection IDs come from `context.networkId` or `event.networkId`. Treat these IDs as opaque values.
+
+`active()` reports the window visible when called. For delayed work, capture the intended ID beforehand or use the callback's context ID so switching windows cannot redirect the output.
+
+Script window names contain 1–64 ASCII letters, digits, underscores, or hyphens. A script named `my-script` opening `report` creates `=my-script.report`. Names are scoped by script and connection, and reuse ignores case. Each script may have up to 64 open script-created windows across all scopes.
+
+Opening a window does not select it. Users navigate and close script windows through the ordinary window commands.
+
+```javascript
+const report = clircs.windows.open("report");
+
+clircs.windows.write(report, "Report initialized.", { role: "notice" });
+
+clircs.windows.write(report, [
+  "State: ",
+  clircs.style("highlight", "ready"),
+  "."
+]);
+```
+
+Writes are local text. Sending IRC messages continues through `clircs.run()`. Output is stored without an automatic script-ID prefix; clircs records the originating script internally.
+
+#### Presentation
+
+`text` may be a string or a flat array containing strings and styled text objects. `clircs.style(role, text)` returns a frozen styled piece. Objects may also be supplied directly as `{ text, role }` or `{ text, color }`.
+
+The write options are:
+
+| Option | Meaning |
+| --- | --- |
+| `role` | Base theme color for the output text. |
+| `color` | Fixed console color instead of a theme role. |
+| `timestamp` | Optional ISO 8601 timestamp containing UTC `Z` or an explicit offset. Defaults to the current time. |
+
+A style can specify either `role` or `color`. Names are case-insensitive.
+
+Theme roles are `normal`, `dim`, `accent`, `label`, `message`, `highlight`, `action`, `notice`, `join`, `part`, `nick`, `mode`, `warning`, `error`, and `kick`. Roles remain attached to stored text and follow the current theme when history is redrawn. They affect presentation without changing the output's local-event classification.
+
+Fixed colors are `black`, `darkblue`, `darkgreen`, `darkcyan`, `darkred`, `darkmagenta`, `darkyellow`, `gray`, `darkgray`, `blue`, `green`, `cyan`, `red`, `magenta`, `yellow`, and `white`.
+
+Unstyled pieces inherit the write's base style. Each piece has its own IRC formatting state. Embedded IRC colors override that piece's base color; formatting resets return to its base style.
+
+Output uses ordinary clircs wrapping, paging, resizing, Activity, and terminal-control filtering. One write may contain at most 4,096 characters across all pieces, including formatting codes, and at most 4,096 pieces. Existing logging settings apply when writing to a loggable window; script-created windows currently provide scrollback without transcript logging.
+
+#### Lifetime and Failures
+
+Script windows and their history remain available after script unload, fault, and ordinary connection disconnection. Reloading the same script can reuse them. Permanently closing a network session removes its associated script windows. Window history is not persisted across application restarts.
+
+After a user closes a script window, its old ID becomes invalid. A later `open()` can recreate it with a new ID. Writes never fall back to a different window.
+
+Invalid arguments, unknown options, and invalid role, color, or timestamp values raise errors. Opening a window for a connection that no longer exists also raises an error.
+
+Text written through `clircs.windows.write()` is not delivered to `clircs.on()` handlers.
 
 ### Registering Commands
 
@@ -302,7 +370,7 @@ When present, `fields` is an object whose names depend on the event. IRC events 
 
 Server notices use the `notice` event kind with `fields.serverNotice` set to `"true"`. For notices outside channels, `fields.outputFamily` is `"snotice"` for server notices and `"notice"` for ordinary user notices. Channel notices retain their channel routing.
 
-Events are delivered after clircs has applied protocol state and application routing. Scripts observe semantic events rather than parsing themed terminal output, so changing a theme does not quietly break an addon. Stable IDs distinguish identical channel names on simultaneous networks.
+Events are delivered after clircs has applied protocol state, routing, and history storage, and handled the event's normal display. Scripts observe semantic events rather than parsing themed terminal output, so changing a theme does not quietly break an addon. Stable IDs distinguish identical channel names on simultaneous connections. Handlers can add notifications or other output while the original event follows clircs's normal behavior.
 
 One script may register at most 256 event handlers.
 
@@ -407,7 +475,7 @@ Every script receives its own Jint engine and serialized callback queue. The lim
 
 A script also cannot queue more than 512 pending callbacks. Exceeding a hard execution or queue limit faults that script. Three consecutive ordinary handler failures also fault it.
 
-Faulting a script unregisters its commands, cancels its timers, removes its header items, and closes its local WebSockets. A script can ruin its own afternoon; it does not get to disconnect IRC sessions or disable other scripts. Inspect failures with:
+Faulting a script unregisters its commands, cancels its timers, removes its header items, and closes its local WebSockets. Its script windows and their history remain available. Normal IRC processing continues. Inspect failures with:
 
 ```text
 /script errors

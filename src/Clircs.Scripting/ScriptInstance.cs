@@ -6,7 +6,7 @@ using Jint.Native;
 
 namespace Clircs.Scripting;
 
-internal sealed class ScriptInstance : IAsyncDisposable
+internal sealed partial class ScriptInstance : IAsyncDisposable
 {
     private const int MaximumCommands = 64;
     private const int MaximumEventHandlers = 256;
@@ -22,6 +22,66 @@ internal sealed class ScriptInstance : IAsyncDisposable
     private const string Bootstrap = """
         globalThis.clircs = Object.freeze({
           print: text => __clirc_print(String(text)),
+          style: (role, text) => Object.freeze(JSON.parse(__clirc_style(role, text))),
+          windows: Object.freeze({
+            active: () => __clirc_windows_active(),
+            status: (networkId = null) => __clirc_windows_status(networkId),
+            find: (name, networkId = null) => __clirc_windows_find(name, networkId),
+            open: (name, options = {}) => {
+              if (options === null || typeof options !== "object" || Array.isArray(options)) {
+                throw new TypeError("Window options must be a plain object.");
+              }
+              const prototype = Object.getPrototypeOf(options);
+              if (prototype !== Object.prototype && prototype !== null) {
+                throw new TypeError("Window options must be a plain object.");
+              }
+              if (Reflect.ownKeys(options).some(key => key !== "networkId")) {
+                throw new TypeError("Unknown window option. Supported option: networkId.");
+              }
+              const networkId = Object.prototype.hasOwnProperty.call(options, "networkId")
+                ? options.networkId
+                : null;
+              return __clirc_windows_open(name, networkId);
+            },
+            write: (windowId, text, options = {}) => {
+              const readObject = (value, allowed, label) => {
+                if (value === null || typeof value !== "object" || Array.isArray(value)) {
+                  throw new TypeError(label + " must be a plain object.");
+                }
+                const prototype = Object.getPrototypeOf(value);
+                if (prototype !== Object.prototype && prototype !== null) {
+                  throw new TypeError(label + " must be a plain object.");
+                }
+                const result = Object.create(null);
+                for (const key of Reflect.ownKeys(value)) {
+                  if (!allowed.includes(key)) {
+                    throw new TypeError("Unknown " + label + " field.");
+                  }
+                  const field = value[key];
+                  if (typeof field !== "string") {
+                    throw new TypeError(label + " fields must be text.");
+                  }
+                  result[key] = field;
+                }
+                return result;
+              };
+              let parts;
+              if (typeof text === "string") {
+                parts = [text];
+              } else if (Array.isArray(text)) {
+                if (text.length > 4096) {
+                  throw new TypeError("Script output cannot contain more than 4096 text parts.");
+                }
+                parts = text.map(part => typeof part === "string"
+                  ? part
+                  : readObject(part, ["text", "role", "color"], "styled text"));
+              } else {
+                throw new TypeError("Output must be text or an array of text pieces.");
+              }
+              const settings = readObject(options, ["role", "color", "timestamp"], "output");
+              return __clirc_windows_write(windowId, JSON.stringify({ parts, ...settings }));
+            }
+          }),
           on: (eventName, handler) => __clirc_on(String(eventName), handler),
           registerCommand: (name, aliases, summary, handler, help = null) =>
             __clirc_register_command(
@@ -259,6 +319,12 @@ internal sealed class ScriptInstance : IAsyncDisposable
     private void BindHostFunctions()
     {
         _engine.SetValue("__clirc_print", new Action<string>(Print));
+        _engine.SetValue("__clirc_windows_active", new Func<string?>(WindowActive));
+        _engine.SetValue("__clirc_windows_status", new Func<JsValue, string?>(WindowStatus));
+        _engine.SetValue("__clirc_windows_find", new Func<JsValue, JsValue, string?>(WindowFind));
+        _engine.SetValue("__clirc_windows_open", new Func<JsValue, JsValue, string>(WindowOpen));
+        _engine.SetValue("__clirc_windows_write", new Func<JsValue, string, bool>(WindowWrite));
+        _engine.SetValue("__clirc_style", new Func<JsValue, JsValue, string>(WindowStyle));
         _engine.SetValue("__clirc_on", new Action<string, JsValue>(RegisterEvent));
         _engine.SetValue("__clirc_register_command", new Action<string, string, string, JsValue, string>(RegisterCommand));
         _engine.SetValue("__clirc_run", new Action<string>(QueueCommand));
