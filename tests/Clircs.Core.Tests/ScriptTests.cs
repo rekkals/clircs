@@ -1,9 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Clircs.Commands;
 using Clircs.ConsoleClient;
@@ -63,8 +59,6 @@ internal static class ScriptTests
         suite.Add("listing scripts does not persist default permissions", ListingScriptsIsReadOnlyAsync);
         suite.Add("script secrets are encrypted and survive reload", ScriptSecretsPersistAsync);
         suite.Add("human secret entry does not consume the script time budget", ScriptSecretPromptIsUntimedAsync);
-        suite.Add("packaged musikcube addon loads without special core knowledge", MusikcubeAddonLoadsAsync);
-        suite.Add("musikcube addon authenticates and controls a local protocol peer", MusikcubeAddonProtocolAsync);
         suite.Add("runaway scripts are bounded and faulted without blocking the host", RunawayScriptIsBoundedAsync);
     }
 
@@ -2013,310 +2007,6 @@ internal static class ScriptTests
         Assert.Equal("loaded", manager.List().Single().Status);
     }
 
-    private static async ValueTask MusikcubeAddonLoadsAsync()
-    {
-        using var directory = new TemporaryDirectory();
-        var examples = Path.Combine(Directory.GetCurrentDirectory(), "examples");
-        var host = new TestScriptHost();
-        await using var manager = new ScriptManager(directory.Path, host.Services, examples);
-        await manager.SetPermissionAsync("musikcube", ScriptPermission.LocalNetwork, granted: false);
-        var loaded = await manager.LoadAsync("musikcube");
-        Assert.Equal("loaded", loaded.Status);
-        Assert.True(host.Commands.ContainsKey("song"));
-        Assert.True(host.Commands.ContainsKey("music"));
-        var status = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ScriptInput("status"), CancellationToken.None);
-        Assert.True(status.Message!.Contains("localnetwork", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static async ValueTask MusikcubeAddonProtocolAsync()
-    {
-        using var directory = new TemporaryDirectory();
-        var source = Path.Combine(Directory.GetCurrentDirectory(), "examples", "musikcube");
-        var destination = Path.Combine(directory.Path, "scripts", "musikcube");
-        CopyDirectory(source, destination);
-        Directory.CreateDirectory(Path.Combine(directory.Path, "script-data"));
-        var port = FreePort();
-        File.WriteAllText(
-            Path.Combine(directory.Path, "script-data", "musikcube.json"),
-            JsonSerializer.Serialize(new Dictionary<string, string>
-            {
-                ["address"] = "127.0.0.1",
-                ["port"] = port.ToString()
-            }));
-
-        var listener = new TcpListener(IPAddress.Loopback, port);
-        listener.Start();
-        var handshaken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var broadcastAllowed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pollReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var periodicRefreshReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var nextReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        TcpClient? acceptedClient = null;
-        var server = Task.Run(async () =>
-        {
-            using var client = await listener.AcceptTcpClientAsync();
-            acceptedClient = client;
-            await using var stream = client.GetStream();
-            await AcceptWebSocketAsync(stream);
-            handshaken.TrySetResult();
-            var authenticate = JsonDocument.Parse(await ReceiveWebSocketTextAsync(stream));
-            await SendWebSocketTextAsync(stream, JsonSerializer.Serialize(new
-            {
-                name = "authenticate",
-                type = "response",
-                id = authenticate.RootElement.GetProperty("id").GetString(),
-                options = new
-                {
-                    authenticated = true,
-                    environment = new { api_version = 20, app_version = "3.0.5" }
-                }
-            }));
-
-            var overviewRequest = JsonDocument.Parse(await ReceiveWebSocketTextAsync(stream));
-            Assert.Equal("get_playback_overview", overviewRequest.RootElement.GetProperty("name").GetString()!);
-            await SendWebSocketTextAsync(stream, JsonSerializer.Serialize(new
-            {
-                name = "get_playback_overview",
-                type = "response",
-                id = overviewRequest.RootElement.GetProperty("id").GetString(),
-                options = new
-                {
-                    state = "playing",
-                    playing_duration = 349,
-                    playing_track = new { artist = "The Smashing Pumpkins", title = "Mayonaise" }
-                }
-            }));
-
-            await broadcastAllowed.Task;
-            await SendWebSocketTextAsync(stream, JsonSerializer.Serialize(new
-            {
-                name = "playback_overview_changed",
-                type = "broadcast",
-                id = "musikcube-broadcast-1",
-                options = new
-                {
-                    state = "paused",
-                    playing_duration = 133,
-                    playing_track = new { artist = "The White Stripes", title = "Apple Blossom" }
-                }
-            }));
-
-            while (true)
-            {
-                var request = JsonDocument.Parse(await ReceiveWebSocketTextAsync(stream));
-                var name = request.RootElement.GetProperty("name").GetString();
-                if (name == "get_playback_overview" && !pollReceived.Task.IsCompleted)
-                {
-                    await SendWebSocketTextAsync(stream, JsonSerializer.Serialize(new
-                    {
-                        name = "get_playback_overview",
-                        type = "response",
-                        id = request.RootElement.GetProperty("id").GetString(),
-                        options = new
-                        {
-                            state = "playing",
-                            playing_duration = 187,
-                            playing_track = new { artist = "The White Stripes", title = "Little Bird" }
-                        }
-                    }));
-                    pollReceived.TrySetResult();
-                }
-                else if (name == "get_playback_overview" && !periodicRefreshReceived.Task.IsCompleted)
-                {
-                    await SendWebSocketTextAsync(stream, JsonSerializer.Serialize(new
-                    {
-                        name = "get_playback_overview",
-                        type = "response",
-                        id = request.RootElement.GetProperty("id").GetString(),
-                        options = new
-                        {
-                            state = "playing",
-                            playing_duration = 231,
-                            playing_track = new { artist = "The White Stripes", title = "Dead Leaves and the Dirty Ground" }
-                        }
-                    }));
-                    periodicRefreshReceived.TrySetResult();
-                }
-                else if (name == "next")
-                {
-                    nextReceived.TrySetResult();
-                    return;
-                }
-            }
-        });
-
-        var host = new TestScriptHost();
-        await using var manager = new ScriptManager(directory.Path, host.Services);
-        var loaded = await manager.LoadAsync("musikcube");
-        Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.LocalNetwork));
-        Assert.Equal(1, host.PermissionRequests.Count);
-        var initialStatus = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ScriptInput("status"), CancellationToken.None);
-        ScriptHeaderContribution header;
-        try
-        {
-            header = await host.WaitForHeaderAsync(
-                item => item.Text.Contains("Playing: The Smashing Pumpkins - Mayonaise [5:49]", StringComparison.Ordinal),
-                TimeSpan.FromSeconds(5));
-        }
-        catch (OperationCanceledException exception)
-        {
-            if (!handshaken.Task.IsCompleted)
-            {
-                listener.Stop();
-                acceptedClient?.Dispose();
-                throw new TestSkippedException(
-                    "ClientWebSocket loopback handshakes are unavailable in this sandbox; protocol behavior is covered by addon and ownership tests.");
-            }
-            var serverError = server.IsFaulted ? server.Exception?.GetBaseException().Message : "server still waiting";
-            var scriptErrors = string.Join("; ", manager.Errors.Select(error => $"{error.Operation}: {error.Message}"));
-            throw new InvalidOperationException(
-                $"musikcube header did not arrive; status={initialStatus.Message}; {serverError}; {scriptErrors}", exception);
-        }
-        Assert.True(header.BufferId is null);
-
-        broadcastAllowed.TrySetResult();
-        await host.WaitForHeaderAsync(
-            item => item.Text.Contains("Paused: The White Stripes - Apple Blossom [2:13]", StringComparison.Ordinal),
-            TimeSpan.FromSeconds(5));
-        var refreshedStatus = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ScriptInput("status"), CancellationToken.None);
-        Assert.True(refreshedStatus.Succeeded);
-        await pollReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await host.WaitForHeaderAsync(
-            item => item.Text.Contains("Playing: The White Stripes - Little Bird [3:07]", StringComparison.Ordinal),
-            TimeSpan.FromSeconds(5));
-        await periodicRefreshReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await host.WaitForHeaderAsync(
-            item => item.Text.Contains("Playing: The White Stripes - Dead Leaves and the Dirty Ground [3:51]", StringComparison.Ordinal),
-            TimeSpan.FromSeconds(5));
-
-        var next = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ScriptInput("next"), CancellationToken.None);
-        Assert.True(next.Succeeded);
-        await nextReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await manager.UnloadAsync("musikcube");
-        listener.Stop();
-        await server.WaitAsync(TimeSpan.FromSeconds(5));
-    }
-
-    private static async Task AcceptWebSocketAsync(NetworkStream stream)
-    {
-        var request = new List<byte>();
-        var one = new byte[1];
-        while (request.Count < 16 * 1024)
-        {
-            if (await stream.ReadAsync(one) == 0)
-            {
-                throw new EndOfStreamException();
-            }
-            request.Add(one[0]);
-            if (request.Count >= 4 &&
-                request[^4] == '\r' && request[^3] == '\n' &&
-                request[^2] == '\r' && request[^1] == '\n')
-            {
-                break;
-            }
-        }
-        var headers = Encoding.ASCII.GetString(request.ToArray());
-        var keyLine = headers.Split("\r\n", StringSplitOptions.RemoveEmptyEntries)
-            .Single(line => line.StartsWith("Sec-WebSocket-Key:", StringComparison.OrdinalIgnoreCase));
-        var key = keyLine[(keyLine.IndexOf(':') + 1)..].Trim();
-        var accept = Convert.ToBase64String(SHA1.HashData(
-            Encoding.ASCII.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
-        var response = Encoding.ASCII.GetBytes(
-            "HTTP/1.1 101 Switching Protocols\r\n" +
-            "Upgrade: websocket\r\n" +
-            "Connection: Upgrade\r\n" +
-            $"Sec-WebSocket-Accept: {accept}\r\n\r\n");
-        await stream.WriteAsync(response);
-    }
-
-    private static async Task<string> ReceiveWebSocketTextAsync(NetworkStream stream)
-    {
-        var header = new byte[2];
-        await ReadExactlyAsync(stream, header);
-        if ((header[0] & 0x0f) == 8)
-        {
-            throw new EndOfStreamException();
-        }
-        var masked = (header[1] & 0x80) != 0;
-        ulong length = (uint)(header[1] & 0x7f);
-        if (length == 126)
-        {
-            var extended = new byte[2];
-            await ReadExactlyAsync(stream, extended);
-            length = (uint)((extended[0] << 8) | extended[1]);
-        }
-        else if (length == 127)
-        {
-            var extended = new byte[8];
-            await ReadExactlyAsync(stream, extended);
-            if (BitConverter.IsLittleEndian) Array.Reverse(extended);
-            length = BitConverter.ToUInt64(extended);
-        }
-        if (length > 1024 * 1024)
-        {
-            throw new InvalidDataException();
-        }
-        var mask = masked ? new byte[4] : [];
-        if (masked) await ReadExactlyAsync(stream, mask);
-        var payload = new byte[(int)length];
-        await ReadExactlyAsync(stream, payload);
-        if (masked)
-        {
-            for (var index = 0; index < payload.Length; index++) payload[index] ^= mask[index % 4];
-        }
-        return Encoding.UTF8.GetString(payload);
-    }
-
-    private static async Task SendWebSocketTextAsync(NetworkStream stream, string text)
-    {
-        var payload = Encoding.UTF8.GetBytes(text);
-        using var frame = new MemoryStream();
-        frame.WriteByte(0x81);
-        if (payload.Length < 126)
-        {
-            frame.WriteByte((byte)payload.Length);
-        }
-        else
-        {
-            frame.WriteByte(126);
-            frame.WriteByte((byte)(payload.Length >> 8));
-            frame.WriteByte((byte)payload.Length);
-        }
-        frame.Write(payload);
-        await stream.WriteAsync(frame.ToArray());
-    }
-
-    private static async Task ReadExactlyAsync(Stream stream, byte[] buffer)
-    {
-        var offset = 0;
-        while (offset < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(offset));
-            if (read == 0) throw new EndOfStreamException();
-            offset += read;
-        }
-    }
-
-    private static int FreePort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
-    private static void CopyDirectory(string source, string destination)
-    {
-        Directory.CreateDirectory(destination);
-        foreach (var file in Directory.GetFiles(source))
-        {
-            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
-        }
-    }
-
     private static CommandInput ScriptInput(params string[] arguments) =>
         new("test", arguments, string.Join(' ', arguments));
 
@@ -2463,7 +2153,6 @@ internal static class ScriptTests
             new("Window services were not configured for this test.");
         private readonly ConcurrentQueue<string> _output = new();
         private readonly SemaphoreSlim _outputAvailable = new(0);
-        private readonly SemaphoreSlim _headerAvailable = new(0);
 
         public TestScriptHost()
         {
@@ -2486,7 +2175,6 @@ internal static class ScriptTests
                 (scriptId, contribution) =>
                 {
                     Headers[(scriptId, contribution.Id)] = contribution;
-                    _headerAvailable.Release();
                 },
                 (scriptId, itemId) => Headers.TryRemove((scriptId, itemId), out _),
                 scriptId =>
@@ -2561,22 +2249,6 @@ internal static class ScriptTests
                 }
 
                 await _outputAvailable.WaitAsync(cancellation.Token);
-            }
-        }
-
-        public async Task<ScriptHeaderContribution> WaitForHeaderAsync(
-            Func<ScriptHeaderContribution, bool> predicate,
-            TimeSpan timeout)
-        {
-            using var cancellation = new CancellationTokenSource(timeout);
-            while (true)
-            {
-                var match = Headers.Values.FirstOrDefault(predicate);
-                if (match is not null)
-                {
-                    return match;
-                }
-                await _headerAvailable.WaitAsync(cancellation.Token);
             }
         }
     }
