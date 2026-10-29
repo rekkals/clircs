@@ -206,7 +206,7 @@ Loaded script state is remembered across restarts. Script data belongs to that s
 
 Script manifests declare the capabilities they request. On first load, clircs prompts once to approve the requested permissions before running the script. Approval is remembered; newly requested permissions require another approval. Scripts receive only the APIs clircs deliberately exposes. They cannot launch programs, access arbitrary files or the Windows registry, load unrestricted CLR or .NET APIs, open raw sockets, or make unrestricted external network connections. `clircs.run()` allows ordinary IRC automation commands without an additional permission. The `raw` permission allows `/raw` and `/quote` to send arbitrary IRC protocol commands over an existing connection. clircs commands for DCC, filesystem operations, configuration changes, credential management, connection management, and application administration remain unavailable to scripts.
 
-Scripts can append local output to existing windows or create their own background windows, with scrollback and theme-aware text styles. Script event handlers observe clircs's normal processing and can add output without suppressing or replacing the original event.
+Scripts can append local output to existing windows or create their own background windows, with scrollback and theme-aware text styles. Script-owned windows can accept typed text through script handlers; slash commands continue to run normally. Script event handlers observe clircs's normal processing and can add output without suppressing or replacing the original event.
 
 See [SCRIPTING.md](SCRIPTING.md) for all the (un)sexy details.
 

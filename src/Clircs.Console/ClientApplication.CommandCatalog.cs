@@ -49,7 +49,7 @@ internal sealed partial class ClientApplication
         Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
         Register("time", [], "Show local time or query a [nickname].", TimeAsync);
         Register("uptime", [], "Show clircs runtime locally, or say it in the active conversation.", UptimeAsync);
-        Register("raw", ["quote"], "Send an IRC command directly to the server.", RawAsync);
+        Register("raw", ["quote"], "Send an IRC command directly to the server.", RawAsync, argumentMode: CommandArgumentMode.Text);
         Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
         Register("join", ["j"], "Join one or more channels; separate multiple channels and keys with commas.", JoinAsync);
         Register("part", ["p"], "Part a channel.", PartAsync);
@@ -147,7 +147,12 @@ internal sealed partial class ClientApplication
         Register("debug", [], "Open raw IRC traffic for the active network.", DebugAsync);
     }
 
-    private void Register(string name, string[] aliases, string summary, CommandHandler handler)
+    private void Register(
+        string name,
+        string[] aliases,
+        string summary,
+        CommandHandler handler,
+        CommandArgumentMode argumentMode = CommandArgumentMode.Tokenized)
     {
         // A summary may embed usage beginning with "/<command>"; otherwise an
         // explicit usage override, or the bare command name, supplies the Usage field.
@@ -174,7 +179,8 @@ internal sealed partial class ClientApplication
             handler,
             visibleInHelp: true,
             ExtendedHelpFields(name),
-            topicHelp));
+            topicHelp,
+            argumentMode));
     }
 
     private static IReadOnlyList<PresentationField> ExtendedHelpFields(string command) => command.ToLowerInvariant() switch

@@ -1,3 +1,4 @@
+using Clircs.Commands;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Protocol;
@@ -16,12 +17,14 @@ internal static class ScriptWindowTests
         suite.Add("script window limits apply across local and connection scopes", LimitsApplyAcrossScopes);
         suite.Add("script window removal preserves unrelated windows", RemovalPreservesOtherWindows);
         suite.Add("invalid script window names and native collisions are rejected", InvalidNamesAndCollisionsAreRejected);
+        suite.Add("session removal invalidates its input handlers and preserves other scopes", RemovingWindowsInvalidatesInputAsync);
         suite.Add("script output inherits base styles without leaking inline styles", OutputStylesRemainScoped);
         suite.Add("script output retains IRC formatting and restores base colors", OutputRetainsIrcFormatting);
         suite.Add("script output preserves text while filtering terminal controls", OutputPreservesText);
         suite.Add("script output rejects invalid styles and missing text", OutputRejectsInvalidStyles);
         suite.Add("script output limits count all input before filtering", OutputLimitsCountAllInput);
         suite.Add("window host opens background windows without changing focus", HostOpensBackgroundWindowsAsync);
+        suite.Add("application input preserves text and context while keeping commands native", HostInputPreservesTextAsync);
         suite.Add("window host stores output in its explicit destination", HostStoresTargetedOutputAsync);
         suite.Add("window host validates output before changing history", HostValidatesBeforeWritingAsync);
         suite.Add("window host rejects output after application shutdown", HostRejectsWritesAfterShutdownAsync);
@@ -204,6 +207,55 @@ internal static class ScriptWindowTests
         var maximum = windows.Open("alpha", maximumName, null);
         Assert.Equal($"=alpha.{maximumName}", maximum.Name);
     }
+
+    private static async ValueTask RemovingWindowsInvalidatesInputAsync()
+    {
+        var windows = new ScriptWindowRegistry();
+        var firstSession = NewSession();
+        var secondSession = NewSession();
+        var first = windows.Open("alpha", "chat", firstSession);
+        var sibling = windows.Open("beta", "chat", firstSession);
+        var other = windows.Open("alpha", "chat", secondSession);
+        var local = windows.Open("alpha", "editor", null);
+        ScriptWindowInputHandler callback = (_, text, _) =>
+            ValueTask.FromResult(CommandResult.Success(text));
+        using var firstRegistration = RequireInputRegistration(windows, "alpha", first.Id, callback);
+        using var siblingRegistration = RequireInputRegistration(windows, "beta", sibling.Id, callback);
+        using var otherRegistration = RequireInputRegistration(windows, "alpha", other.Id, callback);
+        using var localRegistration = RequireInputRegistration(windows, "alpha", local.Id, callback);
+        var context = new CommandContext(firstSession.Id, first.Id);
+        var captured = RequireInputHandler(windows, context);
+
+        windows.RemoveSession(firstSession.Id);
+
+        Assert.False(firstRegistration.IsActive);
+        Assert.False(siblingRegistration.IsActive);
+        Assert.True(windows.Find(first.Id) is null);
+        Assert.True(windows.Find(sibling.Id) is null);
+        Assert.False((await captured(context, "stale", CancellationToken.None)).Succeeded);
+        Assert.True(otherRegistration.IsActive);
+        Assert.True(localRegistration.IsActive);
+        var otherContext = new CommandContext(secondSession.Id, other.Id);
+        var localContext = new CommandContext(null, local.Id);
+        Assert.True((await RequireInputHandler(windows, otherContext)(
+            otherContext, "still connected", CancellationToken.None)).Succeeded);
+        Assert.True((await RequireInputHandler(windows, localContext)(
+            localContext, "independent", CancellationToken.None)).Succeeded);
+    }
+
+    private static IScriptWindowInputRegistration RequireInputRegistration(
+        ScriptWindowRegistry windows,
+        string scriptId,
+        BufferId bufferId,
+        ScriptWindowInputHandler handler) =>
+        windows.SetInputHandler(scriptId, bufferId, handler)
+            ?? throw new InvalidOperationException("Expected an input registration.");
+
+    private static ScriptWindowInputHandler RequireInputHandler(
+        ScriptWindowRegistry windows,
+        CommandContext context) =>
+        windows.FindInputHandler(context)
+            ?? throw new InvalidOperationException("Expected an active input handler.");
 
     private static void OutputStylesRemainScoped()
     {
@@ -391,6 +443,61 @@ internal static class ScriptWindowTests
         Assert.Equal(status, host.Active()!.Value);
     });
 
+    private static ValueTask HostInputPreservesTextAsync() =>
+        WithWindowInputHostAsync(async (application, host, writer) =>
+        {
+            var first = host.Open("alpha", "editor", null);
+            var visible = host.Open("beta", "editor", null);
+            var context = new CommandContext(null, first);
+            var seen = new List<string>();
+            using var registration = host.OnInput("alpha", first, (captured, text, _) =>
+            {
+                Assert.Equal(context, captured);
+                Task.Run(() => host.List("alpha")).WaitAsync(TimeSpan.FromSeconds(5))
+                    .GetAwaiter().GetResult();
+                seen.Add(text);
+                return ValueTask.FromResult(CommandResult.Success());
+            }) ?? throw new InvalidOperationException("Expected an input registration.");
+            using var visibleRegistration = host.OnInput("beta", visible, (_, _, _) =>
+                throw new InvalidOperationException("Input was redirected to the visible window."))
+                ?? throw new InvalidOperationException("Expected an input registration.");
+
+            Assert.True((await application.ExecuteInputAsync(
+                context, "/window =beta.editor")).Succeeded);
+            writer.GetStringBuilder().Clear();
+            Assert.True((await application.ExecuteInputAsync(context, "")).Succeeded);
+            Assert.Equal(0, seen.Count);
+            (string Line, string Text)[] cases =
+            [
+                ("  unmatched \"quote  C:\\notes\\  ", "  unmatched \"quote  C:\\notes\\  "),
+                ("   ", "   "),
+                ("//literal /slash", "/literal /slash")
+            ];
+            foreach (var item in cases)
+            {
+                Assert.True((await application.ExecuteInputAsync(context, item.Line)).Succeeded);
+                Assert.Equal(item.Text, seen[^1]);
+            }
+
+            Assert.Equal(cases.Length, seen.Count);
+            Assert.True(host.Active() == visible);
+            Assert.Equal(0, application.WindowHistorySnapshot(first).Length);
+            Assert.Equal(string.Empty, writer.ToString());
+            var uptime = await application.ExecuteInputAsync(context, "/uptime");
+            Assert.True(uptime.Succeeded);
+            Assert.True(uptime.Message!.Contains(" has been up for ", StringComparison.Ordinal));
+            Assert.False((await application.ExecuteInputAsync(context, "/say test")).Succeeded);
+            Assert.Equal(cases.Length, seen.Count);
+
+            Assert.False((await application.ExecuteInputAsync(
+                new CommandContext(NetworkSessionId.New(), first), "wrong scope")).Succeeded);
+            Assert.True((await application.ExecuteInputAsync(context, "/close")).Succeeded);
+            Assert.False(registration.IsActive);
+            Assert.False((await application.ExecuteInputAsync(context, "closed target")).Succeeded);
+            Assert.True(host.Active() == visible);
+            Assert.Equal(cases.Length, seen.Count);
+        });
+
     private static ValueTask HostStoresTargetedOutputAsync() =>
         WithWindowHostAsync((application, host, writer) =>
         {
@@ -486,7 +593,8 @@ internal static class ScriptWindowTests
             ScriptWindowHostServices host;
             BufferId window;
 
-            await using (var application = new ClientApplication(temporary.Path))
+            var application = new ClientApplication(temporary.Path);
+            await using (application)
             {
                 host = application.CreateScriptWindowHostServices();
                 window = host.Open("alpha", "report", null);
@@ -494,11 +602,27 @@ internal static class ScriptWindowTests
 
             writer.GetStringBuilder().Clear();
 
+            var input = await application.ExecuteInputAsync(
+                new CommandContext(null, window), "after-shutdown");
+            Assert.False(input.Succeeded);
+            Assert.True(input.Message!.Contains(
+                "shutting down", StringComparison.OrdinalIgnoreCase));
+
             Assert.False(host.Write("alpha", window, new ScriptWindowOutput(
                 [new ScriptOutputPart("after-shutdown")])));
 
             Assert.Throws<InvalidOperationException>(() =>
                 host.Open("alpha", "another", null));
+
+            Assert.Equal(0, host.List("alpha").Count);
+
+            Assert.Throws<InvalidOperationException>(() =>
+                host.OnInput(
+                    "alpha",
+                    window,
+                    (_, text, _) => ValueTask.FromResult(CommandResult.Success(text))));
+            Assert.Throws<InvalidOperationException>(() =>
+                host.OnInput("alpha", window, null));
 
             Assert.Equal(string.Empty, writer.ToString());
         }
@@ -686,6 +810,24 @@ internal static class ScriptWindowTests
             Console.SetOut(writer);
             await using var application = new ClientApplication(temporary.Path);
             test(application, application.CreateScriptWindowHostServices(), writer);
+        }
+        finally
+        {
+            Console.SetOut(previous);
+        }
+    }
+
+    private static async ValueTask WithWindowInputHostAsync(
+        Func<ClientApplication, ScriptWindowHostServices, StringWriter, ValueTask> test)
+    {
+        using var temporary = new TemporaryDirectory();
+        using var writer = new StringWriter();
+        var previous = Console.Out;
+        try
+        {
+            Console.SetOut(writer);
+            await using var application = new ClientApplication(temporary.Path);
+            await test(application, application.CreateScriptWindowHostServices(), writer);
         }
         finally
         {

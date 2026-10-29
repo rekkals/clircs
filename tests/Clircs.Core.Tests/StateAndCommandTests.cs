@@ -17,6 +17,7 @@ internal static class StateAndCommandTests
         suite.Add("command parser supports aliases and quoted arguments", CommandParsing);
         suite.Add("command parser preserves quoted Windows paths", CommandParsingPreservesWindowsPaths);
         suite.Add("command parser accepts whitespace after command names", CommandParsingAcceptsTabs);
+        suite.Add("command argument modes preserve literal text and ordinary parsing", CommandArgumentModesPreserveText);
         suite.Add("double slash sends literal slash text", DoubleSlashIsChat);
         suite.Add("command registry resolves aliases to one handler", RegistryResolvesAlias);
         suite.Add("command registry rejects name collisions", RegistryRejectsCollisions);
@@ -68,6 +69,44 @@ internal static class StateAndCommandTests
         Assert.Equal(3, parsed.Arguments.Count);
         Assert.Equal("My Network", parsed.Arguments[2]);
         Assert.Equal("irc.example.test --tls \"My Network\"", parsed.RawArguments);
+    }
+
+    private static void CommandArgumentModesPreserveText()
+    {
+        var registry = new CommandRegistry();
+        registry.Register(new CommandDefinition(
+            "literal", ["lit"], "/literal <text>", "Accept literal text",
+            (_, _, _) => ValueTask.FromResult(CommandResult.Success()),
+            argumentMode: CommandArgumentMode.Text));
+        registry.Register(new CommandDefinition(
+            "words", ["w"], "/words <arguments>", "Accept quoted arguments",
+            (_, _, _) => ValueTask.FromResult(CommandResult.Success())));
+
+        const string text = "  \"unfinished  C:\\notes\\  ";
+        (string Line, string Text)[] cases =
+        [
+            ("/literal " + text, text),
+            ("/LIT\t" + text, text),
+            ("/literal", ""),
+            ("/literal ", ""),
+            ("/lit   ", "  ")
+        ];
+
+        foreach (var item in cases)
+        {
+            var parsed = (CommandInput)registry.Parse(item.Line);
+            Assert.Equal(item.Text, parsed.RawArguments);
+            Assert.Equal(item.Text.Length == 0 ? 0 : 1, parsed.Arguments.Count);
+            if (item.Text.Length > 0)
+            {
+                Assert.Equal(item.Text, parsed.Arguments[0]);
+            }
+        }
+
+        Assert.Equal(
+            "two words",
+            ((CommandInput)registry.Parse("/w \"two words\"")).Arguments.Single());
+        Assert.Throws<CommandLineException>(() => registry.Parse("/w \"unfinished"));
     }
 
     private static void ChannelModesAreBatched()

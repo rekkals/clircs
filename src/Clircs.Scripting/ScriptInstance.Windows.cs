@@ -1,6 +1,7 @@
 using Clircs.Identity;
 using Jint;
 using Jint.Native;
+using System.Text.Json;
 
 namespace Clircs.Scripting;
 
@@ -24,6 +25,18 @@ internal sealed partial class ScriptInstance
         return _services.Windows.Find(
             ReadWindowName(name),
             ReadWindowNetworkId(networkId))?.Value.ToString();
+    }
+
+    private string WindowList()
+    {
+        Demand(ScriptPermission.Output);
+        var windows = _services.Windows.List(_script.Manifest.Id);
+        return JsonSerializer.Serialize(windows.Select(window => new
+        {
+            bufferId = window.BufferId.Value.ToString(),
+            name = window.Name,
+            networkId = window.NetworkId?.Value.ToString()
+        }));
     }
 
     private string WindowOpen(JsValue name, JsValue networkId)

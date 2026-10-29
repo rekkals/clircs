@@ -38,8 +38,9 @@ public sealed record ScriptCommandRegistration(
     string Name,
     IReadOnlyList<string> Aliases,
     string Summary,
-    Func<CommandContext, IReadOnlyList<string>, CancellationToken, ValueTask<CommandResult>> Handler,
-    ScriptCommandHelp? Help = null);
+    CommandHandler Handler,
+    ScriptCommandHelp? Help = null,
+    CommandArgumentMode ArgumentMode = CommandArgumentMode.Tokenized);
 
 public sealed record ScriptPermissionRequest(
     string Id,

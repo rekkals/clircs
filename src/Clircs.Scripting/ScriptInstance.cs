@@ -25,6 +25,8 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
           style: (role, text) => Object.freeze(JSON.parse(__clirc_style(role, text))),
           windows: Object.freeze({
             active: () => __clirc_windows_active(),
+            list: () => JSON.parse(__clirc_windows_list()),
+            onInput: (windowId, handler) => __clirc_windows_on_input(windowId, handler),
             status: (networkId = null) => __clirc_windows_status(networkId),
             find: (name, networkId = null) => __clirc_windows_find(name, networkId),
             open: (name, options = {}) => {
@@ -83,10 +85,27 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
             }
           }),
           on: (eventName, handler) => __clirc_on(String(eventName), handler),
-          registerCommand: (name, aliases, summary, handler, help = null) =>
+          registerCommand: (name, aliases, summary, handler, help = null, options = {}) => {
+            if (options === null || typeof options !== "object" || Array.isArray(options)) {
+              throw new TypeError("Command options must be a plain object.");
+            }
+            const prototype = Object.getPrototypeOf(options);
+            if (prototype !== Object.prototype && prototype !== null) {
+              throw new TypeError("Command options must be a plain object.");
+            }
+            if (Reflect.ownKeys(options).some(key => key !== "argumentMode")) {
+              throw new TypeError("Unknown command option. Supported option: argumentMode.");
+            }
+            const argumentMode = Object.prototype.hasOwnProperty.call(options, "argumentMode")
+              ? options.argumentMode
+              : "tokenized";
+            if (typeof argumentMode !== "string") {
+              throw new TypeError("Command argumentMode must be text.");
+            }
             __clirc_register_command(
               String(name), Array.isArray(aliases) ? aliases.join(',') : String(aliases || ''),
-              String(summary || ''), handler, JSON.stringify(help)),
+              String(summary || ''), handler, JSON.stringify(help), argumentMode);
+          },
           run: commandLine => __clirc_run(String(commandLine)),
           setTimeout: (handler, milliseconds) => __clirc_set_timeout(handler, Number(milliseconds)),
           clearTimeout: timerId => __clirc_clear_timeout(Number(timerId)),
@@ -182,6 +201,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
         }
         catch
         {
+            _disposed = true;
             ReleaseOwnedResourcesAsync(waitForSockets: true).AsTask().GetAwaiter().GetResult();
             throw;
         }
@@ -213,7 +233,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
     public async ValueTask<CommandResult> InvokeCommandAsync(
         string commandName,
         CommandContext context,
-        IReadOnlyList<string> arguments,
+        CommandInput input,
         CancellationToken cancellationToken)
     {
         if (_disposed || Faulted)
@@ -234,7 +254,8 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
             var payload = CreatePayload(new
             {
                 name = commandName,
-                args = arguments,
+                args = input.Arguments,
+                rawArguments = input.RawArguments,
                 networkId = context.NetworkSessionId?.Value.ToString(),
                 bufferId = context.BufferId?.Value.ToString()
             });
@@ -320,13 +341,15 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
     {
         _engine.SetValue("__clirc_print", new Action<string>(Print));
         _engine.SetValue("__clirc_windows_active", new Func<string?>(WindowActive));
+        _engine.SetValue("__clirc_windows_list", new Func<string>(WindowList));
+        _engine.SetValue("__clirc_windows_on_input", new Action<JsValue, JsValue>(WindowOnInput));
         _engine.SetValue("__clirc_windows_status", new Func<JsValue, string?>(WindowStatus));
         _engine.SetValue("__clirc_windows_find", new Func<JsValue, JsValue, string?>(WindowFind));
         _engine.SetValue("__clirc_windows_open", new Func<JsValue, JsValue, string>(WindowOpen));
         _engine.SetValue("__clirc_windows_write", new Func<JsValue, string, bool>(WindowWrite));
         _engine.SetValue("__clirc_style", new Func<JsValue, JsValue, string>(WindowStyle));
         _engine.SetValue("__clirc_on", new Action<string, JsValue>(RegisterEvent));
-        _engine.SetValue("__clirc_register_command", new Action<string, string, string, JsValue, string>(RegisterCommand));
+        _engine.SetValue("__clirc_register_command", new Action<string, string, string, JsValue, string, string>(RegisterCommand));
         _engine.SetValue("__clirc_run", new Action<string>(QueueCommand));
         _engine.SetValue("__clirc_set_timeout", new Func<JsValue, double, int>(SetTimeout));
         _engine.SetValue("__clirc_clear_timeout", new Action<double>(ClearTimeout));
@@ -385,13 +408,27 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
         _eventHandlerCount++;
     }
 
-    private void RegisterCommand(string name, string aliases, string summary, JsValue handler, string helpJson)
+    private void RegisterCommand(
+        string name,
+        string aliases,
+        string summary,
+        JsValue handler,
+        string helpJson,
+        string argumentMode)
     {
         Demand(ScriptPermission.Commands);
         if (!handler.IsCallable())
         {
             throw new InvalidOperationException("clircs.registerCommand requires a function.");
         }
+
+        var parsedArgumentMode = argumentMode.ToLowerInvariant() switch
+        {
+            "tokenized" => CommandArgumentMode.Tokenized,
+            "text" => CommandArgumentMode.Text,
+            _ => throw new ArgumentException(
+                "Command argumentMode must be 'tokenized' or 'text'.")
+        };
 
         if (summary.Length > MaximumHelpTextLength)
         {
@@ -427,8 +464,9 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
                 name,
                 parsedAliases,
                 string.IsNullOrWhiteSpace(summary) ? $"Command supplied by {_script.Manifest.Name}." : summary,
-                (context, arguments, cancellationToken) => InvokeCommandAsync(name, context, arguments, cancellationToken),
-                help);
+                (context, input, cancellationToken) => InvokeCommandAsync(name, context, input, cancellationToken),
+                help,
+                parsedArgumentMode);
             var ownedRegistration = _services.RegisterCommand(registration);
             lock (_resourceGate)
             {
@@ -1103,6 +1141,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
 
     private async ValueTask ReleaseOwnedResourcesAsync(bool waitForSockets)
     {
+        ReleaseWindowInputs();
         Timer[] timers;
         ScriptLocalWebSocket[] sockets;
         IDisposable[] registrations;

@@ -372,21 +372,9 @@ internal sealed partial class ClientApplication : IAsyncDisposable
 
                 try
                 {
-                    var parsed = CommandLineParser.Parse(line);
                     var context = CaptureCommandContext();
-                    CommandResult result;
-                    if (parsed is ChatInput chat)
-                    {
-                        result = await _commandExecution.ExecuteAsync(
-                            context,
-                            cancellationToken => SayAsync(chat.Text, cancellationToken),
-                            _lifetime.Token);
-                    }
-                    else
-                    {
-                        result = await _commandExecution.ExecuteAsync(context, (CommandInput)parsed, _lifetime.Token);
-                    }
-
+                    var result = await ExecuteInputAsync(
+                        context, line, _lifetime.Token);
                     DisplayCommandResult(result, context);
                 }
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -475,6 +463,29 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         }
         _applicationWork.Dispose();
         _lifetime.Dispose();
+    }
+
+    internal ValueTask<CommandResult> ExecuteInputAsync(
+        CommandContext context,
+        string line,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(line);
+
+        var parsed = _commands.Parse(line);
+        if (parsed is ChatInput chat)
+        {
+            return _commandExecution.ExecuteAsync(
+                context,
+                token => SubmitChatInputAsync(context, chat.Text, token),
+                cancellationToken);
+        }
+
+        return _commandExecution.ExecuteAsync(
+            context,
+            (CommandInput)parsed,
+            cancellationToken);
     }
 
     private void DisplayCommandResult(CommandResult result, CommandContext? context = null) =>

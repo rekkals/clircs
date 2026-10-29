@@ -82,12 +82,13 @@ internal sealed partial class ClientApplication
             return failure;
         }
 
-        if (input.RawArguments.Length == 0)
+        var commandLine = input.RawArguments.TrimStart();
+        if (commandLine.Length == 0)
         {
             return CommandResult.Failure("Usage: /raw <IRC command>");
         }
 
-        await session.SendRawAsync(input.RawArguments, cancellationToken);
+        await session.SendRawAsync(commandLine, cancellationToken);
         return CommandResult.Success();
     }
 

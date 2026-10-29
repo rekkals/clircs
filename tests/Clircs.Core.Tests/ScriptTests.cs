@@ -8,8 +8,10 @@ using System.Text.Json;
 using Clircs.Commands;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
+using Clircs.Protocol;
 using Clircs.Scripting;
 using Clircs.Sessions;
+using Clircs.State;
 
 namespace Clircs.Core.Tests;
 
@@ -17,6 +19,8 @@ internal static class ScriptTests
 {
     public static void Register(TestSuite suite)
     {
+        suite.Add("script command argument modes preserve arguments and follow reload", ScriptCommandArgumentsAsync);
+        suite.Add("invalid script command options reject loading and roll back registrations", InvalidScriptCommandOptionsAreRejectedAsync);
         suite.Add("script help reaches core command metadata without executing handlers", ScriptHelpUsesCoreCommandsAsync);
         suite.Add("script help is replaced on reload and removed on disposal", ScriptHelpFollowsLifecycleAsync);
         suite.Add("invalid script help rejects the load and rolls back registered commands", InvalidScriptHelpIsRejectedAsync);
@@ -38,6 +42,12 @@ internal static class ScriptTests
         suite.Add("raw permission survives restart and remains revoked after restart", RawPermissionPersistsAndRevokesAsync);
         suite.Add("local network permission requires an explicit grant", LocalNetworkPermissionRequiresGrantAsync);
         suite.Add("script window bindings preserve IDs scopes and return values", WindowBindingsPreserveContextAsync);
+        suite.Add("script window input preserves literal text owned snapshots and captured context", WindowInputContractAsync);
+        suite.Add("script window input rejects missing permissions invalid arguments and unowned targets", WindowInputRejectsInvalidAccessAsync);
+        suite.Add("script window input follows replacement clearing reload unload and disposal", WindowInputLifecycleAsync);
+        suite.Add("script window input faults release handlers and retain windows", WindowInputFaultCleanupAsync);
+        suite.Add("waiting script window input rechecks cancellation and binding lifetime", WindowInputWaitingCallbacksAsync);
+        suite.Add("script window input slots support replacement and closed-window reuse", WindowInputSlotsAreReusableAsync);
         suite.Add("script window bindings copy text and presentation data", WindowBindingsPreserveOutputAsync);
         suite.Add("script window operations require output permission", WindowBindingsRequireOutputAsync);
         suite.Add("script window timestamps preserve offsets and fractional seconds", WindowBindingsPreserveTimestampsAsync);
@@ -56,6 +66,418 @@ internal static class ScriptTests
         suite.Add("packaged musikcube addon loads without special core knowledge", MusikcubeAddonLoadsAsync);
         suite.Add("musikcube addon authenticates and controls a local protocol peer", MusikcubeAddonProtocolAsync);
         suite.Add("runaway scripts are bounded and faulted without blocking the host", RunawayScriptIsBoundedAsync);
+    }
+
+    private static async ValueTask ScriptCommandArgumentsAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "arguments", """
+            const inspect = context => JSON.stringify(context);
+            clircs.registerCommand("words", [], "Inspect arguments.", inspect);
+            const options = { argumentMode: "text" };
+            clircs.registerCommand(
+              "literal", ["lit"], "Inspect literal text.", inspect, null, options);
+            options.argumentMode = "tokenized";
+            """, ["commands"]);
+
+        var host = new TestScriptHost();
+        var registry = new CommandRegistry();
+        await using var manager = new ScriptManager(
+            directory.Path, WithCoreCommandRegistry(host, registry));
+        await manager.LoadAsync("arguments");
+
+        var context = new CommandContext(NetworkSessionId.New(), BufferId.New());
+        const string text = "  He said \"hello  C:\\notes\\  ";
+        (string Line, string Name, string Raw, string[] Arguments)[] cases =
+        [
+            ("/words \"two words\"  tail", "words", "\"two words\"  tail", ["two words", "tail"]),
+            ("/LIT " + text, "literal", text, [text])
+        ];
+
+        foreach (var item in cases)
+        {
+            var result = await registry.ExecuteAsync(
+                context, (CommandInput)registry.Parse(item.Line));
+            Assert.True(result.Succeeded, result.Message ?? "Script command failed.");
+            using var document = JsonDocument.Parse(result.Message!);
+            var root = document.RootElement;
+            Assert.Equal(item.Name, root.GetProperty("name").GetString()!);
+            Assert.Equal(item.Raw, root.GetProperty("rawArguments").GetString()!);
+            Assert.True(root.GetProperty("args").EnumerateArray()
+                .Select(argument => argument.GetString()).SequenceEqual(item.Arguments));
+            Assert.Equal(context.NetworkSessionId!.Value.Value.ToString(),
+                root.GetProperty("networkId").GetString()!);
+            Assert.Equal(context.BufferId!.Value.Value.ToString(),
+                root.GetProperty("bufferId").GetString()!);
+        }
+
+        WriteScript(directory.Path, "arguments", """
+            clircs.registerCommand(
+              "literal", ["lit"], "Use ordinary parsing.", context => context.rawArguments);
+            """, ["commands"]);
+        await manager.ReloadAsync("arguments");
+        var changed = await registry.ExecuteAsync(
+            context, (CommandInput)registry.Parse("/lit \"two words\""));
+        Assert.True(changed.Succeeded);
+        Assert.Equal("\"two words\"", changed.Message!);
+        Assert.Throws<CommandLineException>(() => registry.Parse("/lit \"unfinished"));
+        Assert.True(await manager.UnloadAsync("arguments"));
+        Assert.False(registry.TryResolve("lit", out _));
+    }
+
+    private static async ValueTask InvalidScriptCommandOptionsAreRejectedAsync()
+    {
+        (string Options, string Message)[] cases =
+        [
+            ("null", "plain object"),
+            ("{unknown:true}", "Unknown command option"),
+            ("{argumentMode:7}", "must be text"),
+            ("{argumentMode:'raw'}", "must be 'tokenized' or 'text'")
+        ];
+
+        foreach (var item in cases)
+        {
+            using var directory = new TemporaryDirectory();
+            WriteScript(directory.Path, "invalid-options", $$"""
+                clircs.registerCommand("beforeoptions", [], "Before failure.", () => {});
+                clircs.registerCommand(
+                  "badoptions", [], "Invalid options.", () => {}, null, {{item.Options}});
+                """, ["commands"]);
+            var host = new TestScriptHost();
+            var registry = new CommandRegistry();
+            await using var manager = new ScriptManager(
+                directory.Path, WithCoreCommandRegistry(host, registry));
+
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => manager.LoadAsync("invalid-options").AsTask());
+            Assert.True(failure.Message.Contains(item.Message, StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(0, registry.Definitions.Count);
+        }
+    }
+
+    private static async ValueTask WindowInputContractAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        var first = new NetworkSessionState(
+            NetworkSessionId.New(), "First", IrcCaseMapping.Rfc1459);
+        var second = new NetworkSessionState(
+            NetworkSessionId.New(), "Second", IrcCaseMapping.Rfc1459);
+        string?[] scopes = [first.Id.Value.ToString(), second.Id.Value.ToString(), null];
+        WriteScript(directory.Path, "input-context", $$"""
+            for (const networkId of {{JsonSerializer.Serialize(scopes)}}) {
+              const target = clircs.windows.open("chat", { networkId });
+              clircs.windows.onInput(target, input => {
+                const snapshot = clircs.windows.list();
+                snapshot[0].name = "changed";
+                if (input.networkId !== null) {
+                  clircs.run("/quote OPERWALL :" + input.text);
+                }
+                return JSON.stringify({ input, windows: clircs.windows.list() });
+              });
+            }
+            """, ["commands", "output", "raw"]);
+
+        var windows = new ScriptWindowRegistry();
+        windows.Open("someone-else", "chat", first);
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, WithScriptWindowRegistry(host, windows, first, second));
+        await manager.LoadAsync("input-context");
+        var owned = windows.ListOwned("input-context");
+        Assert.Equal(3, owned.Length);
+        const string text = "  He said \"hello  C:\\notes\\  ";
+
+        foreach (var window in owned)
+        {
+            var context = new CommandContext(window.NetworkId, window.BufferId);
+            var result = await RequireWindowInput(windows, context)(
+                context, text, CancellationToken.None);
+            Assert.True(result.Succeeded, result.Message ?? "Input handler failed.");
+            using var document = JsonDocument.Parse(result.Message!);
+            var input = document.RootElement.GetProperty("input");
+            Assert.Equal(text, input.GetProperty("text").GetString()!);
+            Assert.Equal(window.BufferId.Value.ToString(), input.GetProperty("bufferId").GetString()!);
+            Assert.True(input.GetProperty("networkId").GetString() == window.NetworkId?.Value.ToString());
+
+            var listed = document.RootElement.GetProperty("windows");
+            Assert.Equal(3, listed.GetArrayLength());
+            Assert.True(listed.EnumerateArray().All(item => item.GetProperty("name").GetString() == "chat"));
+            var match = listed.EnumerateArray().Single(item =>
+                item.GetProperty("bufferId").GetString() == window.BufferId.Value.ToString());
+            Assert.True(match.GetProperty("networkId").GetString() == window.NetworkId?.Value.ToString());
+
+            if (window.NetworkId is not null)
+            {
+                Assert.True(host.CommandRequests.TryDequeue(out var request));
+                Assert.Equal(context, request.Context);
+                Assert.Equal("/quote OPERWALL :" + text, request.CommandLine);
+                Assert.True(request.AllowRaw);
+            }
+        }
+
+        Assert.True(host.CommandRequests.IsEmpty);
+        Assert.Equal(0, manager.Errors.Count);
+    }
+
+    private static async ValueTask WindowInputRejectsInvalidAccessAsync()
+    {
+        const string bind = "clircs.windows.onInput(target, () => {});";
+        await AssertWindowScriptRejectedAsync(bind, ["output"], "commands");
+        await AssertWindowScriptRejectedAsync(bind, ["commands"], "output");
+        await AssertWindowScriptRejectedAsync(
+            """clircs.windows.onInput("not-an-id", () => {});""",
+            ["commands", "output"], "windowId");
+        await AssertWindowScriptRejectedAsync(
+            """clircs.windows.onInput(target, false);""",
+            ["commands", "output"], "function or null");
+
+        foreach (var foreign in new[] { false, true })
+        {
+            using var directory = new TemporaryDirectory();
+            var windows = new ScriptWindowRegistry();
+            var owned = windows.Open("input-owner", "editor", null);
+            var native = new NetworkSessionState(
+                NetworkSessionId.New(), "Test", IrcCaseMapping.Rfc1459);
+            var denied = foreign
+                ? windows.Open("someone-else", "editor", null).Id
+                : native.StatusBuffer.Id;
+            WriteScript(directory.Path, "input-owner", $$"""
+                clircs.windows.onInput("{{owned.Id.Value}}", () => {});
+                clircs.windows.onInput("{{denied.Value}}", () => {});
+                """, ["commands", "output"]);
+            var host = new TestScriptHost();
+            await using var manager = new ScriptManager(
+                directory.Path, WithScriptWindowRegistry(host, windows));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => manager.LoadAsync("input-owner").AsTask());
+            Assert.True(windows.Find(owned.Id) is not null);
+            Assert.True(windows.FindInputHandler(new CommandContext(null, owned.Id)) is null);
+        }
+    }
+
+    private static async ValueTask WindowInputLifecycleAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "input-lifecycle", """
+            const retained = clircs.windows.list();
+            const target = retained.length ? retained[0].bufferId : clircs.windows.open("editor");
+            let generation = 0;
+            function bind() {
+              const label = ++generation;
+              clircs.windows.onInput(target, input => {
+                if (input.text === "replace") {
+                  bind();
+                  return;
+                }
+                if (input.text === "clear") {
+                  clircs.windows.onInput(target, null);
+                  return;
+                }
+                if (input.text === "silent") return;
+                if (input.text === "fail") return false;
+                return label + ":" + input.text;
+              });
+            }
+            bind();
+            clircs.registerCommand("bindinput", [], "Bind the input handler.", () => { bind(); });
+            """, ["commands", "output"]);
+
+        var windows = new ScriptWindowRegistry();
+        var host = new TestScriptHost();
+        CommandContext context;
+        ScriptWindowInputHandler finalHandler;
+        await using (var manager = new ScriptManager(
+            directory.Path, WithScriptWindowRegistry(host, windows)))
+        {
+            await manager.LoadAsync("input-lifecycle");
+            var window = windows.ListOwned("input-lifecycle").Single();
+            context = new CommandContext(null, window.BufferId);
+            var first = RequireWindowInput(windows, context);
+            Assert.Equal("1:hello", (await first(context, "hello", CancellationToken.None)).Message!);
+            Assert.True((await first(context, "silent", CancellationToken.None)).Message is null);
+            Assert.False((await first(context, "fail", CancellationToken.None)).Succeeded);
+            Assert.Equal(0, manager.Errors.Count);
+
+            Assert.True((await first(context, "replace", CancellationToken.None)).Succeeded);
+            Assert.False((await first(context, "stale", CancellationToken.None)).Succeeded);
+            var second = RequireWindowInput(windows, context);
+            Assert.Equal("2:hello", (await second(context, "hello", CancellationToken.None)).Message!);
+
+            Assert.True((await second(context, "clear", CancellationToken.None)).Succeeded);
+            Assert.True(windows.FindInputHandler(context) is null);
+            Assert.False((await second(context, "stale", CancellationToken.None)).Succeeded);
+            Assert.True((await host.Commands["bindinput"].Handler(
+                context, ScriptInput(), CancellationToken.None)).Succeeded);
+            var rebound = RequireWindowInput(windows, context);
+
+            await manager.ReloadAsync("input-lifecycle");
+            Assert.False((await rebound(context, "stale", CancellationToken.None)).Succeeded);
+            var reloaded = RequireWindowInput(windows, context);
+            Assert.Equal("1:hello", (await reloaded(context, "hello", CancellationToken.None)).Message!);
+            Assert.True(await manager.UnloadAsync("input-lifecycle"));
+            Assert.True(windows.FindInputHandler(context) is null);
+            Assert.True(windows.Find(window.BufferId) is not null);
+            Assert.False((await reloaded(context, "stale", CancellationToken.None)).Succeeded);
+
+            await manager.LoadAsync("input-lifecycle");
+            finalHandler = RequireWindowInput(windows, context);
+            Assert.Equal(0, manager.Errors.Count);
+        }
+
+        Assert.True(windows.Find(context.BufferId!.Value) is not null);
+        Assert.True(windows.FindInputHandler(context) is null);
+        Assert.False((await finalHandler(context, "after disposal", CancellationToken.None)).Succeeded);
+    }
+
+    private static async ValueTask WindowInputFaultCleanupAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "input-fault", """
+            for (const name of ["first", "second"]) {
+              const target = clircs.windows.open(name);
+              clircs.windows.onInput(target, () => { throw new Error("input failure"); });
+            }
+            """, ["commands", "output"]);
+        var windows = new ScriptWindowRegistry();
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, WithScriptWindowRegistry(host, windows));
+        await manager.LoadAsync("input-fault");
+        var owned = windows.ListOwned("input-fault");
+        var context = new CommandContext(null, owned[0].BufferId);
+        var handler = RequireWindowInput(windows, context);
+
+        for (var index = 0; index < 3; index++)
+        {
+            Assert.False((await handler(context, "fail", CancellationToken.None)).Succeeded);
+        }
+
+        Assert.Equal("faulted", manager.List().Single().Status);
+        Assert.Equal(3, manager.Errors.Count);
+        foreach (var window in owned)
+        {
+            Assert.True(windows.Find(window.BufferId) is not null);
+            Assert.True(windows.FindInputHandler(new CommandContext(null, window.BufferId)) is null);
+        }
+    }
+
+    private static async ValueTask WindowInputWaitingCallbacksAsync()
+    {
+        foreach (var mode in new[] { "kept", "closed", "replaced", "canceled" })
+        {
+            using var directory = new TemporaryDirectory();
+            WriteScript(directory.Path, "input-waiting", """
+                const target = clircs.windows.open("editor");
+                function bind() {
+                  clircs.windows.onInput(target, input => {
+                    clircs.run("/quote NOTICE tester :" + input.text);
+                  });
+                }
+                bind();
+                clircs.registerCommand("holdinput", [], "Hold the test engine.", context => {
+                  clircs.secrets.prompt("pause", "Test pause");
+                  if (context.args[0] === "replaced") bind();
+                });
+                """, ["commands", "output", "raw", "secrets"]);
+            var windows = new ScriptWindowRegistry();
+            var host = new TestScriptHost { BlockSecretPrompt = true };
+            await using var manager = new ScriptManager(
+                directory.Path, WithScriptWindowRegistry(host, windows));
+            await manager.LoadAsync("input-waiting");
+            var window = windows.ListOwned("input-waiting").Single();
+            var context = new CommandContext(null, window.BufferId);
+            var handler = RequireWindowInput(windows, context);
+            using var cancellation = new CancellationTokenSource();
+            var blocker = Task.Run(async () => await host.Commands["holdinput"].Handler(
+                context, ScriptInput(mode), CancellationToken.None));
+            Task<CommandResult> pending;
+
+            try
+            {
+                await host.SecretPromptEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                pending = handler(context, "queued text", cancellation.Token).AsTask();
+                Assert.False(pending.IsCompleted);
+                if (mode == "closed")
+                {
+                    Assert.True(windows.Remove(window.BufferId));
+                }
+                if (mode == "canceled")
+                {
+                    cancellation.Cancel();
+                }
+            }
+            finally
+            {
+                host.ReleaseSecretPrompt.Set();
+                await blocker.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
+            if (mode == "canceled")
+            {
+                await Assert.ThrowsAsync<OperationCanceledException>(
+                    () => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+            else
+            {
+                Assert.Equal(mode == "kept",
+                    (await pending.WaitAsync(TimeSpan.FromSeconds(5))).Succeeded);
+            }
+
+            if (mode == "kept")
+            {
+                Assert.True(host.CommandRequests.TryDequeue(out var request));
+                Assert.Equal(context, request.Context);
+                Assert.Equal("/quote NOTICE tester :queued text", request.CommandLine);
+            }
+            Assert.True(host.CommandRequests.IsEmpty);
+            Assert.Equal(0, manager.Errors.Count);
+        }
+    }
+
+    private static async ValueTask WindowInputSlotsAreReusableAsync()
+    {
+        using var directory = new TemporaryDirectory();
+        WriteScript(directory.Path, "input-slots", """
+            const bind = target => clircs.windows.onInput(target, input => input.text);
+            for (const window of clircs.windows.list()) bind(window.bufferId);
+            clircs.registerCommand("bindslot", [], "Bind a test window.", () => {
+              const target = clircs.windows.open("w0");
+              bind(target);
+              return target;
+            });
+            """, ["commands", "output"]);
+        var windows = new ScriptWindowRegistry();
+        var original = windows.Open("input-slots", "w0", null);
+        for (var index = 1; index < ScriptWindowRegistry.MaximumWindowsPerScript; index++)
+        {
+            windows.Open("input-slots", $"w{index}", null);
+        }
+        var host = new TestScriptHost();
+        await using var manager = new ScriptManager(
+            directory.Path, WithScriptWindowRegistry(host, windows));
+        await manager.LoadAsync("input-slots");
+        var context = new CommandContext(null, original.Id);
+        var first = RequireWindowInput(windows, context);
+
+        Assert.True((await host.Commands["bindslot"].Handler(
+            context, ScriptInput(), CancellationToken.None)).Succeeded);
+        Assert.False((await first(context, "stale", CancellationToken.None)).Succeeded);
+        var replacement = RequireWindowInput(windows, context);
+        Assert.True(windows.Remove(original.Id));
+        Assert.False((await replacement(context, "stale", CancellationToken.None)).Succeeded);
+
+        var reopened = await host.Commands["bindslot"].Handler(
+            context, ScriptInput(), CancellationToken.None);
+        Assert.True(reopened.Succeeded, reopened.Message ?? "Rebinding failed.");
+        var nextId = new BufferId(Guid.Parse(reopened.Message!));
+        Assert.False(nextId == original.Id);
+        var nextContext = new CommandContext(null, nextId);
+        var result = await RequireWindowInput(windows, nextContext)(
+            nextContext, "hello", CancellationToken.None);
+        Assert.Equal("hello", result.Message!);
+        Assert.Equal(ScriptWindowRegistry.MaximumWindowsPerScript,
+            windows.ListOwned("input-slots").Length);
     }
 
     private static async ValueTask WindowBindingsPreserveContextAsync()
@@ -93,7 +515,7 @@ internal static class ScriptTests
         var origin = BufferId.New();
         var context = new CommandContext(network, origin);
         var result = await host.Commands["windowprobe"].Handler(
-            context, [], CancellationToken.None);
+            context, ScriptInput(), CancellationToken.None);
 
         Assert.True(result.Succeeded);
         using var document = JsonDocument.Parse(result.Message!);
@@ -134,7 +556,7 @@ internal static class ScriptTests
         windows.WriteResult = false;
 
         var missing = await host.Commands["windowprobe"].Handler(
-            context, [], CancellationToken.None);
+            context, ScriptInput(), CancellationToken.None);
         Assert.True(missing.Succeeded);
         using var missingDocument = JsonDocument.Parse(missing.Message!);
         var missingRoot = missingDocument.RootElement;
@@ -198,6 +620,7 @@ internal static class ScriptTests
             """clircs.windows.status(network);""",
             """clircs.windows.find("#room", network);""",
             """clircs.windows.open("report");""",
+            """clircs.windows.list();""",
             """clircs.windows.write(target, "text");""",
             """clircs.style("warning", "text");"""
         ];
@@ -441,15 +864,18 @@ internal static class ScriptTests
                 aliases,
                 $"/{name}",
                 $"Test {name} command",
-                Handler));
+                Handler,
+                argumentMode: name == "raw"
+                    ? CommandArgumentMode.Text
+                    : CommandArgumentMode.Tokenized));
         }
 
         Assert.True(ScriptCommandRequestPolicy.IsAllowed(
             commands,
-            (CommandInput)CommandLineParser.Parse("/notice Nick hello")));
+            (CommandInput)commands.Parse("/notice Nick hello")));
         Assert.True(ScriptCommandRequestPolicy.IsAllowed(
             commands,
-            (CommandInput)CommandLineParser.Parse("/n Nick hello")));
+            (CommandInput)commands.Parse("/n Nick hello")));
 
         string[] denied =
         [
@@ -472,7 +898,7 @@ internal static class ScriptTests
 
         foreach (var commandLine in denied)
         {
-            var command = (CommandInput)CommandLineParser.Parse(commandLine);
+            var command = (CommandInput)commands.Parse(commandLine);
             Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command));
             Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command, allowRaw: true));
         }
@@ -482,12 +908,14 @@ internal static class ScriptTests
             "/raw VENDORCOMMAND first :two  spaces",
             "/quote VENDORCOMMAND first :two  spaces",
             "/RAW VERSION",
-            "/QuOtE VERSION"
+            "/QuOtE VERSION",
+            "/raw OPERWALL :He said \"hello",
+            "/QuOtE LOCOPS :two  spaces and \"one quote"
         ];
 
         foreach (var commandLine in rawCommands)
         {
-            var command = (CommandInput)CommandLineParser.Parse(commandLine);
+            var command = (CommandInput)commands.Parse(commandLine);
             Assert.False(ScriptCommandRequestPolicy.IsAllowed(commands, command));
             Assert.True(ScriptCommandRequestPolicy.IsAllowed(commands, command, allowRaw: true));
         }
@@ -772,7 +1200,7 @@ internal static class ScriptTests
             var loaded = await manager.LoadAsync("greeter");
             Assert.Equal("loaded", loaded.Status);
             Assert.True(host.Commands.TryGetValue("hello", out var command));
-            var result = await command!.Handler(new CommandContext(null, null), ["world"], CancellationToken.None);
+            var result = await command!.Handler(new CommandContext(null, null), ScriptInput("world"), CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.Equal("hello world (1)", result.Message!);
             await host.WaitForOutputAsync(text => text == "timer-fired", TimeSpan.FromSeconds(2));
@@ -806,7 +1234,7 @@ internal static class ScriptTests
         await secondManager.LoadAsync("greeter");
         var secondResult = await secondHost.Commands["hello"].Handler(
             new CommandContext(null, null),
-            ["again"],
+            ScriptInput("again"),
             CancellationToken.None);
         Assert.Equal("hello again (2)", secondResult.Message!);
     }
@@ -1041,7 +1469,7 @@ internal static class ScriptTests
         Assert.Equal("1.0.1", second.List().Single().Version);
 
         var result = await secondHost.Commands["approved"].Handler(
-            new CommandContext(null, null), [], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput(), CancellationToken.None);
         Assert.True(result.Succeeded);
         Assert.Equal("ready", result.Message!);
     }
@@ -1084,7 +1512,7 @@ internal static class ScriptTests
         Assert.Equal(0, manager.Errors.Count);
 
         var originalResult = await original.Handler(
-            new CommandContext(null, null), [], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput(), CancellationToken.None);
         Assert.True(originalResult.Succeeded);
         Assert.Equal("original", originalResult.Message!);
 
@@ -1096,7 +1524,7 @@ internal static class ScriptTests
         Assert.False(ReferenceEquals(original, host.Commands["updated"]));
 
         var updatedResult = await host.Commands["updated"].Handler(
-            new CommandContext(null, null), [], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput(), CancellationToken.None);
         Assert.True(updatedResult.Succeeded);
         Assert.Equal("updated", updatedResult.Message!);
 
@@ -1145,7 +1573,7 @@ internal static class ScriptTests
                 directory.Path, "script-data", "permission-revocation.json")));
 
             var result = await host.Commands["checkpermissions"].Handler(
-                new CommandContext(null, null), [], CancellationToken.None);
+                new CommandContext(null, null), ScriptInput(), CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.Equal("storage granted", result.Message!);
             Assert.True(host.CommandRequests.TryDequeue(out var request));
@@ -1237,7 +1665,7 @@ internal static class ScriptTests
             Assert.False(unloaded.GrantedPermissions.Contains(ScriptPermission.Raw));
 
             var staleResult = await original.Handler(
-                new CommandContext(null, null), [], CancellationToken.None);
+                new CommandContext(null, null), ScriptInput(), CancellationToken.None);
             Assert.False(staleResult.Succeeded);
             Assert.True(host.CommandRequests.IsEmpty);
         }
@@ -1345,7 +1773,7 @@ internal static class ScriptTests
 
             var context = new CommandContext(NetworkSessionId.New(), BufferId.New());
             var result = await host.Commands["rawcheck"].Handler(
-                context, [], CancellationToken.None);
+                context, ScriptInput(), CancellationToken.None);
 
             Assert.True(result.Succeeded);
             Assert.True(host.CommandRequests.TryDequeue(out var request));
@@ -1380,7 +1808,7 @@ internal static class ScriptTests
             Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
 
             var result = await host.Commands["rawpersist"].Handler(
-                context, [], CancellationToken.None);
+                context, ScriptInput(), CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.True(host.CommandRequests.TryDequeue(out var granted));
             Assert.True(granted.AllowRaw);
@@ -1388,7 +1816,7 @@ internal static class ScriptTests
             await manager.SetPermissionAsync("raw-persist", ScriptPermission.Raw, granted: false);
 
             result = await host.Commands["rawpersist"].Handler(
-                context, [], CancellationToken.None);
+                context, ScriptInput(), CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.True(host.CommandRequests.TryDequeue(out var revoked));
             Assert.False(revoked.AllowRaw);
@@ -1400,7 +1828,7 @@ internal static class ScriptTests
             Assert.False(loaded.GrantedPermissions.Contains(ScriptPermission.Raw));
 
             var result = await host.Commands["rawpersist"].Handler(
-                context, [], CancellationToken.None);
+                context, ScriptInput(), CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.True(host.CommandRequests.TryDequeue(out var revoked));
             Assert.False(revoked.AllowRaw);
@@ -1547,7 +1975,7 @@ internal static class ScriptTests
         {
             await manager.LoadAsync("secret");
             var result = await firstHost.Commands["secretvalue"].Handler(
-                new CommandContext(null, null), [], CancellationToken.None);
+                new CommandContext(null, null), ScriptInput(), CancellationToken.None);
             Assert.Equal("swordfish", result.Message!);
         }
 
@@ -1557,7 +1985,7 @@ internal static class ScriptTests
         await using var secondManager = new ScriptManager(directory.Path, secondHost.Services);
         await secondManager.LoadAsync("secret");
         var second = await secondHost.Commands["secretvalue"].Handler(
-            new CommandContext(null, null), [], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput(), CancellationToken.None);
         Assert.Equal("swordfish", second.Message!);
     }
 
@@ -1579,7 +2007,7 @@ internal static class ScriptTests
         await using var manager = new ScriptManager(directory.Path, host.Services);
         await manager.LoadAsync("slow-secret");
         var result = await host.Commands["slowsecret"].Handler(
-            new CommandContext(null, null), [], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput(), CancellationToken.None);
         Assert.True(result.Succeeded);
         Assert.Equal("eventually", result.Message!);
         Assert.Equal("loaded", manager.List().Single().Status);
@@ -1597,7 +2025,7 @@ internal static class ScriptTests
         Assert.True(host.Commands.ContainsKey("song"));
         Assert.True(host.Commands.ContainsKey("music"));
         var status = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ["status"], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput("status"), CancellationToken.None);
         Assert.True(status.Message!.Contains("localnetwork", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -1724,7 +2152,7 @@ internal static class ScriptTests
         Assert.True(loaded.GrantedPermissions.Contains(ScriptPermission.LocalNetwork));
         Assert.Equal(1, host.PermissionRequests.Count);
         var initialStatus = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ["status"], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput("status"), CancellationToken.None);
         ScriptHeaderContribution header;
         try
         {
@@ -1753,7 +2181,7 @@ internal static class ScriptTests
             item => item.Text.Contains("Paused: The White Stripes - Apple Blossom [2:13]", StringComparison.Ordinal),
             TimeSpan.FromSeconds(5));
         var refreshedStatus = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ["status"], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput("status"), CancellationToken.None);
         Assert.True(refreshedStatus.Succeeded);
         await pollReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await host.WaitForHeaderAsync(
@@ -1765,7 +2193,7 @@ internal static class ScriptTests
             TimeSpan.FromSeconds(5));
 
         var next = await host.Commands["music"].Handler(
-            new CommandContext(null, null), ["next"], CancellationToken.None);
+            new CommandContext(null, null), ScriptInput("next"), CancellationToken.None);
         Assert.True(next.Succeeded);
         await nextReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await manager.UnloadAsync("musikcube");
@@ -1889,6 +2317,42 @@ internal static class ScriptTests
         }
     }
 
+    private static CommandInput ScriptInput(params string[] arguments) =>
+        new("test", arguments, string.Join(' ', arguments));
+
+    private static ScriptWindowInputHandler RequireWindowInput(
+        ScriptWindowRegistry windows,
+        CommandContext context) =>
+        windows.FindInputHandler(context)
+        ?? throw new InvalidOperationException("Expected an input handler.");
+
+    private static ScriptHostServices WithScriptWindowRegistry(
+        TestScriptHost host,
+        ScriptWindowRegistry windows,
+        params NetworkSessionState[] sessions)
+    {
+        var connections = sessions.ToDictionary(session => session.Id);
+        return host.Services with
+        {
+            Windows = host.Services.Windows with
+            {
+                Open = (scriptId, name, networkId) =>
+                {
+                    NetworkSessionState? session = null;
+                    if (networkId is { } id &&
+                        !connections.TryGetValue(id, out session))
+                    {
+                        throw new InvalidOperationException("Unknown test network.");
+                    }
+
+                    return windows.Open(scriptId, name, session).Id;
+                },
+                List = windows.ListOwned,
+                OnInput = windows.SetInputHandler
+            }
+        };
+    }
+
     private static ScriptHostServices WithCoreCommandRegistry(
         TestScriptHost host,
         CommandRegistry registry) =>
@@ -1959,6 +2423,14 @@ internal static class ScriptTests
                     Calls.Enqueue("write");
                     Writes.Enqueue((scriptId, bufferId, output));
                     return WriteResult;
+                },
+                _ => throw new InvalidOperationException(
+                    "Window listing was not configured for this test."),
+                (_, _, _) =>
+                {
+                    Calls.Enqueue("input");
+                    throw new InvalidOperationException(
+                        "Window input was not configured for this test.");
                 });
         }
 
@@ -2048,6 +2520,8 @@ internal static class ScriptTests
                     _ => throw WindowServicesNotConfigured(),
                     (_, _) => throw WindowServicesNotConfigured(),
                     (_, _, _) => throw WindowServicesNotConfigured(),
+                    (_, _, _) => throw WindowServicesNotConfigured(),
+                    _ => throw WindowServicesNotConfigured(),
                     (_, _, _) => throw WindowServicesNotConfigured()));
         }
 

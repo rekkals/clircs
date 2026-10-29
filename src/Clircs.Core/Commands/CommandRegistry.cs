@@ -18,6 +18,12 @@ public sealed record CommandResult(bool Succeeded, string? Message = null, Prese
 
 public delegate ValueTask<CommandResult> CommandHandler(CommandContext context, CommandInput input, CancellationToken cancellationToken);
 
+public enum CommandArgumentMode
+{
+    Tokenized,
+    Text
+}
+
 public sealed class CommandDefinition
 {
     public CommandDefinition(
@@ -28,8 +34,14 @@ public sealed class CommandDefinition
         CommandHandler handler,
         bool visibleInHelp = true,
         IEnumerable<PresentationField>? extendedHelp = null,
-        Func<string, PresentationBlock?>? topicHelp = null)
+        Func<string, PresentationBlock?>? topicHelp = null,
+        CommandArgumentMode argumentMode = CommandArgumentMode.Tokenized)
     {
+        if (!Enum.IsDefined(argumentMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(argumentMode));
+        }
+
         Name = CommandLineParser.NormalizeName(name);
         ArgumentNullException.ThrowIfNull(aliases);
         Aliases = new ReadOnlyCollection<string>(aliases.Select(CommandLineParser.NormalizeName).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
@@ -41,6 +53,7 @@ public sealed class CommandDefinition
         ExtendedHelp = new ReadOnlyCollection<PresentationField>((extendedHelp ?? []).ToArray());
         TopicHelp = topicHelp;
         Handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        ArgumentMode = argumentMode;
     }
 
     public string Name { get; }
@@ -58,6 +71,8 @@ public sealed class CommandDefinition
     public Func<string, PresentationBlock?>? TopicHelp { get; }
 
     public CommandHandler Handler { get; }
+
+    public CommandArgumentMode ArgumentMode { get; }
 }
 
 public sealed class CommandRegistry
@@ -76,6 +91,13 @@ public sealed class CommandRegistry
             }
         }
     }
+
+    public ParsedInput Parse(string input) =>
+        CommandLineParser.Parse(
+            input,
+            name => TryResolve(name, out var definition)
+                ? definition.ArgumentMode
+                : CommandArgumentMode.Tokenized);
 
     public void Register(CommandDefinition definition)
     {

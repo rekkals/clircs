@@ -818,11 +818,12 @@ internal sealed partial class ClientApplication
             registration.Aliases,
             help?.Usage ?? $"/{name} [arguments]",
             registration.Summary,
-            (context, input, cancellationToken) => registration.Handler(context, input.Arguments, cancellationToken),
+            registration.Handler,
             extendedHelp: fields,
             topicHelp: topics.Count == 0
                 ? null
-                : requested => topics.GetValueOrDefault(requested));
+                : requested => topics.GetValueOrDefault(requested),
+            argumentMode: registration.ArgumentMode);
     }
 
     private void QueueScriptCommand(
@@ -838,7 +839,7 @@ internal sealed partial class ClientApplication
     {
         try
         {
-            var parsed = CommandLineParser.Parse(commandLine);
+            var parsed = _commands.Parse(commandLine);
             if (parsed is not CommandInput command)
             {
                 PrintScriptOutput(scriptId, "Only slash commands may be requested");

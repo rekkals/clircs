@@ -11,7 +11,9 @@ public sealed record CommandInput(string Name, IReadOnlyList<string> Arguments, 
 
 public static class CommandLineParser
 {
-    public static ParsedInput Parse(string input)
+    public static ParsedInput Parse(
+        string input,
+        Func<string, CommandArgumentMode>? resolveArgumentMode = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         if (!input.StartsWith('/'))
@@ -32,19 +34,36 @@ public static class CommandLineParser
 
         var nameEnd = 0;
         while (nameEnd < content.Length && !char.IsWhiteSpace(content[nameEnd])) nameEnd++;
-        if (nameEnd < 0)
-        {
-            return new CommandInput(NormalizeName(content), Array.Empty<string>(), string.Empty);
-        }
-
-        if (nameEnd == content.Length)
-        {
-            return new CommandInput(NormalizeName(content), Array.Empty<string>(), string.Empty);
-        }
 
         var name = NormalizeName(content[..nameEnd]);
-        var rawArguments = content[(nameEnd + 1)..].TrimStart();
-        return new CommandInput(name, new ReadOnlyCollection<string>(Tokenize(rawArguments)), rawArguments);
+        if (nameEnd == content.Length)
+        {
+            return new CommandInput(name, Array.Empty<string>(), string.Empty);
+        }
+
+        var argumentMode = resolveArgumentMode?.Invoke(name)
+            ?? CommandArgumentMode.Tokenized;
+        if (!Enum.IsDefined(argumentMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(resolveArgumentMode));
+        }
+
+        var rawArguments = content[(nameEnd + 1)..];
+        string[] arguments;
+        if (argumentMode == CommandArgumentMode.Text)
+        {
+            arguments = rawArguments.Length == 0 ? [] : [rawArguments];
+        }
+        else
+        {
+            rawArguments = rawArguments.TrimStart();
+            arguments = Tokenize(rawArguments);
+        }
+
+        return new CommandInput(
+            name,
+            new ReadOnlyCollection<string>(arguments),
+            rawArguments);
     }
 
     public static string NormalizeName(string name)

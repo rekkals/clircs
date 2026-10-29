@@ -1,3 +1,4 @@
+using Clircs.Commands;
 using Clircs.Identity;
 using Clircs.Networking;
 using Clircs.Scripting;
@@ -84,12 +85,90 @@ internal sealed partial class ClientApplication
             ?? throw new InvalidOperationException("The client is shutting down.");
     }
 
+    private IReadOnlyList<ScriptWindowInfo> ListScriptWindows(string scriptId)
+    {
+        lock (_windowTransactionGate)
+        {
+            if (_exitRequested || _lifetime.IsCancellationRequested) return [];
+            return _scriptWindows.ListOwned(scriptId);
+        }
+    }
+
+    private IScriptWindowInputRegistration? SetScriptWindowInput(
+        string scriptId,
+        BufferId bufferId,
+        ScriptWindowInputHandler? handler)
+    {
+        lock (_windowTransactionGate)
+        {
+            if (_exitRequested || _lifetime.IsCancellationRequested)
+            {
+                throw new InvalidOperationException("The client is shutting down.");
+            }
+
+            return _scriptWindows.SetInputHandler(scriptId, bufferId, handler);
+        }
+    }
+
+    private ValueTask<CommandResult> SubmitChatInputAsync(
+        CommandContext context,
+        string text,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (text.Length == 0)
+        {
+            return ValueTask.FromResult(CommandResult.Success());
+        }
+
+        BufferState buffer;
+        ScriptWindowInputHandler? handler = null;
+
+        lock (_windowTransactionGate)
+        {
+            if (_exitRequested || _lifetime.IsCancellationRequested)
+            {
+                return ValueTask.FromResult(CommandResult.Failure(
+                    "The client is shutting down."));
+            }
+
+            if (context.BufferId is null ||
+                ResolveWindowContext(context).Buffer is not { } destination)
+            {
+                return ValueTask.FromResult(CommandResult.Failure(
+                    "The input window no longer exists."));
+            }
+
+            buffer = destination;
+            if (buffer.Kind == BufferKind.Script)
+            {
+                handler = _scriptWindows.FindInputHandler(context);
+            }
+        }
+
+        if (buffer.Kind != BufferKind.Script)
+        {
+            return SayAsync(text, cancellationToken);
+        }
+
+        if (handler is null)
+        {
+            return ValueTask.FromResult(CommandResult.Failure(
+                "This script window has no active input handler."));
+        }
+
+        return handler(context, text, cancellationToken);
+    }
+
     internal ScriptWindowHostServices CreateScriptWindowHostServices() => new(
         ScriptActiveWindow,
         ScriptStatusWindow,
         FindScriptWindow,
         OpenScriptWindow,
-        WriteScriptWindow);
+        WriteScriptWindow,
+        ListScriptWindows,
+        SetScriptWindowInput);
 
     internal SessionEvent[] WindowHistorySnapshot(BufferId bufferId) =>
         _windowStates.HistorySnapshot(bufferId);

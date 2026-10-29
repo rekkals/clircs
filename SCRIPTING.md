@@ -93,7 +93,7 @@ The permissions below must be requested in the manifest and granted before their
 
 | Permission | API or capability |
 | --- | --- |
-| `commands` | Register clircs commands and aliases. |
+| `commands` | Register clircs commands and aliases; with `output`, handle input in script-owned windows. |
 | `events` | Observe semantic client and IRC events. |
 | `timers` | Create and cancel bounded one-shot timers. |
 | `output` | Print local output, look up or create windows, and write styled text to windows. |
@@ -185,6 +185,8 @@ All functions below, including `clircs.style()`, require `output`.
 | Function | Behavior |
 | --- | --- |
 | `clircs.windows.active()` | Returns the currently visible window's ID, or `null` when unavailable. |
+| `clircs.windows.list()` | Returns a fresh array of this script's windows as `{ bufferId, name, networkId }` objects. `name` is the logical name supplied to `open()`; `networkId` is `null` for connection-independent windows. |
+| `clircs.windows.onInput(windowId, handler)` | Registers or replaces the input handler for a window owned by this script. Pass `null` to remove it. Requires both `commands` and `output`. |
 | `clircs.windows.status(networkId = null)` | Returns that connection's status-window ID. Omitted or `null` selects the application's local status window. An unknown connection returns `null`. |
 | `clircs.windows.find(name, networkId = null)` | Looks up a complete window name in the specified connection or local scope. Returns its ID or `null`. It does not perform substring or wildcard searches. |
 | `clircs.windows.open(name, options = {})` | Creates or reuses a script-owned background window and returns its ID. The supported option is `networkId`; omitted or `null` creates a connection-independent window. |
@@ -244,6 +246,29 @@ Invalid arguments, unknown options, and invalid role, color, or timestamp values
 
 Text written through `clircs.windows.write()` is not delivered to `clircs.on()` handlers.
 
+### Window Input
+
+Scripts with both `commands` and `output` can handle plain text submitted in their own windows:
+
+```javascript
+const windowId = clircs.windows.open("input");
+clircs.windows.onInput(windowId, input => {
+  clircs.windows.write(input.bufferId, "You entered: " + input.text);
+});
+```
+
+The handler receives `{ text, networkId, bufferId }`. The IDs identify the submitted window and its connection; `networkId` is `null` for a connection-independent window. Switching windows cannot redirect the callback or commands it requests through `clircs.run()`. Raw IRC commands still require `raw`.
+
+Text preserves spaces, quotes, and backslashes. Empty submissions are ignored; whitespace-only submissions reach the handler. A leading `//` becomes a literal `/`. Slash commands continue through ordinary clircs command processing, including `/say`, which retains its channel/query behavior.
+
+Submitted text is not automatically echoed. Use `clircs.windows.write()` when local output is wanted. Returning `null` or `undefined` succeeds silently; `false` reports failure; other values become successful command-result text.
+
+Each window has one input handler, and only its owning script can register or clear it. Registering another handler replaces the previous one; passing `null` clears it. A script may have at most 64 input handlers.
+
+Closing a window removes its handler. Unloading, faulting, or reloading a script removes that instance's handlers while retaining its windows and history. Register handlers again when loading; `clircs.windows.list()` can rediscover retained windows. A window without an active handler reports an error when text is submitted.
+
+Input callbacks use the same execution limits and failure policy as script command handlers.
+
 ### Registering Commands
 
 ```javascript
@@ -259,22 +284,43 @@ Requires `commands`. Arguments are:
 2. array of aliases;
 3. help summary;
 4. command handler;
-5. optional help object.
+5. optional help object;
+6. optional options object.
 
 The handler receives:
 
 ```javascript
 {
-  name,       // canonical command name
-  args,       // array of parsed arguments
-  networkId,  // stable ID, or null when no network context exists
-  bufferId    // stable ID, or null when no window context exists
+  name,         // canonical command name
+  args,         // array of parsed arguments
+  rawArguments, // argument text before tokenization
+  networkId,    // stable ID, or null when no network context exists
+  bufferId      // stable ID, or null when no window context exists
 }
 ```
 
 Returning `null` or `undefined` succeeds silently. Returning `false` reports command failure. Any other returned value is converted to text and displayed as a successful command result.
 
 Script commands participate in the ordinary command registry, appear in `/help`, and are removed when the script unloads or faults. A script may register at most 64 commands.
+
+#### Argument Parsing
+
+The sixth argument supports `argumentMode`, which defaults to `"tokenized"`. This uses ordinary clircs argument parsing. `rawArguments` contains the argument text with leading separator whitespace removed, retaining its original quotes and spacing within the text.
+
+Use `"text"` when the command accepts a literal text body:
+
+```javascript
+clircs.registerCommand(
+  "literal", [], "Display literal text.",
+  context => context.rawArguments,
+  null,
+  { argumentMode: "text" }
+);
+```
+
+Text mode consumes one whitespace separator after the command name and preserves everything afterward, including additional leading spaces, trailing spaces, quotes, and backslashes. `args` contains that entire body as one string, or is empty when no body remains. Aliases use the same argument mode.
+
+The built-in `/raw` and `/quote` commands also use text mode.
 
 #### Command Help
 

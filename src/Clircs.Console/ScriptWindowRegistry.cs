@@ -1,4 +1,6 @@
+using Clircs.Commands;
 using Clircs.Identity;
+using Clircs.Scripting;
 using Clircs.State;
 
 namespace Clircs.ConsoleClient;
@@ -111,9 +113,81 @@ internal sealed class ScriptWindowRegistry
         }
     }
 
+    public ScriptWindowInfo[] ListOwned(string scriptId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptId);
+        lock (_gate)
+        {
+            return _windows.Values
+                .Where(window => window.ScriptId.Equals(
+                    scriptId, StringComparison.OrdinalIgnoreCase))
+                .Select(window => new ScriptWindowInfo(
+                    window.Buffer.Id,
+                    window.Name,
+                    window.SessionId))
+                .ToArray();
+        }
+    }
+
+    public IScriptWindowInputRegistration? SetInputHandler(
+        string scriptId,
+        BufferId bufferId,
+        ScriptWindowInputHandler? handler)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptId);
+        lock (_gate)
+        {
+            if (!_windows.TryGetValue(bufferId, out var window))
+            {
+                throw new InvalidOperationException(
+                    "The requested script window no longer exists.");
+            }
+
+            if (!window.ScriptId.Equals(scriptId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Scripts can handle input only in windows they own.");
+            }
+
+            var registration = handler is null
+                ? null
+                : new InputRegistration(
+                    this,
+                    bufferId,
+                    new CommandContext(window.SessionId, bufferId),
+                    handler);
+
+            window.Input?.Deactivate();
+            window.Input = registration;
+            return registration;
+        }
+    }
+
+    public ScriptWindowInputHandler? FindInputHandler(CommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        lock (_gate)
+        {
+            if (context.BufferId is not { } bufferId ||
+                !_windows.TryGetValue(bufferId, out var window) ||
+                window.SessionId != context.NetworkSessionId ||
+                window.Input is not { IsActive: true } registration)
+            {
+                return null;
+            }
+
+            return registration.InvokeAsync;
+        }
+    }
+
     public bool Remove(BufferId bufferId)
     {
-        lock (_gate) return _windows.Remove(bufferId);
+        lock (_gate)
+        {
+            if (!_windows.TryGetValue(bufferId, out var window)) return false;
+            window.Input?.Deactivate();
+            return _windows.Remove(bufferId);
+        }
     }
 
     public void RemoveSession(NetworkSessionId sessionId)
@@ -124,7 +198,25 @@ internal sealed class ScriptWindowRegistry
                 .Where(window => window.SessionId == sessionId)
                 .Select(window => window.Buffer.Id)
                 .ToArray();
-            foreach (var id in ids) _windows.Remove(id);
+            foreach (var id in ids)
+            {
+                _windows[id].Input?.Deactivate();
+                _windows.Remove(id);
+            }
+        }
+    }
+
+    private void RemoveInputRegistration(
+        BufferId bufferId,
+        InputRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (_windows.TryGetValue(bufferId, out var window) &&
+                ReferenceEquals(window.Input, registration))
+            {
+                window.Input = null;
+            }
         }
     }
 
@@ -132,5 +224,58 @@ internal sealed class ScriptWindowRegistry
         string ScriptId,
         string Name,
         NetworkSessionId? SessionId,
-        BufferState Buffer);
+        BufferState Buffer)
+    {
+        public InputRegistration? Input { get; set; }
+    }
+
+    private sealed class InputRegistration(
+        ScriptWindowRegistry owner,
+        BufferId bufferId,
+        CommandContext context,
+        ScriptWindowInputHandler handler) : IScriptWindowInputRegistration
+    {
+        private ScriptWindowRegistry? _owner = owner;
+        private ScriptWindowInputHandler? _handler = handler;
+
+        public bool IsActive => Volatile.Read(ref _handler) is not null;
+
+        public ValueTask<CommandResult> InvokeAsync(
+            CommandContext requestedContext,
+            string text,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(requestedContext);
+            ArgumentNullException.ThrowIfNull(text);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var currentHandler = Volatile.Read(ref _handler);
+            if (currentHandler is null)
+            {
+                return ValueTask.FromResult(CommandResult.Failure(
+                    "This script window no longer has an active input handler."));
+            }
+
+            if (requestedContext != context)
+            {
+                return ValueTask.FromResult(CommandResult.Failure(
+                    "The script window input context does not match its window."));
+            }
+
+            return currentHandler(context, text, cancellationToken);
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _handler, null);
+            Interlocked.Exchange(ref _owner, null)?
+                .RemoveInputRegistration(bufferId, this);
+        }
+
+        public void Deactivate()
+        {
+            Interlocked.Exchange(ref _handler, null);
+            Interlocked.Exchange(ref _owner, null);
+        }
+    }
 }
