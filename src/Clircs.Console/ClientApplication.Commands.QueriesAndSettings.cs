@@ -222,12 +222,17 @@ internal sealed partial class ClientApplication
                 new("clonedetect", _preferences.CloneDetection ? "on" : "off"),
                 new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
-                new("lagmeter", _preferences.LagMeter ? "on" : "off"),
                 new("joininfo", _preferences.AnnounceUserInfoOnJoin ? "on" : "off"),
                 new("hostmasks.join", FormatHostmaskVisibility(_preferences.JoinHostmasks)),
                 new("hostmasks.part", FormatHostmaskVisibility(_preferences.PartHostmasks)),
                 new("hostmasks.quit", FormatHostmaskVisibility(_preferences.QuitHostmasks)),
                 new("kickrejoin", _preferences.AutoRejoinOnKick ? "on" : "off"),
+                new("status.lagmeter", _preferences.LagMeter ? "on" : "off"),
+                new("status.tls", _preferences.StatusTls ? "on" : "off"),
+                new("status.bouncer", _preferences.StatusBouncer ? "on" : "off"),
+                new("status.chanmodes", _preferences.StatusChannelModes ? "on" : "off"),
+                new("status.usermodes", _preferences.StatusUserModes ? "on" : "off"),
+                new("status.totals", _preferences.StatusTotals ? "on" : "off"),
                 new("dcc.address", _preferences.DccAddress),
                 new("dcc.ports", _preferences.DccPorts.ToString()),
                 new("dcc.downloads", _preferences.DccDownloads)
@@ -250,10 +255,12 @@ internal sealed partial class ClientApplication
         var setting = requestedSetting.ToLowerInvariant();
         var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
 
-        if (setting == "lagmeter" && input.Arguments.Count == 1)
+        if (input.Arguments.Count == 1 &&
+            setting.StartsWith("status.", StringComparison.Ordinal) &&
+            CurrentSettingValue(setting) is { } currentStatusValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
-                $"lagmeter is {(_preferences.LagMeter ? "on" : "off")}."));
+                $"{setting} is {currentStatusValue}."));
         }
 
         if (setting == "datechange" && input.Arguments.Count == 1)
@@ -335,12 +342,38 @@ internal sealed partial class ClientApplication
                 }
                 _preferences.HighlightNickname = highlightNickname;
                 break;
-            case "lagmeter":
-                if (!TryParseOnOff(value, out var lagMeter))
+            case "status.lagmeter":
+            case "status.tls":
+            case "status.bouncer":
+            case "status.chanmodes":
+            case "status.usermodes":
+            case "status.totals":
+                if (!TryParseOnOff(value, out var statusEnabled))
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("lagmeter must be on or off."));
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        $"{setting} must be on or off."));
                 }
-                _preferences.LagMeter = lagMeter;
+                switch (setting)
+                {
+                    case "status.lagmeter":
+                        _preferences.LagMeter = statusEnabled;
+                        break;
+                    case "status.tls":
+                        _preferences.StatusTls = statusEnabled;
+                        break;
+                    case "status.bouncer":
+                        _preferences.StatusBouncer = statusEnabled;
+                        break;
+                    case "status.chanmodes":
+                        _preferences.StatusChannelModes = statusEnabled;
+                        break;
+                    case "status.usermodes":
+                        _preferences.StatusUserModes = statusEnabled;
+                        break;
+                    case "status.totals":
+                        _preferences.StatusTotals = statusEnabled;
+                        break;
+                }
                 break;
             case "datechange":
                 if (!TryParseOnOff(value, out var dateChange))
@@ -476,13 +509,16 @@ internal sealed partial class ClientApplication
         }
         finally
         {
-            if (setting == "lagmeter")
+            if (setting == "status.lagmeter")
             {
                 foreach (var session in SessionsSnapshot())
                 {
                     session.SetLagMeasurementEnabled(_preferences.LagMeter);
                 }
+            }
 
+            if (setting.StartsWith("status.", StringComparison.Ordinal))
+            {
                 _applicationEvents.Dispatch(RefreshWindowChrome);
             }
             else if (setting == "datechange")

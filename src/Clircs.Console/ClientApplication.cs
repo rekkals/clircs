@@ -260,6 +260,11 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.DefaultTopicMessage = appearance.DefaultTopicMessage;
         _preferences.HighlightNickname = appearance.HighlightNickname;
         _preferences.LagMeter = appearance.LagMeter;
+        _preferences.StatusTls = appearance.StatusTls;
+        _preferences.StatusChannelModes = appearance.StatusChannelModes;
+        _preferences.StatusUserModes = appearance.StatusUserModes;
+        _preferences.StatusBouncer = appearance.StatusBouncer;
+        _preferences.StatusTotals = appearance.StatusTotals;
         _preferences.DateChange = appearance.DateChange;
         _preferences.CloneDetection = appearance.CloneDetection;
         _preferences.NetworkReconnect = appearance.NetworkReconnect;

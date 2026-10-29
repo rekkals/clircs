@@ -158,7 +158,9 @@ Traditional IRC formatting controls are available. `Ctrl-B` toggles bold, `Ctrl-
 
 Use `/close` to close the active window. Closing a joined channel parts it. Closing a connected status window requires `/close --force` since that also closes the network connection and its associated windows.
 
-The status bar has a lag meter that measures connection response time in seconds and can be toggled on or off with `/set lagmeter on|off`.
+The status bar has a lag meter that measures connection response time in seconds. Toggle it with `/set status.lagmeter on|off`. Turning it off also stops its extra probes.
+
+Other optional status-bar details are controlled by `status.tls`, `status.bouncer`, `status.chanmodes`, `status.usermodes`, and `status.totals`, using `/set <setting> on|off`. See `/help set <setting>` for details.
 
 ## Everyday IRC
 

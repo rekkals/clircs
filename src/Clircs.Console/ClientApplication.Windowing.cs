@@ -464,7 +464,7 @@ internal sealed partial class ClientApplication
             primary is null ? null : IrcTextFormatting.Parse(primary));
     }
 
-    private StatusBarModel BuildStatusBar(IrcNetworkSession? session, BufferState? buffer)
+    internal StatusBarModel BuildStatusBar(IrcNetworkSession? session, BufferState? buffer)
     {
         var fields = new List<string>();
         if (session is null || buffer is null)
@@ -487,16 +487,17 @@ internal sealed partial class ClientApplication
             var upstreamTls = session.State.BouncerName is null
                 ? session.State.ClientTransportTls
                 : session.State.UpstreamTls == true;
-            fields.Add(FormatStatusNetworkField(number, networkName, upstreamTls));
+            fields.Add(FormatStatusNetworkField(
+                number, networkName, _preferences.StatusTls && upstreamTls));
             if (buffer.Kind == BufferKind.Status)
             {
                 fields.Add(FormatStatusServerField(
                     session.State.ServerName ?? session.Options.Endpoint.Host,
-                    session.State.BouncerName,
-                    session.State.ClientTransportTls));
+                    _preferences.StatusBouncer ? session.State.BouncerName : null,
+                    _preferences.StatusTls && session.State.ClientTransportTls));
             }
             fields.Add(buffer.Kind == BufferKind.Status ? "status" : buffer.Name);
-            var displayedNickname = session.State.UserModes.Length > 0
+            var displayedNickname = _preferences.StatusUserModes && session.State.UserModes.Length > 0
                 ? $"{session.CurrentNickname}({session.State.UserModes})"
                 : session.CurrentNickname;
             if (session.State.IsAway) fields.Add("away");
@@ -510,32 +511,39 @@ internal sealed partial class ClientApplication
             }
             if (buffer.Kind == BufferKind.Channel && session.State.TryGetChannel(buffer.Name, out var channel))
             {
-                var members = channel!.Members;
-                if (channel.TryGetMember(session.CurrentNickname, out var self))
+                var currentChannel = channel!;
+                if (currentChannel.TryGetMember(session.CurrentNickname, out var self))
                 {
                     var prefix = session.Features.HighestPrefix(self!.PrefixModes);
-                    displayedNickname = session.State.UserModes.Length > 0
+                    displayedNickname = _preferences.StatusUserModes && session.State.UserModes.Length > 0
                         ? $"{prefix}{session.CurrentNickname}({session.State.UserModes})"
                         : $"{prefix}{session.CurrentNickname}";
                 }
-                var modes = new string(channel.Modes.Keys.Order().ToArray());
+                var modes = _preferences.StatusChannelModes
+                    ? new string(currentChannel.Modes.Keys.Order().ToArray())
+                    : string.Empty;
                 var channelField = FormatStatusChannelField(buffer.Name, modes);
                 var channelFieldIndex = fields.FindIndex(field => field == buffer.Name);
                 if (channelFieldIndex >= 0) fields[channelFieldIndex] = channelField;
                 fields.Insert(2, displayedNickname);
-                var ranked = new List<string> { $"tot:{members.Count}" };
-                var rankedUsers = 0;
-                foreach (var (mode, symbol) in session.Features.PrefixModes)
+
+                if (_preferences.StatusTotals)
                 {
-                    var count = members.Count(member => session.Features.HighestPrefix(member.PrefixModes) == symbol);
-                    rankedUsers += count;
-                    if (mode != 'Y')
+                    var members = currentChannel.Members;
+                    var ranked = new List<string> { $"tot:{members.Count}" };
+                    var rankedUsers = 0;
+                    foreach (var (mode, symbol) in session.Features.PrefixModes)
                     {
-                        ranked.Add($"{PrefixCountLabel(mode, symbol)}:{count}");
+                        var count = members.Count(member => session.Features.HighestPrefix(member.PrefixModes) == symbol);
+                        rankedUsers += count;
+                        if (mode != 'Y')
+                        {
+                            ranked.Add($"{PrefixCountLabel(mode, symbol)}:{count}");
+                        }
                     }
+                    ranked.Add($"non:{Math.Max(0, members.Count - rankedUsers)}");
+                    fields.Add(string.Join(' ', ranked));
                 }
-                ranked.Add($"non:{Math.Max(0, members.Count - rankedUsers)}");
-                fields.Add(string.Join(' ', ranked));
             }
             else
             {

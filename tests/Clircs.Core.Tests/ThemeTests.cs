@@ -74,6 +74,7 @@ internal static class ThemeTests
         suite.Add("topic headers reserve a content row before redraw", TopicHeadersReserveContentRows);
         suite.Add("preserved table columns stay visible without wrapping the viewport", PreservedTableColumnsDoNotWrap);
         suite.Add("status labels distinguish IRC and bouncer TLS", StatusLabelsDistinguishTlsHops);
+        suite.Add("status bar visibility follows saved settings", StatusBarVisibilityFollowsSettingsAsync);
         suite.Add("channel status totals use compact labels", ChannelStatusTotalsUseCompactLabels);
         suite.Add("client uptime formats elapsed time across unit boundaries", UptimeFormattingHandlesUnitBoundaries);
         suite.Add("raw IRC debug lines expose direction and visible control delimiters", RawDebugLinesAreReadable);
@@ -106,6 +107,67 @@ internal static class ThemeTests
             "irc.deft.com", "ZNC", clientTransportTls: true));
         Assert.Equal("#clircs(+nt)", ClientApplication.FormatStatusChannelField("#clircs", "nt"));
         Assert.Equal("#clircs", ClientApplication.FormatStatusChannelField("#clircs", string.Empty));
+    }
+
+    private static async ValueTask StatusBarVisibilityFollowsSettingsAsync()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new AppearanceSettingsStore(Path.Combine(temporary.Path, "appearance.json"));
+        var defaults = store.Load();
+        await using var session = new IrcNetworkSession(
+            "TestNet",
+            new IrcConnectionOptions(
+                new IrcEndpoint("irc.example", 6697, true),
+                new IrcIdentity(["test"], "test", "Test User")),
+            new Clircs.Transport.TcpIrcTransportFactory());
+        session.State.SetServerName("irc.example");
+        session.State.SetBouncer("Lurker");
+        session.State.SetUpstreamTls(true);
+        session.State.ApplyUserModes("+i");
+        var buffer = session.State.GetOrCreateBuffer(BufferKind.Channel, "#test");
+        var channel = session.State.GetOrCreateChannel("#test");
+        channel.GetOrAddMember("test").AddPrefixMode('o');
+        channel.SetMode('n', true, null);
+
+        foreach (var settings in new[]
+        {
+            defaults,
+            defaults with { StatusTls = false },
+            defaults with { StatusBouncer = false },
+            defaults with { StatusChannelModes = false },
+            defaults with { StatusUserModes = false },
+            defaults with { StatusTotals = false },
+            defaults with { LagMeter = false },
+            defaults with
+            {
+                StatusTls = false, StatusBouncer = false, StatusChannelModes = false,
+                StatusUserModes = false, StatusTotals = false, LagMeter = false
+            }
+        })
+        {
+            store.Save(settings);
+            await using var application = new ClientApplication(temporary.Path);
+            var bar = application.BuildStatusBar(session, buffer);
+            var expectedNetwork = "(1) TestNet" +
+                (settings.StatusTls ? "[TLS]" : string.Empty) +
+                (settings.LagMeter ? "[Lag:???]" : string.Empty);
+            Assert.Equal(expectedNetwork, bar.Fields[0]);
+            Assert.True(bar.Fields.Contains(settings.StatusChannelModes ? "#test(+n)" : "#test"));
+            Assert.True(bar.Fields.Contains(settings.StatusUserModes ? "@test(+i)" : "@test"));
+            Assert.Equal(settings.StatusTotals,
+                bar.Fields.Any(field => field.StartsWith("tot:", StringComparison.Ordinal)));
+
+            var status = application.BuildStatusBar(session, session.State.StatusBuffer);
+            var annotation = settings.StatusBouncer
+                ? $" [Lurker{(settings.StatusTls ? "/TLS" : string.Empty)}]"
+                : string.Empty;
+            Assert.Equal("irc.example" + annotation, status.Fields[1]);
+            Assert.True(status.Fields.Contains(settings.StatusUserModes ? "test(+i)" : "test"));
+            Assert.True(application.SettingHelp("lagmeter") is null);
+            Assert.Equal(settings.LagMeter ? "on" : "off",
+                application.SettingHelp("status.lagmeter")!.Fields!
+                    .Single(field => field.Label == "Currently").Value);
+        }
     }
 
     private static void ChannelStatusTotalsUseCompactLabels()
@@ -1277,7 +1339,12 @@ internal static class ThemeTests
             AwayMessage: "out getting lunch",
             UserModes: string.Empty,
             LagMeter: false,
-            DateChange: false));
+            DateChange: false,
+            StatusTls: false,
+            StatusBouncer: true,
+            StatusChannelModes: false,
+            StatusUserModes: true,
+            StatusTotals: false));
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
@@ -1289,6 +1356,11 @@ internal static class ThemeTests
         Assert.False(loaded.HighlightNickname);
         Assert.False(loaded.LagMeter);
         Assert.False(loaded.DateChange);
+        Assert.False(loaded.StatusTls);
+        Assert.True(loaded.StatusBouncer);
+        Assert.False(loaded.StatusChannelModes);
+        Assert.True(loaded.StatusUserModes);
+        Assert.False(loaded.StatusTotals);
         Assert.Equal("userhost", loaded.DefaultBanmask);
         Assert.Equal("rekkals", loaded.Nickname!);
         Assert.Equal("rekkals_", loaded.AlternateNickname!);
@@ -1310,7 +1382,7 @@ internal static class ThemeTests
         var path = Path.Combine(temporary.Path, "appearance.json");
         var store = new AppearanceSettingsStore(path);
 
-        Assert.True(store.Load().LagMeter);
+        var defaults = store.Load();
 
         File.WriteAllText(path, """
             {
@@ -1322,7 +1394,15 @@ internal static class ThemeTests
         var loaded = store.Load();
         Assert.True(store.LoadError is null);
         Assert.Equal("green", loaded.Theme);
-        Assert.True(loaded.LagMeter);
+        foreach (var settings in new[] { defaults, loaded })
+        {
+            Assert.True(settings.LagMeter);
+            Assert.True(settings.StatusTls);
+            Assert.True(settings.StatusBouncer);
+            Assert.True(settings.StatusChannelModes);
+            Assert.True(settings.StatusUserModes);
+            Assert.True(settings.StatusTotals);
+        }
     }
 
     private static void DateChangeDefaultsOn()

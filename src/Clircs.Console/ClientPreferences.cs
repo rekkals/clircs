@@ -29,6 +29,11 @@ internal sealed class ClientPreferences
     public string? DefaultTopicMessage { get; set; }
     public bool HighlightNickname { get; set; } = true;
     public bool LagMeter { get; set; } = true;
+    public bool StatusTls { get; set; } = true;
+    public bool StatusChannelModes { get; set; } = true;
+    public bool StatusUserModes { get; set; } = true;
+    public bool StatusTotals { get; set; } = true;
+    public bool StatusBouncer { get; set; } = true;
     public bool DateChange { get; set; } = true;
     public bool CloneDetection { get; set; } = true;
     public bool NetworkReconnect { get; set; } = true;

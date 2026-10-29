@@ -31,7 +31,12 @@ internal sealed record AppearanceSettings(
     string AwayMessage = "away",
     string UserModes = "+i",
     bool LagMeter = true,
-    bool DateChange = true);
+    bool DateChange = true,
+    bool StatusTls = true,
+    bool StatusChannelModes = true,
+    bool StatusUserModes = true,
+    bool StatusBouncer = true,
+    bool StatusTotals = true);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -90,7 +95,12 @@ internal sealed class AppearanceSettingsStore
                     ? "+i"
                     : NetworkProfile.NormalizeUserModes(stored.UserModes),
                 stored.LagMeter,
-                stored.DateChange);
+                stored.DateChange,
+                stored.StatusTls,
+                stored.StatusChannelModes,
+                stored.StatusUserModes,
+                stored.StatusBouncer,
+                stored.StatusTotals);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -119,6 +129,11 @@ internal sealed class AppearanceSettingsStore
             AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin,
             HighlightNickname = settings.HighlightNickname,
             LagMeter = settings.LagMeter,
+            StatusTls = settings.StatusTls,
+            StatusChannelModes = settings.StatusChannelModes,
+            StatusUserModes = settings.StatusUserModes,
+            StatusBouncer = settings.StatusBouncer,
+            StatusTotals = settings.StatusTotals,
             DateChange = settings.DateChange,
             DefaultBanmask = settings.DefaultBanmask,
             Nickname = settings.Nickname,
@@ -172,6 +187,11 @@ internal sealed class AppearanceSettingsStore
         public bool AnnounceUserInfoOnJoin { get; set; }
         public bool HighlightNickname { get; set; } = true;
         public bool LagMeter { get; set; } = true;
+        public bool StatusTls { get; set; } = true;
+        public bool StatusChannelModes { get; set; } = true;
+        public bool StatusUserModes { get; set; } = true;
+        public bool StatusBouncer { get; set; } = true;
+        public bool StatusTotals { get; set; } = true;
         public bool DateChange { get; set; } = true;
         public string DefaultBanmask { get; set; } = "host";
         public string? Nickname { get; set; }
