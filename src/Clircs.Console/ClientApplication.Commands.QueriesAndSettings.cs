@@ -242,7 +242,8 @@ internal sealed partial class ClientApplication
                 .Select(key => new PresentationField(
                     $"{key}.output",
                     FormatOutputDestination(_outputRouting.DestinationFor(key)))));
-            return ValueTask.FromResult(CommandResult.Success(new PresentationBlock("Client Settings", fields)));
+            return ValueTask.FromResult(CommandResult.Success(
+                new PresentationBlock("Client Settings", fields, AutoFieldColumns: true)));
         }
 
         var requestedSetting = input.Arguments[0];

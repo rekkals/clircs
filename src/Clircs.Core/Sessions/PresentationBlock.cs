@@ -67,4 +67,5 @@ public sealed record PresentationBlock(
     string? TitleHighlight = null,
     int? GridColumns = null,
     int? GridColumnWidth = null,
-    int? FieldLabelWidth = null);
+    int? FieldLabelWidth = null,
+    bool AutoFieldColumns = false);

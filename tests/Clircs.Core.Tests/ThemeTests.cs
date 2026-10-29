@@ -48,6 +48,7 @@ internal static class ThemeTests
         suite.Add("viewport paging can move through one very large result", ViewportPagingSlicesLargeResults);
         suite.Add("viewport paging slices large NAMES grids instead of repeating them", ViewportPagingSlicesNamesGrid);
         suite.Add("viewport paging slices large field boxes instead of repeating them", ViewportPagingSlicesFieldBoxes);
+        suite.Add("field columns adapt to width without losing values", FieldColumnsAdaptToWidth);
         suite.Add("viewport paging preserves the exact original presentation rows", ViewportPagingPreservesExactPresentationRows);
         suite.Add("viewport paging retains mixed fields and tables", ViewportPagingRetainsMixedPresentations);
         suite.Add("transient viewport events replace one history entry and become permanent", TransientViewportEventsReplaceInPlace);
@@ -1960,6 +1961,42 @@ internal static class ThemeTests
         Assert.Equal(25, previous[0].TakeRows);
     }
 
+    private static void FieldColumnsAdaptToWidth()
+    {
+        var longValue = string.Concat(Enumerable.Range(0, 20).Select(index => $"{index:000}"));
+        var fields = Enumerable.Range(0, 7)
+            .Select(index => new PresentationField(
+                $"setting{index}", index == 0 ? longValue : $"value{index}"))
+            .ToArray();
+        var block = new PresentationBlock("Settings", fields, AutoFieldColumns: true);
+
+        Assert.True(ConsolePresenter.CalculateFieldLayout(
+            block with { AutoFieldColumns = false }, 120) is null);
+        Assert.True(ConsolePresenter.CalculateFieldLayout(block, 60) is null);
+
+        foreach (var (width, columnCount, rowCount) in new[]
+        {
+            (80, 2, 6), (120, 3, 5), (80, 2, 6)
+        })
+        {
+            var layout = ConsolePresenter.CalculateFieldLayout(block, width)
+                ?? throw new InvalidOperationException("Expected multiple field columns.");
+            Assert.Equal(columnCount, layout.Columns.Count);
+            Assert.Equal(rowCount, layout.RowCount);
+
+            var lines = layout.Columns.SelectMany(column => column).ToArray();
+            Assert.True(lines.Where(line => line.ShowLabel)
+                .Select(line => line.Field.Label)
+                .SequenceEqual(fields.Select(field => field.Label)));
+            Assert.True(lines.All(line =>
+                layout.LabelWidth + 2 + line.Text.Length <= layout.ColumnWidth));
+            Assert.True(lines.All(line =>
+                line.Text == line.Field.Value.Substring(line.TextOffset, line.Text.Length)));
+            Assert.Equal(longValue, string.Concat(
+                lines.Where(line => line.Field == fields[0]).Select(line => line.Text)));
+        }
+    }
+
     private static void ViewportPagingPreservesExactPresentationRows()
     {
         var presenter = new ConsolePresenter();
@@ -1994,6 +2031,8 @@ internal static class ThemeTests
                 Summary: "End of results.")
         ];
 
+        blocks = [.. blocks, blocks[0] with { AutoFieldColumns = true }];
+
         foreach (var block in blocks)
         {
             var sessionEvent = new SessionEvent(
@@ -2004,6 +2043,11 @@ internal static class ThemeTests
                 DateTimeOffset.Now,
                 Presentation: block);
             var originalRows = CaptureRows(() => presenter.Event(sessionEvent, "status"));
+
+            if (block.AutoFieldColumns)
+            {
+                Assert.Equal(originalRows.Length, presenter.MeasureEventRows(sessionEvent, "status"));
+            }
 
             (int Skip, int Take)[] slices =
             [

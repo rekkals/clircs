@@ -1006,7 +1006,12 @@ internal sealed class ConsolePresenter
                 : 1 + block.TitleHighlight.Length),
             consoleWidth);
 
-        if (block.Fields is { Count: > 0 })
+        var fieldLayout = CalculateFieldLayout(block, consoleWidth - sideLength - 1);
+        if (fieldLayout is not null)
+        {
+            rows += fieldLayout.RowCount;
+        }
+        else if (block.Fields is { Count: > 0 })
         {
             var labelWidth = block.FieldLabelWidth ?? block.Fields.Max(field => field.Label.Length);
             var fieldLeading = new string(' ', sideLength + labelWidth + 2);
@@ -1080,6 +1085,83 @@ internal sealed class ConsolePresenter
     private static int RowsForLength(int length, int width) => Math.Max(1, length / Math.Max(2, width) + 1);
 
     private static int EffectiveWidth(int? width) => width ?? (HasInteractiveConsole ? Math.Max(2, Console.BufferWidth) : 120);
+
+    internal static FieldLayout? CalculateFieldLayout(
+        PresentationBlock block,
+        int availableWidth)
+    {
+        if (!block.AutoFieldColumns || block.Fields is not { Count: > 1 } fields)
+        {
+            return null;
+        }
+
+        const int gap = 4;
+        const int minimumValueWidth = 20;
+
+        availableWidth = Math.Max(0, availableWidth);
+        var labelWidth = Math.Max(
+            block.FieldLabelWidth ?? 0,
+            fields.Max(field => field.Label.Length));
+        var minimumColumnWidth = labelWidth + 2 + minimumValueWidth;
+        var columnCount = Math.Min(
+            fields.Count,
+            (availableWidth + gap) / (minimumColumnWidth + gap));
+
+        // Keep the existing single-column path when multiple columns cannot fit.
+        if (columnCount < 2) return null;
+
+        var columnWidth =
+            (availableWidth - (columnCount - 1) * gap) / columnCount;
+        var leading = new string(' ', labelWidth + 2);
+        var columns = new List<IReadOnlyList<FieldLine>>(columnCount);
+        var fieldsPerColumn = fields.Count / columnCount;
+        var extraFields = fields.Count % columnCount;
+        var start = 0;
+        var rowCount = 0;
+
+        for (var column = 0; column < columnCount; column++)
+        {
+            var count = fieldsPerColumn + (column < extraFields ? 1 : 0);
+            var lines = new List<FieldLine>();
+
+            for (var index = start; index < start + count; index++)
+            {
+                var field = fields[index];
+
+                // The wrapper reserves its final column; give this cell its full width.
+                var wrapped = TerminalWordWrapper.Wrap(
+                    leading, leading, field.Value, columnWidth + 1);
+                var offset = 0;
+
+                for (var line = 0; line < wrapped.Count; line++)
+                {
+                    var text = wrapped[line].Text;
+                    offset = FindWrappedTextOffset(field.Value, text, offset);
+                    lines.Add(new FieldLine(field, text, offset, line == 0));
+                    offset += text.Length;
+                }
+            }
+
+            columns.Add(lines);
+            rowCount = Math.Max(rowCount, lines.Count);
+            start += count;
+        }
+
+        return new FieldLayout(labelWidth, columnWidth, gap, columns, rowCount);
+    }
+
+    internal sealed record FieldLine(
+        PresentationField Field,
+        string Text,
+        int TextOffset,
+        bool ShowLabel);
+
+    internal sealed record FieldLayout(
+        int LabelWidth,
+        int ColumnWidth,
+        int Gap,
+        IReadOnlyList<IReadOnlyList<FieldLine>> Columns,
+        int RowCount);
 
     private (int ColumnWidth, int Columns) CalculateGridLayout(
         IReadOnlyList<string> grid,
@@ -1241,7 +1323,56 @@ internal sealed class ConsolePresenter
             }
             writer.EndLine();
 
-            if (block.Fields is { Count: > 0 })
+            var fieldLayout = CalculateFieldLayout(
+                block, consoleWidth - prefix.Length - _theme.InfoSide.Length - 1);
+            if (fieldLayout is not null)
+            {
+                var rowLength = prefix.Length + _theme.InfoSide.Length +
+                    fieldLayout.Columns.Count * fieldLayout.ColumnWidth +
+                    (fieldLayout.Columns.Count - 1) * fieldLayout.Gap;
+
+                for (var row = 0; row < fieldLayout.RowCount; row++)
+                {
+                    if (writer.TrySkipLine(rowLength)) continue;
+
+                    writer.Write(prefix, _theme.Dim);
+                    writer.Write(_theme.InfoSide, _theme.Label);
+                    for (var column = 0; column < fieldLayout.Columns.Count; column++)
+                    {
+                        var lines = fieldLayout.Columns[column];
+                        var usedWidth = 0;
+                        if (row < lines.Count)
+                        {
+                            var line = lines[row];
+                            var label = line.ShowLabel ? line.Field.Label : string.Empty;
+                            writer.Write(label.PadRight(fieldLayout.LabelWidth), _theme.Label);
+                            writer.Write("  ", _theme.Normal);
+                            if (line.Field.FormattedValue is { } formattedValue)
+                            {
+                                writer.WriteFormatted(
+                                    formattedValue,
+                                    line.TextOffset,
+                                    line.Text.Length,
+                                    _theme.Normal);
+                            }
+                            else
+                            {
+                                writer.Write(line.Text, _theme.Normal);
+                            }
+                            usedWidth = fieldLayout.LabelWidth + 2 + line.Text.Length;
+                        }
+
+                        if (column < fieldLayout.Columns.Count - 1)
+                        {
+                            writer.Write(
+                                new string(' ', fieldLayout.ColumnWidth - usedWidth + fieldLayout.Gap),
+                                _theme.Normal);
+                        }
+                    }
+                    writer.EndLine();
+                }
+            }
+            else if (block.Fields is { Count: > 0 })
             {
                 var labelWidth = block.FieldLabelWidth ?? block.Fields.Max(field => field.Label.Length);
                 foreach (var field in block.Fields)

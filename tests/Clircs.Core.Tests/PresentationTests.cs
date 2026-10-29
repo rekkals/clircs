@@ -34,13 +34,14 @@ internal static class PresentationTests
         var block = new PresentationBlock(
             "Title\u001b[31m", [new PresentationField("Label", "Value")],
             Grid: ["one"], BracketGridCells: true, GridColumns: 3, GridColumnWidth: 12,
-            FieldLabelWidth: 19);
+            FieldLabelWidth: 19, AutoFieldColumns: true);
         var sanitized = SessionEventBuilder.SanitizePresentation(block)!;
         Assert.Equal("Title[31m", sanitized.Title);
         Assert.True(sanitized.BracketGridCells);
         Assert.Equal(3, sanitized.GridColumns!.Value);
         Assert.Equal(12, sanitized.GridColumnWidth!.Value);
         Assert.Equal(19, sanitized.FieldLabelWidth!.Value);
+        Assert.True(sanitized.AutoFieldColumns);
     }
 
     private static void ExtendedColorsAreVisible()
