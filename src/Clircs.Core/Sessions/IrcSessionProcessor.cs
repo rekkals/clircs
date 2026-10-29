@@ -175,7 +175,11 @@ public sealed class IrcSessionProcessor
                     CurrentNickname = message.Parameters[0];
                 }
 
-                events.Add(Status(SessionEventKind.Server, Last(message), now));
+                events.Add(Status(
+                    SessionEventKind.Server,
+                    Last(message),
+                    now,
+                    Fields(("event", "greeting"))));
                 break;
             case "010":
                 if (message.Parameters.Count >= 3)
@@ -238,11 +242,16 @@ public sealed class IrcSessionProcessor
                     events.Add(Status(
                         SessionEventKind.Server,
                         $"Server features: {string.Join(' ', message.Parameters.Skip(1))}",
-                        now));
+                        now,
+                        Fields(("event", "greeting"))));
                 }
                 break;
             case var welcomeNumeric when IsWelcomeNumeric(welcomeNumeric):
-                events.Add(Status(SessionEventKind.Server, string.Join(' ', message.Parameters.Skip(1)), now));
+                events.Add(Status(
+                    SessionEventKind.Server,
+                    string.Join(' ', message.Parameters.Skip(1)),
+                    now,
+                    Fields(("event", "greeting"))));
                 break;
             case "JOIN":
                 if (message.Parameters.Count == 0)
@@ -1139,7 +1148,11 @@ public sealed class IrcSessionProcessor
             case "375":
             case "376":
             case "422":
-                events.Add(Status(SessionEventKind.Server, Last(message), now));
+                events.Add(Status(
+                    SessionEventKind.Server,
+                    Last(message),
+                    now,
+                    Fields(("event", "greeting"))));
                 break;
             case "ERROR":
                 events.Add(Status(SessionEventKind.Error, Last(message), now));

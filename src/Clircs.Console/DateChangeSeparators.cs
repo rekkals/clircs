@@ -9,6 +9,27 @@ internal static class DateChangeSeparators
     public static bool IsSeparator(SessionEvent sessionEvent) =>
         sessionEvent.Fields?.GetValueOrDefault("event") == "datechange";
 
+    private static bool IsGreeting(SessionEvent sessionEvent) =>
+        sessionEvent.Fields?.GetValueOrDefault("event") == "greeting";
+
+    // Greetings preserve their displayed timestamps without advancing date tracking.
+    public static DateTimeOffset? TrackingTimestamp(SessionEvent sessionEvent) =>
+        IsGreeting(sessionEvent) ? null : sessionEvent.Timestamp;
+
+    public static DateTimeOffset? PreviousTimestamp(
+        IReadOnlyList<SessionEvent> history,
+        int beforeIndex)
+    {
+        for (var index = beforeIndex - 1; index >= 0; index--)
+        {
+            if (TrackingTimestamp(history[index]) is { } timestamp)
+            {
+                return timestamp;
+            }
+        }
+        return null;
+    }
+
     public static bool IsVisible(
         SessionEvent sessionEvent,
         DateTimeOffset? previousTimestamp,
@@ -47,6 +68,7 @@ internal static class DateChangeSeparators
     {
         ArgumentNullException.ThrowIfNull(sessionEvent);
         if (IsSeparator(sessionEvent) ||
+            IsGreeting(sessionEvent) ||
             previousTimestamp is not { } previous ||
             previous.Date == sessionEvent.Timestamp.Date)
         {
@@ -83,7 +105,7 @@ internal static class DateChangeSeparators
             {
                 output.Add(sessionEvent);
             }
-            previousTimestamp = sessionEvent.Timestamp;
+            previousTimestamp = TrackingTimestamp(sessionEvent) ?? previousTimestamp;
         }
         return output;
     }

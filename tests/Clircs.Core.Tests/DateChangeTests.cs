@@ -1,6 +1,8 @@
 using System.Globalization;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
+using Clircs.Protocol;
+using Clircs.State;
 using Clircs.Sessions;
 
 namespace Clircs.Core.Tests;
@@ -9,6 +11,7 @@ internal static class DateChangeTests
 {
     public static void Register(TestSuite suite)
     {
+        suite.Add("greetings suppress date changes while preserving playback boundaries", GreetingsPreserveDateTracking);
         suite.Add("date separators use displayed dates rather than UTC or receipt time", DisplayedDatesDetermineChanges);
         suite.Add("date separators preserve history and handle backwards date changes", HistoryPreservesEvents);
         suite.Add("date separators recognize boundaries before limited history snapshots", LimitedHistoryUsesPreviousDate);
@@ -25,6 +28,52 @@ internal static class DateChangeTests
         suite.Add("date clock detects local midnight once without message traffic", ClockDetectsLocalMidnight);
         suite.Add("date clock handles missed days and backward clock changes", ClockHandlesDateJumps);
         suite.Add("progress replacements keep one retained midnight boundary", ProgressReplacementKeepsOneMidnightMarker);
+    }
+
+    private static void GreetingsPreserveDateTracking()
+    {
+        var state = new NetworkSessionState(NetworkSessionId.New(), "test", IrcCaseMapping.Rfc1459);
+        var processor = new IrcSessionProcessor(state, "me");
+        var windows = new WindowStateRegistry();
+        var midnight = At(23, 0);
+        var current = new SessionEvent(
+            state.Id, state.StatusBuffer.Id, SessionEventKind.Status, "connected", At(22, 23, 59));
+        windows.AppendHistory(current);
+
+        foreach (var line in new[]
+        {
+            ":server 001 me :Welcome",
+            ":server 002 me :Your host is server",
+            ":server 005 me NETWORK=Test :are supported by this server",
+            ":server 422 me :MOTD File is missing"
+        })
+        {
+            var greeting = processor.Process(IrcMessageParser.Parse(line), At(21, 12)).Single()
+                with
+            { ReceivedAt = midnight };
+            Assert.True(windows.StoreEvent(
+                greeting, 1, _ => 1, false, false, dateChange: true).DateChange is null);
+            Assert.Equal(At(21, 12), greeting.Timestamp);
+        }
+
+        var marker = DateChangeSeparators.Create(state.Id, state.StatusBuffer.Id, midnight);
+        Assert.True(windows.StoreDateChange(marker, 1, _ => 1).Stored);
+        Assert.False(windows.StoreDateChange(marker, 1, _ => 1).Stored);
+        var viewport = windows.ViewportSnapshot(state.StatusBuffer.Id, 1);
+        Assert.True(ReferenceEquals(marker, DateChangeSeparators.ForHistory(
+            viewport.History, viewport.PreviousTimestamp).Single()));
+
+        var live = current with { Timestamp = midnight, ReceivedAt = midnight };
+        Assert.True(windows.StoreEvent(
+            live, 1, _ => 1, false, false, dateChange: true).DateChange is null);
+        var history = windows.HistorySnapshot(state.StatusBuffer.Id);
+        Assert.Equal(history.Length, DateChangeSeparators.ForHistory(history).Count);
+
+        var replay = live with { Kind = SessionEventKind.Message, Timestamp = At(21, 13) };
+        var stored = windows.StoreEvent(
+            replay, 1, _ => 1, true, false, dateChange: true);
+        Assert.True(stored.DateChange is not null);
+        Assert.Equal("Date: 2026-10-21", stored.DateChange!.Text);
     }
 
     private static void DisplayedDatesDetermineChanges()

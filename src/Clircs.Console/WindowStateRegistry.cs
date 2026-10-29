@@ -94,11 +94,11 @@ internal sealed class WindowStateRegistry
                 while (start > 0 && visibleCount < limit)
                 {
                     start--;
-                    var precedingTimestamp = start > 0
-                        ? state.History[start - 1].Timestamp
-                        : (DateTimeOffset?)null;
-                    if (DateChangeSeparators.IsVisible(
-                            state.History[start], precedingTimestamp, dateChange))
+                    if (!DateChangeSeparators.IsSeparator(state.History[start]) ||
+                        DateChangeSeparators.IsVisible(
+                            state.History[start],
+                            DateChangeSeparators.PreviousTimestamp(state.History, start),
+                            dateChange))
                     {
                         visibleCount++;
                     }
@@ -107,9 +107,8 @@ internal sealed class WindowStateRegistry
                 var count = state.History.Count - start;
                 var history = new SessionEvent[count];
                 for (var index = 0; index < count; index++) history[index] = state.History[start + index];
-                var previousTimestamp = start > 0
-                    ? state.History[start - 1].Timestamp
-                    : (DateTimeOffset?)null;
+                var previousTimestamp =
+                    DateChangeSeparators.PreviousTimestamp(state.History, start);
                 return new WindowViewportSnapshot(history, 0, previousTimestamp);
             }
             return new WindowViewportSnapshot([.. state.History], state.ScrollOffset);
@@ -160,8 +159,8 @@ internal sealed class WindowStateRegistry
         lock (_gate)
         {
             if (!_windows.TryGetValue(separator.BufferId, out var state) ||
-                (state.History.Count > 0 &&
-                 state.History[^1].Timestamp.Date == separator.Timestamp.Date))
+                DateChangeSeparators.PreviousTimestamp(
+                    state.History, state.History.Count)?.Date == separator.Timestamp.Date)
             {
                 return new WindowEventStoreResult(false, false, false, false);
             }
@@ -194,9 +193,8 @@ internal sealed class WindowStateRegistry
             var historyUpdate = ViewportHistory.StoreEvent(state.History, sessionEvent);
             if (!historyUpdate.Stored) return new WindowEventStoreResult(false, false, false, false);
 
-            var previousTimestamp = historyUpdate.Index > 0
-                ? state.History[historyUpdate.Index - 1].Timestamp
-                : (DateTimeOffset?)null;
+            var previousTimestamp =
+                DateChangeSeparators.PreviousTimestamp(state.History, historyUpdate.Index);
             var separator = dateChange
                 ? DateChangeSeparators.Before(sessionEvent, previousTimestamp)
                 : null;
@@ -210,26 +208,36 @@ internal sealed class WindowStateRegistry
                     replacedRows += measureRows(oldSeparator);
                 }
 
+                var oldTimestamp = DateChangeSeparators.TrackingTimestamp(previous) ?? previousTimestamp;
+                var newTimestamp = DateChangeSeparators.TrackingTimestamp(sessionEvent) ?? previousTimestamp;
+
                 // Replacing an entry can change the date boundary on either side.
-                if (historyUpdate.Index + 1 < state.History.Count)
+                var followingIndex = historyUpdate.Index + 1;
+                while (followingIndex < state.History.Count &&
+                       DateChangeSeparators.TrackingTimestamp(state.History[followingIndex]) is null)
                 {
-                    var following = state.History[historyUpdate.Index + 1];
+                    followingIndex++;
+                }
+
+                if (followingIndex < state.History.Count)
+                {
+                    var following = state.History[followingIndex];
                     if (DateChangeSeparators.IsSeparator(following))
                     {
-                        if (DateChangeSeparators.IsVisible(following, previous.Timestamp))
+                        if (DateChangeSeparators.IsVisible(following, oldTimestamp))
                         {
                             replacedRows += measureRows(following);
                         }
-                        if (DateChangeSeparators.IsVisible(following, sessionEvent.Timestamp))
+                        if (DateChangeSeparators.IsVisible(following, newTimestamp))
                         {
                             incomingRows += measureRows(following);
                         }
                     }
-                    if (DateChangeSeparators.Before(following, previous.Timestamp) is { } oldFollowingSeparator)
+                    if (DateChangeSeparators.Before(following, oldTimestamp) is { } oldFollowingSeparator)
                     {
                         replacedRows += measureRows(oldFollowingSeparator);
                     }
-                    if (DateChangeSeparators.Before(following, sessionEvent.Timestamp) is { } newFollowingSeparator)
+                    if (DateChangeSeparators.Before(following, newTimestamp) is { } newFollowingSeparator)
                     {
                         incomingRows += measureRows(newFollowingSeparator);
                     }

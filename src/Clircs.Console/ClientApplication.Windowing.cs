@@ -91,9 +91,8 @@ internal sealed partial class ClientApplication
         if (pendingEvent is not null)
         {
             pendingRows = _presenter.MeasureEventRows(pendingEvent, buffer.Name);
-            var previousTimestamp = viewport.History.Length > 0
-                ? viewport.History[^1].Timestamp
-                : (DateTimeOffset?)null;
+            var previousTimestamp = DateChangeSeparators.PreviousTimestamp(
+                viewport.History, viewport.History.Length);
             if (_preferences.DateChange &&
                 DateChangeSeparators.Before(pendingEvent, previousTimestamp) is { } separator)
             {
