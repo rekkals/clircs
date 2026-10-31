@@ -129,10 +129,11 @@ internal sealed partial class ClientApplication
 
         RememberRecentConnection(connectionRoute, profileId);
         var active = ActiveSession();
-        int? replacementStatusNumber = null;
+        int? replacementConnectionPosition = null;
         if (!wantsNew && active is not null)
         {
-            replacementStatusNumber = BufferNumber(active.State.StatusBuffer.Id);
+            replacementConnectionPosition =
+                _windowStates.ConnectionPosition(active.State.Id);
             await CloseSessionAsync(active, "Changing servers");
         }
 
@@ -141,7 +142,7 @@ internal sealed partial class ClientApplication
             cancellationToken,
             displayName,
             profileId,
-            replacementStatusNumber,
+            replacementConnectionPosition,
             connectionRoute: connectionRoute);
         return CommandResult.Success();
     }
@@ -1528,8 +1529,9 @@ internal sealed partial class ClientApplication
         BufferId closingBufferId,
         IrcNetworkSession? fallbackSession)
     {
+        var entries = OrderedBuffers();
         var closingNumber = _windowStates.NumberOr(closingBufferId, int.MaxValue);
-        var candidates = OrderedBuffers()
+        var candidates = entries
             .Where(entry => entry.Buffer.Id != closingBufferId)
             .Select(entry => (
                 entry.Session,

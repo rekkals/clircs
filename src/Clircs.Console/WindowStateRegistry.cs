@@ -12,6 +12,7 @@ internal sealed class WindowStateRegistry
 {
     private readonly object _gate = new();
     private readonly Dictionary<BufferId, WindowState> _windows = [];
+    private readonly List<NetworkSessionId> _connectionOrder = [];
     private int _nextNumber = 1;
     private NetworkSessionId? _activeSessionId;
     private BufferId? _activeBufferId;
@@ -260,7 +261,10 @@ internal sealed class WindowStateRegistry
             var totalEmergencyLimitReached = EnforceTotalHistoryLimitUnsafe(
                 ScrollbackRetention.EmergencyMaximumTotalEntries,
                 ScrollbackRetention.MinimumEntries);
-            if (assignNumber) AssignNumberUnsafe(sessionEvent.BufferId);
+            if (assignNumber && state.Number is null)
+            {
+                RegisterWindow(sessionEvent.BufferId, sessionEvent.NetworkSessionId);
+            }
 
             var suppressActivity = sessionEvent.Fields?.GetValueOrDefault("suppressActivity") == "true";
             if (trackUnread && !isActive && !isReplay && !suppressActivity)
@@ -327,22 +331,62 @@ internal sealed class WindowStateRegistry
         }
     }
 
-    public int AssignNumber(BufferId bufferId)
-    {
-        lock (_gate) return AssignNumberUnsafe(bufferId);
-    }
-
-    public bool TryAssignPreferredNumber(BufferId bufferId, int number)
+    public void RegisterConnection(
+        NetworkSessionId sessionId,
+        BufferId statusBufferId,
+        int? position = null)
     {
         lock (_gate)
         {
-            if (number < 1 || _windows.Values.Any(state => state.Number == number)) return false;
-            var state = EnsureUnsafe(bufferId);
-            if (state.Number is not null) return false;
-            state.Number = number;
-            _nextNumber = Math.Max(_nextNumber, number + 1);
-            return true;
+            if (!_connectionOrder.Contains(sessionId))
+            {
+                var index = Math.Clamp(
+                    position ?? _connectionOrder.Count, 0, _connectionOrder.Count);
+                _connectionOrder.Insert(index, sessionId);
+            }
+
+            var state = EnsureUnsafe(statusBufferId);
+            state.SessionId = sessionId;
+            state.IsStatusWindow = true;
+            AssignNumberUnsafe(statusBufferId);
+            RenumberUnsafe();
         }
+    }
+
+    public int? ConnectionPosition(NetworkSessionId sessionId)
+    {
+        lock (_gate)
+        {
+            var index = _connectionOrder.IndexOf(sessionId);
+            return index >= 0 ? index : null;
+        }
+    }
+
+    public int RegisterWindow(BufferId bufferId, NetworkSessionId? sessionId)
+    {
+        lock (_gate)
+        {
+            var state = EnsureUnsafe(bufferId);
+            if (state.Number is { } existing && state.SessionId == sessionId)
+            {
+                return existing;
+            }
+
+            if (sessionId is { } connection && !_connectionOrder.Contains(connection))
+            {
+                _connectionOrder.Add(connection);
+            }
+
+            state.SessionId = sessionId;
+            AssignNumberUnsafe(bufferId);
+            RenumberUnsafe();
+            return state.Number!.Value;
+        }
+    }
+
+    public int AssignNumber(BufferId bufferId)
+    {
+        lock (_gate) return AssignNumberUnsafe(bufferId);
     }
 
     public int NumberOr(BufferId bufferId, int fallback)
@@ -427,7 +471,7 @@ internal sealed class WindowStateRegistry
         {
             _activeSessionId = null;
             _activeBufferId = bufferId;
-            ActivateUnsafe(bufferId, assignNumber: false);
+            ActivateUnsafe(bufferId);
         }
     }
 
@@ -435,6 +479,7 @@ internal sealed class WindowStateRegistry
     {
         lock (_gate)
         {
+            RegisterWindow(bufferId, sessionId);
             _activeSessionId = sessionId;
             _activeBufferId = bufferId;
             ActivateUnsafe(bufferId);
@@ -448,11 +493,7 @@ internal sealed class WindowStateRegistry
 
     public void Remove(BufferId bufferId)
     {
-        lock (_gate)
-        {
-            _windows.Remove(bufferId);
-            if (_activeBufferId == bufferId) ClearActiveUnsafe();
-        }
+        lock (_gate) RemoveWindowUnsafe(bufferId);
     }
 
     public bool TryRemoveInactiveEmpty(BufferId bufferId)
@@ -465,9 +506,43 @@ internal sealed class WindowStateRegistry
             {
                 return false;
             }
-            _windows.Remove(bufferId);
+
+            RemoveWindowUnsafe(bufferId);
             return true;
         }
+    }
+
+    private void RemoveWindowUnsafe(BufferId bufferId)
+    {
+        if (!_windows.Remove(bufferId, out var removed)) return;
+
+        if (removed.SessionId is { } sessionId &&
+            !_windows.Values.Any(state => state.SessionId == sessionId))
+        {
+            _connectionOrder.Remove(sessionId);
+        }
+
+        if (removed.Number is not null) RenumberUnsafe();
+        if (_activeBufferId == bufferId) ClearActiveUnsafe();
+    }
+
+    private void RenumberUnsafe()
+    {
+        var numbered = _windows.Values
+            .Where(state => state.Number is not null)
+            .OrderBy(state => state.SessionId is { } sessionId
+                ? _connectionOrder.IndexOf(sessionId)
+                : int.MaxValue)
+            .ThenBy(state => state.IsStatusWindow ? 0 : 1)
+            .ThenBy(state => state.Number)
+            .ToArray();
+
+        for (var index = 0; index < numbered.Length; index++)
+        {
+            numbered[index].Number = index + 1;
+        }
+
+        _nextNumber = numbered.Length + 1;
     }
 
     private int AssignNumberUnsafe(BufferId bufferId)
@@ -478,9 +553,8 @@ internal sealed class WindowStateRegistry
         return state.Number.Value;
     }
 
-    private void ActivateUnsafe(BufferId bufferId, bool assignNumber = true)
+    private void ActivateUnsafe(BufferId bufferId)
     {
-        if (assignNumber) AssignNumberUnsafe(bufferId);
         var state = EnsureUnsafe(bufferId);
         state.Unread.Clear();
         state.ScrollOffset = 0;
@@ -524,6 +598,8 @@ internal sealed class WindowStateRegistry
     {
         public WindowEventHistory History { get; } = new();
         public HashSet<WindowActivityKind> Unread { get; } = [];
+        public NetworkSessionId? SessionId { get; set; }
+        public bool IsStatusWindow { get; set; }
         public int? Number { get; set; }
         public int ScrollOffset { get; set; }
     }

@@ -74,7 +74,7 @@ internal sealed partial class ClientApplication
                 }
 
                 var buffer = _scriptWindows.Open(scriptId, name, session?.State);
-                _windowStates.AssignNumber(buffer.Id);
+                _windowStates.RegisterWindow(buffer.Id, session?.State.Id);
                 opened = buffer.Id;
             }
 

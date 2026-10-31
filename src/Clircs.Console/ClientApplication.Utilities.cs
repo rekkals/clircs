@@ -191,7 +191,16 @@ internal sealed partial class ClientApplication
 
     private int AssignBufferNumberUnsafe(BufferId id)
     {
-        return _windowStates.AssignNumber(id);
+        lock (_windowTransactionGate)
+        {
+            var existing = _windowStates.NumberOr(id, 0);
+            if (existing > 0) return existing;
+
+            var owner = SessionsSnapshot().FirstOrDefault(
+                session => session.State.TryGetBuffer(id, out _));
+
+            return _windowStates.RegisterWindow(id, owner?.State.Id);
+        }
     }
 
     private string ActivitySuffix(BufferId id)

@@ -166,7 +166,11 @@ Alternatively, you can set up a profile for your bouncer connection with `/netwo
 
 ## Windows and Input
 
-Windows like `status`, `channel`, `query`, `result`, `DCC`, and `debug` are managed with a stable number-based system. Use `/window` (or `/win`) to list them, `/win <number|name>` to switch directly, `/next` or `/wn` to move forward, and `/previous` or `/wp` to move backward. Unread activity is indicated in the status bar and in `/window`, and can be cleared wholesale with `/clear activity`.
+Windows like `status`, `channel`, `query`, `result`, `DCC`, and `debug` use contiguous numbers grouped by connection. Connections stay in opening order, with each status window first and its other windows following in opening order. New windows are inserted at the end of their connection's group. Connection-independent script windows follow the connection groups.
+
+Closing windows removes gaps in the numbering. Window numbers can change as windows open or close; renumbering preserves the selected window, history, scroll position, and unread activity. Reconnecting keeps the connection's group position, and replacing a connection with `/server` inherits that position.
+
+Use `/window` (or `/win`) to list windows, `/win <number|name>` to switch directly, `/next` or `/wn` to move forward, and `/previous` or `/wp` to move backward. Unread activity is indicated in the status bar and in `/window`, and can be cleared wholesale with `/clear activity`.
 
 `Page Up` and `Page Down` move through window scrollback. `Up Arrow` and `Down Arrow` go through command history for the current window. `Tab` completes nicknames and cycles through multiple matches.
 

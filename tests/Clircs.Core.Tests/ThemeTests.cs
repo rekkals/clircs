@@ -55,7 +55,7 @@ internal static class ThemeTests
         suite.Add("unread activity distinguishes parts, quits, and kicks", UnreadActivityDistinguishesDepartures);
         suite.Add("clearing activity preserves window state", ClearActivityPreservesWindowState);
         suite.Add("window activation resets unread and scroll state through one owner", WindowActivationResetsTransientState);
-        suite.Add("window removal clears all terminal state without reusing numbers", WindowRemovalClearsTerminalState);
+        suite.Add("window removal clears terminal state and permits number reuse", WindowRemovalClearsTerminalState);
         suite.Add("viewport history snapshots are isolated from live event arrival", ViewportHistorySnapshotsAreIsolated);
         suite.Add("terminal wrapping keeps ordinary words intact", TerminalWrappingKeepsWordsIntact);
         suite.Add("wrapped URL fragments retain one complete hyperlink target", WrappedUrlsRetainCompleteTarget);
@@ -1954,7 +1954,7 @@ internal static class ThemeTests
         Assert.Equal(0, states.ScrollOffset(first));
         Assert.False(states.HasNumber(first));
         Assert.True(states.ActiveLocation() == (null, null));
-        Assert.True(states.AssignNumber(second) > firstNumber);
+        Assert.Equal(firstNumber, states.AssignNumber(second));
     }
 
     private static void ViewportHistorySnapshotsAreIsolated()

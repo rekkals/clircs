@@ -22,7 +22,7 @@ internal sealed partial class ClientApplication
         CancellationToken cancellationToken,
         string? requestedDisplayName = null,
         NetworkProfileId? profileId = null,
-        int? preferredStatusNumber = null,
+        int? preferredConnectionPosition = null,
         bool tolerateTaggedCapabilityMessages = false,
         IrcConnectionOptions? connectionRoute = null)
     {
@@ -42,11 +42,10 @@ internal sealed partial class ClientApplication
             _liveSessions.Add(session, connectionRoute ?? options, profileId, _lifetime.Token);
             session.SetLagMeasurementEnabled(_preferences.LagMeter);
 
-            if (preferredStatusNumber is not { } number ||
-                !_windowStates.TryAssignPreferredNumber(session.State.StatusBuffer.Id, number))
-            {
-                _windowStates.AssignNumber(session.State.StatusBuffer.Id);
-            }
+            _windowStates.RegisterConnection(
+                session.State.Id,
+                session.State.StatusBuffer.Id,
+                preferredConnectionPosition);
             _windowStates.Activate(session.State.Id, session.State.StatusBuffer.Id);
             _windowStates.ReplaceHistory(
                 session.State.StatusBuffer.Id,

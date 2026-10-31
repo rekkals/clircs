@@ -283,21 +283,27 @@ internal sealed partial class ClientApplication
 
     private IEnumerable<(IrcNetworkSession? Session, BufferState Buffer)> OrderedBuffers()
     {
-        var entries = SessionsSnapshot()
-            .SelectMany(session => session.State.Buffers.Select(buffer => (
-                Session: (IrcNetworkSession?)session,
-                Buffer: buffer)))
-            .Concat(_scriptWindows.LocalBuffersSnapshot().Select(buffer => (
-                Session: (IrcNetworkSession?)null,
-                Buffer: buffer)))
-            .ToArray();
-
-        foreach (var entry in entries)
+        lock (_windowTransactionGate)
         {
-            BufferNumber(entry.Buffer.Id);
-        }
+            var entries = SessionsSnapshot()
+                .SelectMany(session => session.State.Buffers.Select(buffer => (
+                    Session: (IrcNetworkSession?)session,
+                    Buffer: buffer)))
+                .Concat(_scriptWindows.LocalBuffersSnapshot().Select(buffer => (
+                    Session: (IrcNetworkSession?)null,
+                    Buffer: buffer)))
+                .ToArray();
 
-        return entries.OrderBy(entry => BufferNumber(entry.Buffer.Id));
+            foreach (var entry in entries)
+            {
+                _windowStates.RegisterWindow(
+                    entry.Buffer.Id, entry.Session?.State.Id);
+            }
+
+            return entries
+                .OrderBy(entry => _windowStates.NumberOr(entry.Buffer.Id, 0))
+                .ToArray();
+        }
     }
 
     private string Prompt()
@@ -850,10 +856,11 @@ internal sealed partial class ClientApplication
 
     private void SelectAfterSessionCloseUnsafe(IrcNetworkSession closingSession)
     {
+        var entries = OrderedBuffers();
         var closingNumber = _windowStates.ActiveBufferId is { } active
             ? _windowStates.NumberOr(active, int.MaxValue)
             : int.MaxValue;
-        var candidates = OrderedBuffers()
+        var candidates = entries
             .Where(entry => entry.Session?.State.Id != closingSession.State.Id)
             .Select(entry => (
                 entry.Session,
