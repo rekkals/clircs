@@ -23,7 +23,8 @@ internal sealed partial class ClientApplication
         string? requestedDisplayName = null,
         NetworkProfileId? profileId = null,
         int? preferredStatusNumber = null,
-        bool tolerateTaggedCapabilityMessages = false)
+        bool tolerateTaggedCapabilityMessages = false,
+        IrcConnectionOptions? connectionRoute = null)
     {
         var displayName = UniqueDisplayName(requestedDisplayName ?? options.Endpoint.Host);
         NetworkSessionId? certificateNoticeSessionId = null;
@@ -38,7 +39,7 @@ internal sealed partial class ClientApplication
         certificateNoticeSessionId = session.State.Id;
         lock (_windowTransactionGate)
         {
-            _liveSessions.Add(session, options, profileId, _lifetime.Token);
+            _liveSessions.Add(session, connectionRoute ?? options, profileId, _lifetime.Token);
             session.SetLagMeasurementEnabled(_preferences.LagMeter);
 
             if (preferredStatusNumber is not { } number ||
@@ -438,11 +439,11 @@ internal sealed partial class ClientApplication
         var policy = profile?.Reconnect ?? ReconnectPolicy.Default;
         try
         {
-            var route = ConnectionRouteFor(session);
             var loop = new AutomaticReconnectLoop(
                 policy,
                 async (attempt, attemptToken) =>
                 {
+                    var route = ConnectionRouteFor(session);
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(attemptToken);
                     timeout.CancelAfter(ConnectionAttemptTimeout);
                     try
@@ -540,7 +541,9 @@ internal sealed partial class ClientApplication
         {
             Identity = profile.ApplyIdentityOverrides(CurrentIdentity())
         };
-        return ApplyProfileSasl(profile, refreshedRoute);
+        return ApplyProfileServerPassword(
+            profile,
+            ApplyProfileSasl(profile, refreshedRoute));
     }
 
     private bool CancelReconnect(NetworkSessionId sessionId)

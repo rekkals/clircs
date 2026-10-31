@@ -769,7 +769,9 @@ internal sealed partial class ClientApplication
     private void AssociateProfile(IrcNetworkSession session, NetworkProfile profile)
     {
         _liveSessions.AssociateProfile(session.State.Id, profile.Id);
-        RememberRecentConnection(ConnectionRouteFor(session), profile.Id);
+        RememberRecentConnection(
+            _liveSessions.ConnectionRoute(session.State.Id, session.Options),
+            profile.Id);
     }
 
     private void RememberRecentConnection(IrcConnectionOptions options, NetworkProfileId? profileId) =>

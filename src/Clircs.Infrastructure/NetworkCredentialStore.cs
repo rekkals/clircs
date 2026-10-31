@@ -21,59 +21,108 @@ public sealed class NetworkCredentialStore
 
     public string? LoadError { get; private set; }
 
-    public bool HasSaslSecret(NetworkProfileId profileId)
+    public bool HasSaslSecret(NetworkProfileId profileId) =>
+        HasSecret(profileId, serverPassword: false);
+
+    public bool HasServerPassword(NetworkProfileId profileId) =>
+        HasSecret(profileId, serverPassword: true);
+
+    public string? GetSaslSecret(NetworkProfileId profileId) =>
+        GetSecret(profileId, serverPassword: false);
+
+    public string? GetServerPassword(NetworkProfileId profileId) =>
+        GetSecret(profileId, serverPassword: true);
+
+    public void SetSaslSecret(NetworkProfileId profileId, string secret, bool allowEmpty = false) =>
+        SetSecret(profileId, secret, serverPassword: false, allowEmpty: allowEmpty);
+
+    public void SetServerPassword(NetworkProfileId profileId, string password) =>
+        SetSecret(profileId, password, serverPassword: true, allowEmpty: false);
+
+    public bool RemoveSaslSecret(NetworkProfileId profileId) =>
+        RemoveSecrets(SecretKey(profileId, serverPassword: false));
+
+    public bool RemoveServerPassword(NetworkProfileId profileId) =>
+        RemoveSecrets(SecretKey(profileId, serverPassword: true));
+
+    public bool Remove(NetworkProfileId profileId) =>
+        RemoveSecrets(
+            SecretKey(profileId, serverPassword: false),
+            SecretKey(profileId, serverPassword: true));
+
+    private bool HasSecret(NetworkProfileId profileId, bool serverPassword)
     {
-        lock (_gate) return _passwords.ContainsKey(profileId.ToString());
+        lock (_gate) return _passwords.ContainsKey(SecretKey(profileId, serverPassword));
     }
 
-    public string? GetSaslSecret(NetworkProfileId profileId)
+    private string? GetSecret(NetworkProfileId profileId, bool serverPassword)
     {
         lock (_gate)
         {
             EnsureReadable();
-            if (!_passwords.TryGetValue(profileId.ToString(), out var encrypted)) return null;
+            if (!_passwords.TryGetValue(SecretKey(profileId, serverPassword), out var encrypted))
+                return null;
+
             try
             {
                 var plain = WindowsDataProtection.Unprotect(
                     Convert.FromBase64String(encrypted),
-                    Entropy(profileId));
+                    Entropy(profileId, serverPassword));
                 return Encoding.UTF8.GetString(plain);
             }
-            catch (Exception exception) when (exception is FormatException or InvalidOperationException)
+            catch (Exception exception) when (
+                exception is FormatException or ArgumentException or InvalidOperationException)
             {
+                var label = serverPassword ? "server password" : "SASL secret";
                 throw new InvalidDataException(
-                    $"The saved SASL secret for profile {profileId} could not be decrypted.", exception);
+                    $"The saved {label} for profile {profileId} could not be decrypted.", exception);
             }
         }
     }
 
-    public void SetSaslSecret(NetworkProfileId profileId, string secret, bool allowEmpty = false)
+    private void SetSecret(
+        NetworkProfileId profileId,
+        string secret,
+        bool serverPassword,
+        bool allowEmpty)
     {
-        if ((!allowEmpty && secret.Length < 1) || secret.Length > 16_384 || secret.IndexOfAny(['\r', '\n', '\0']) >= 0)
+        ArgumentNullException.ThrowIfNull(secret);
+        if ((!allowEmpty && secret.Length < 1) ||
+            secret.Length > 16_384 ||
+            secret.IndexOfAny(['\r', '\n', '\0']) >= 0)
         {
-            throw new ArgumentException("The SASL secret is invalid.", nameof(secret));
+            var label = serverPassword ? "server password" : "SASL secret";
+            throw new ArgumentException($"The {label} is invalid.", nameof(secret));
         }
+
         lock (_gate)
         {
             EnsureReadable();
             var candidate = new Dictionary<string, string>(_passwords, StringComparer.OrdinalIgnoreCase)
             {
-                [profileId.ToString()] = Convert.ToBase64String(WindowsDataProtection.Protect(
-                    Encoding.UTF8.GetBytes(secret),
-                    Entropy(profileId)))
+                [SecretKey(profileId, serverPassword)] =
+                    Convert.ToBase64String(WindowsDataProtection.Protect(
+                        Encoding.UTF8.GetBytes(secret),
+                        Entropy(profileId, serverPassword)))
             };
             Save(candidate);
             _passwords = candidate;
         }
     }
 
-    public bool Remove(NetworkProfileId profileId)
+    private bool RemoveSecrets(params string[] keys)
     {
         lock (_gate)
         {
             EnsureReadable();
             var candidate = new Dictionary<string, string>(_passwords, StringComparer.OrdinalIgnoreCase);
-            if (!candidate.Remove(profileId.ToString())) return false;
+            var removed = false;
+            foreach (var key in keys)
+            {
+                removed |= candidate.Remove(key);
+            }
+            if (!removed) return false;
+
             Save(candidate);
             _passwords = candidate;
             return true;
@@ -112,6 +161,11 @@ public sealed class NetworkCredentialStore
         }
     }
 
-    private static byte[] Entropy(NetworkProfileId profileId) =>
-        Encoding.UTF8.GetBytes($"clircs-network-sasl:{profileId}");
+    private static string SecretKey(NetworkProfileId profileId, bool serverPassword) =>
+        serverPassword ? $"{profileId}:server" : profileId.ToString();
+
+    private static byte[] Entropy(NetworkProfileId profileId, bool serverPassword) =>
+        Encoding.UTF8.GetBytes(serverPassword
+            ? $"clircs-network-server:{profileId}"
+            : $"clircs-network-sasl:{profileId}");
 }

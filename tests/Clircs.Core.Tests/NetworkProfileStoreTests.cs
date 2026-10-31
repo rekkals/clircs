@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Clircs.Commands;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Infrastructure;
@@ -23,7 +25,9 @@ internal static class NetworkProfileStoreTests
         suite.Add("a damaged network profile file is preserved", DamagedProfileFileIsPreserved);
         suite.Add("SASL profile policy round-trips without storing its password", SaslPolicyRoundTripsWithoutPassword);
         suite.Add("SASL EXTERNAL profile settings round-trip without storing its certificate password", SaslExternalSettingsRoundTrip);
-        suite.Add("SASL passwords are protected by the current Windows user", SaslPasswordsUseWindowsProtection);
+        suite.Add("network passwords use Windows protection and remain independent", NetworkPasswordsUseWindowsProtection);
+        suite.Add("saved server passwords respect overrides and clearing", ServerPasswordSelectionAsync);
+        suite.Add("unreadable saved server passwords can be replaced", UnreadableServerPasswordsCanBeReplaced);
         suite.Add("network profile presentation numbers each server row", NetworkProfilePresentationNumbersServerRows);
         suite.Add("adduser usage describes hostmask and nickname shorthand", AddUserUsageIsConcise);
     }
@@ -371,7 +375,98 @@ internal static class NetworkProfileStoreTests
         }
     }
 
-    private static void SaslPasswordsUseWindowsProtection()
+    private static void NetworkPasswordsUseWindowsProtection()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new TestSkippedException("DPAPI credential protection is Windows-specific");
+        }
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            const string saslSecret = "correct horse battery staple";
+            const string serverPassword = "account/network:server-secret";
+            var path = System.IO.Path.Combine(directory, "network-secrets.json");
+            var profileId = NetworkProfileId.New();
+            var store = new NetworkCredentialStore(path);
+            store.SetSaslSecret(profileId, saslSecret);
+            store.SetServerPassword(profileId, serverPassword);
+
+            Assert.True(store.HasSaslSecret(profileId));
+            Assert.True(store.HasServerPassword(profileId));
+            var saved = File.ReadAllText(path);
+            Assert.False(saved.Contains(saslSecret, StringComparison.Ordinal));
+            Assert.False(saved.Contains(serverPassword, StringComparison.Ordinal));
+
+            var reloaded = new NetworkCredentialStore(path);
+            Assert.Equal(saslSecret, reloaded.GetSaslSecret(profileId)!);
+            Assert.Equal(serverPassword, reloaded.GetServerPassword(profileId)!);
+
+            Assert.True(reloaded.RemoveSaslSecret(profileId));
+            Assert.True(reloaded.GetSaslSecret(profileId) is null);
+            Assert.Equal(serverPassword, reloaded.GetServerPassword(profileId)!);
+
+            reloaded.SetSaslSecret(profileId, saslSecret);
+            Assert.True(reloaded.RemoveServerPassword(profileId));
+            Assert.True(reloaded.GetServerPassword(profileId) is null);
+            Assert.Equal(saslSecret, reloaded.GetSaslSecret(profileId)!);
+
+            reloaded.SetServerPassword(profileId, serverPassword);
+            Assert.True(reloaded.Remove(profileId));
+            var cleared = new NetworkCredentialStore(path);
+            Assert.False(cleared.HasSaslSecret(profileId));
+            Assert.False(cleared.HasServerPassword(profileId));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async ValueTask ServerPasswordSelectionAsync()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new TestSkippedException("DPAPI credential protection is Windows-specific");
+        }
+        var directory = CreateTemporaryDirectory();
+        try
+        {
+            var profile = Profile("Bouncer");
+            var profiles = new NetworkProfileStore(System.IO.Path.Combine(directory, "networks.toml"));
+            profiles.Add(profile);
+            var path = System.IO.Path.Combine(directory, "network-secrets.json");
+            var credentials = new NetworkCredentialStore(path);
+            credentials.SetServerPassword(profile.Id, "saved-password");
+
+            await using var application = new ClientApplication(directory);
+            var route = profile.CreateConnectionOptions();
+            Assert.Equal("saved-password",
+                application.ApplyProfileServerPassword(profile, route).Password!);
+            Assert.True(route.Password is null);
+            Assert.True(application.ApplyProfileServerPassword(null, route).Password is null);
+
+            foreach (var password in new[] { "session-only", string.Empty })
+            {
+                var overridden = route with { Password = password };
+                Assert.Equal(password,
+                    application.ApplyProfileServerPassword(profile, overridden).Password!);
+            }
+            Assert.Equal("saved-password",
+                new NetworkCredentialStore(path).GetServerPassword(profile.Id)!);
+
+            var cleared = application.ConfigureNetworkPassword(new CommandInput(
+                "network", ["password", profile.DisplayName, "clear"], string.Empty));
+            Assert.True(cleared.Succeeded);
+            Assert.True(application.ApplyProfileServerPassword(profile, route).Password is null);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void UnreadableServerPasswordsCanBeReplaced()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -382,14 +477,16 @@ internal static class NetworkProfileStoreTests
         {
             var path = System.IO.Path.Combine(directory, "network-secrets.json");
             var profileId = NetworkProfileId.New();
-            var store = new NetworkCredentialStore(path);
-            store.SetSaslSecret(profileId, "correct horse battery staple");
+            File.WriteAllText(path, JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                [$"{profileId}:server"] = "not-base64!"
+            }));
 
-            Assert.True(store.HasSaslSecret(profileId));
-            Assert.False(File.ReadAllText(path).Contains("correct horse", StringComparison.Ordinal));
-            Assert.Equal("correct horse battery staple", new NetworkCredentialStore(path).GetSaslSecret(profileId)!);
-            Assert.True(store.Remove(profileId));
-            Assert.False(store.HasSaslSecret(profileId));
+            var store = new NetworkCredentialStore(path);
+            Assert.Throws<InvalidDataException>(() => store.GetServerPassword(profileId));
+            store.SetServerPassword(profileId, "replacement-password");
+            Assert.Equal("replacement-password",
+                new NetworkCredentialStore(path).GetServerPassword(profileId)!);
         }
         finally
         {

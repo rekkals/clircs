@@ -116,7 +116,18 @@ internal sealed partial class ClientApplication
             options = options with { Password = password };
         }
 
-        RememberRecentConnection(options, profileId);
+        var connectionRoute = options;
+        try
+        {
+            options = ApplyProfileServerPassword(profile, options);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or InvalidDataException or ArgumentException)
+        {
+            return CommandResult.Failure(exception.Message);
+        }
+
+        RememberRecentConnection(connectionRoute, profileId);
         var active = ActiveSession();
         int? replacementStatusNumber = null;
         if (!wantsNew && active is not null)
@@ -125,7 +136,13 @@ internal sealed partial class ClientApplication
             await CloseSessionAsync(active, "Changing servers");
         }
 
-        await StartSessionAsync(options, cancellationToken, displayName, profileId, replacementStatusNumber);
+        await StartSessionAsync(
+            options,
+            cancellationToken,
+            displayName,
+            profileId,
+            replacementStatusNumber,
+            connectionRoute: connectionRoute);
         return CommandResult.Success();
     }
 
@@ -289,9 +306,11 @@ internal sealed partial class ClientApplication
                 }
             case "sasl":
                 return ValueTask.FromResult(ConfigureNetworkSasl(input));
+            case "password":
+                return ValueTask.FromResult(ConfigureNetworkPassword(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network list|profiles|add|server|username|usermodes|remove|use|status|sasl"));
+                    "Usage: /network list|profiles|add|server|username|usermodes|remove|use|status|sasl|password"));
         }
     }
 
@@ -590,6 +609,74 @@ internal sealed partial class ClientApplication
         }
     }
 
+    internal CommandResult ConfigureNetworkPassword(CommandInput input)
+    {
+        const string usage = "Usage: /network password <profile> [set|clear]";
+        if (input.Arguments.Count is < 2 or > 3)
+        {
+            return CommandResult.Failure(usage);
+        }
+
+        var profile = _profileStore.Find(input.Arguments[1]);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                $"No saved network profile matches '{input.Arguments[1]}'.");
+        }
+        if (_networkCredentials.LoadError is { } loadError)
+        {
+            return CommandResult.Failure(loadError);
+        }
+
+        if (input.Arguments.Count == 2)
+        {
+            var status = _networkCredentials.HasServerPassword(profile.Id)
+                ? "yes"
+                : "no";
+            return CommandResult.Success(
+                $"Saved password for {profile.DisplayName}: {status}");
+        }
+
+        var action = input.Arguments[2].ToLowerInvariant();
+        if (action is not ("set" or "clear"))
+        {
+            return CommandResult.Failure(usage);
+        }
+
+        try
+        {
+            if (action == "clear")
+            {
+                return CommandResult.Success(
+                    _networkCredentials.RemoveServerPassword(profile.Id)
+                        ? $"Saved connection password cleared for {profile.DisplayName}"
+                        : $"No saved connection password for {profile.DisplayName}");
+            }
+
+            var password = _presenter.ReadSecret(
+                $"Server password or bouncer login for {profile.DisplayName} (Esc cancels): ");
+            if (password is null)
+            {
+                return CommandResult.Failure("Password configuration canceled");
+            }
+            if (password.Length == 0)
+            {
+                return CommandResult.Failure(
+                    "Password cannot be empty; use /network password <profile> clear to remove it");
+            }
+
+            _networkCredentials.SetServerPassword(profile.Id, password);
+            return CommandResult.Success(
+                $"Connection password saved for {profile.DisplayName}");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException or
+            IOException or UnauthorizedAccessException)
+        {
+            return CommandResult.Failure(exception.Message);
+        }
+    }
+
     private CommandResult ConfigureNetworkSasl(CommandInput input)
     {
         if (input.Arguments.Count < 2 || input.Arguments.Count > 5)
@@ -637,7 +724,7 @@ internal sealed partial class ClientApplication
             try
             {
                 _profileStore.Replace(profile.WithSasl(null));
-                _networkCredentials.Remove(profile.Id);
+                _networkCredentials.RemoveSaslSecret(profile.Id);
                 return CommandResult.Success($"SASL disabled for {profile.DisplayName}");
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
@@ -717,7 +804,7 @@ internal sealed partial class ClientApplication
             }
             catch
             {
-                if (previousSecret is null) _networkCredentials.Remove(profile.Id);
+                if (previousSecret is null) _networkCredentials.RemoveSaslSecret(profile.Id);
                 else _networkCredentials.SetSaslSecret(profile.Id, previousSecret, allowEmpty: true);
                 throw;
             }
@@ -755,6 +842,28 @@ internal sealed partial class ClientApplication
         }
 
         return 0;
+    }
+
+    internal IrcConnectionOptions ApplyProfileServerPassword(
+        NetworkProfile? profile,
+        IrcConnectionOptions options)
+    {
+        if (profile is null || options.Password is not null) return options;
+
+        try
+        {
+            return (options with
+            {
+                Password = _networkCredentials.GetServerPassword(profile.Id)
+            }).Validate();
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new InvalidOperationException(
+                $"Saved connection password for {profile.DisplayName} could not be decrypted; " +
+                "use /network password <profile> set to replace it or clear to remove it",
+                exception);
+        }
     }
 
     private IrcConnectionOptions ConnectionOptionsForProfile(
@@ -825,18 +934,29 @@ internal sealed partial class ClientApplication
         var profile = profileId is { } id ? _profileStore.Find(id) : null;
         var rememberedOptions = active?.Options ?? recent?.Options;
         IrcConnectionOptions? options;
+        IrcConnectionOptions? connectionRoute = null;
         try
         {
-            var endpointIndex = profile is null || rememberedOptions is null
-                ? 0
-                : ProfileEndpointIndex(profile, rememberedOptions.Endpoint);
+            if (active is not null)
+            {
+                options = ConnectionRouteFor(active);
+            }
+            else
+            {
+                var endpointIndex = profile is null || rememberedOptions is null
+                    ? 0
+                    : ProfileEndpointIndex(profile, rememberedOptions.Endpoint);
 
-            options = profile is null
-                ? rememberedOptions
-                : ConnectionOptionsForProfile(
-                    profile,
-                    CurrentIdentity(),
-                    endpointIndex);
+                connectionRoute = profile is null
+                    ? rememberedOptions
+                    : ConnectionOptionsForProfile(
+                        profile,
+                        CurrentIdentity(),
+                        endpointIndex);
+                options = connectionRoute is null
+                    ? null
+                    : ApplyProfileServerPassword(profile, connectionRoute);
+            }
         }
         catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or ArgumentException)
         {
@@ -850,7 +970,7 @@ internal sealed partial class ClientApplication
         if (active is not null)
         {
             CancelReconnect(active.State.Id);
-            var reconnectOptions = ConnectionRouteFor(active);
+            var reconnectOptions = options;
             StartSessionWork(
                 active,
                 "manual reconnect",
@@ -867,7 +987,8 @@ internal sealed partial class ClientApplication
             cancellationToken,
             profile?.DisplayName,
             profile?.Id,
-            tolerateTaggedCapabilityMessages: tolerateTaggedCapabilityMessages);
+            tolerateTaggedCapabilityMessages: tolerateTaggedCapabilityMessages,
+            connectionRoute: connectionRoute);
         return CommandResult.Success();
     }
 

@@ -35,7 +35,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["config"] = "/config [path]",
             ["backup"] = "/backup <create|list|path|restore> [file]",
             ["logging"] = "/logging <on|off|status|list|path> [network] [target]",
-            ["network"] = "/network [list|profiles|add|server|username|usermodes|remove|use|status|sasl] [arguments]",
+            ["network"] = "/network [list|profiles|add|server|username|usermodes|remove|use|status|sasl|password] [arguments]",
             ["disconnect"] = "/disconnect [reason]",
             ["reconnect"] = "/reconnect [cancel|tolerate]",
             ["quit"] = "/quit [reason]",

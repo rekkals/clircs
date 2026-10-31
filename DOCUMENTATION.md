@@ -95,6 +95,22 @@ Then connect using:
 /server <profile> [number]
 ```
 
+#### Server and Bouncer Passwords
+
+Manage a profile's saved server password or complete bouncer login string with:
+
+```
+/network password <profile> set
+/network password <profile>
+/network password <profile> clear
+```
+
+`set` prompts securely without displaying the value. The saved password is used for every server endpoint in that profile and on reconnects. `clear` removes only this connection password; SASL credentials are separate.
+
+`/server <profile> --password` prompts for a session-only override and keeps using it for that session's reconnects. It does not change the saved password.
+
+Saved passwords are encrypted in `network-secrets.json` using Windows DPAPI and included in backups. Restoring under a different Windows account or installation may require entering them again.
+
 #### SASL
 
 Saved TLS profiles support `SASL PLAIN` account authentication:
@@ -146,7 +162,7 @@ You may need to temporarily `/set username` and issue a properly-formatted `--pa
 /server my.shell.provider 31337 --tls --password
 ```
 
-Alternatively, you can set up a profile for your bouncer connection with `/network` and use `/network username <profile> <username>`.
+Alternatively, you can set up a profile for your bouncer connection with `/network`, use `/network username <profile> <username>`, and save its password with `/network password <profile> set`.
 
 ## Windows and Input
 

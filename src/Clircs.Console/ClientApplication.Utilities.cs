@@ -69,6 +69,9 @@ internal sealed partial class ClientApplication
             fields.Add(new PresentationField(
                 "User modes",
                 userModes.Length == 0 ? "not set" : userModes));
+            fields.Add(new PresentationField(
+                "Saved password",
+                _networkCredentials.HasServerPassword(profile.Id) ? "yes" : "no"));
             fields.Add(new PresentationField("SASL", profile.Sasl is null
                 ? "off"
                 : profile.Sasl.Mechanism == SaslMechanisms.Plain
@@ -104,6 +107,9 @@ internal sealed partial class ClientApplication
             new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)),
             new PresentationField("User modes", userModes.Length == 0 ? "not set" : userModes),
             new PresentationField("Notify", profile.NotifyNicknames.Count == 0 ? "none" : string.Join(", ", profile.NotifyNicknames)),
+            new PresentationField(
+                "Saved password",
+                _networkCredentials.HasServerPassword(profile.Id) ? "yes" : "no"),
             new PresentationField("SASL", profile.Sasl is null
                 ? "off"
                 : profile.Sasl.Mechanism == SaslMechanisms.Plain

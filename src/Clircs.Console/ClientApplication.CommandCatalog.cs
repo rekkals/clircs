@@ -196,7 +196,7 @@ internal sealed partial class ClientApplication
             new("Profile", "/server <profile> [number] [--new] [--password]"),
             new("--tls", "Encrypt a direct server connection with TLS."),
             new("--new", "Open a new network session instead of replacing active."),
-            new("--password", "Prompt securely for a server password or complete bouncer login string."),
+            new("--password", "Prompt securely for a server/bouncer password; overrides the value for this session without saving it."),
             new("Example", "/server EFNet 2 --new")
         ],
         "network" =>
@@ -210,6 +210,9 @@ internal sealed partial class ClientApplication
             new("Set user modes", "/network usermodes <profile> <modes>"),
             new("Use global user modes", "/network usermodes <profile>"),
             new("Remove profile", "/network remove <profile>"),
+            new("Password status", "/network password <profile>"),
+            new("Save password", "/network password <profile> set"),
+            new("Clear password", "/network password <profile> clear"),
             new("SASL status", "/network sasl <profile>"),
             new("Enable PLAIN", "/network sasl <profile> [plain] <account> [required|optional]"),
             new("Enable EXTERNAL", "/network sasl <profile> external <certificate.pfx> [required|optional]"),
