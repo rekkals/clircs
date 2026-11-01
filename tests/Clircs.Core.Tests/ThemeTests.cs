@@ -1204,6 +1204,14 @@ internal static class ThemeTests
             Assert.True(application.SettingHelp("list.output")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "window"));
             Assert.Equal("/set hostmasks.join", application.SettingHelp("hostmasks.join")!.TitleHighlight!);
+            Assert.True(application.SettingHelp("hostmasks") is not null);
+            Assert.True(application.SettingHelp("hostmasks.part") is not null);
+            Assert.True(application.SettingHelp("hostmasks.quit") is not null);
+
+            Assert.True(application.SettingHelp("lol.output") is null);
+            Assert.True(application.SettingHelp(".output") is null);
+            Assert.True(application.SettingHelp("hostmaskslol") is null);
+            Assert.True(application.SettingHelp("hostmasks.lol") is null);
             Assert.True(application.SettingHelp("network.reconnect")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "on"));
             Assert.True(application.SettingHelp("kill.reconnect")!.Fields!

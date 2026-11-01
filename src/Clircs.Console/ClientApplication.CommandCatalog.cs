@@ -386,7 +386,7 @@ internal sealed partial class ClientApplication
             "dcc.ports" => ("<random|port|first-last>", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
             "dcc.downloads" => ("<folder>", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
             "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", "/set xdcc.auto on"),
-            _ when setting.StartsWith("hostmasks", StringComparison.Ordinal) =>
+            "hostmasks" or "hostmasks.join" or "hostmasks.part" or "hostmasks.quit" =>
                 ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", $"/set {setting} host"),
             "notice.output" =>
                 ("<active|status|window>", "active", "Selects the window used for notices from users.", "/set notice.output window"),
@@ -398,7 +398,8 @@ internal sealed partial class ClientApplication
                 ("<active|status|window>", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output window"),
             "list.output" =>
                 ("<active|status|window>", "window", "Selects the window used for channel-list results.", "/set list.output window"),
-            _ when setting.EndsWith(".output", StringComparison.Ordinal) =>
+            _ when setting.EndsWith(".output", StringComparison.Ordinal) &&
+                _outputRouting.Supports(setting[..^".output".Length]) =>
                 ("<active|status|window>", setting == "links.output" ? "status" : "active", "Selects the window used for this output.", $"/set {setting} active"),
             _ => default
         };
