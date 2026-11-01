@@ -15,8 +15,88 @@ internal sealed class DccCoordinator
 {
     private readonly object _gate = new();
     private readonly Dictionary<int, DccRuntime> _runtimes = [];
+    private readonly List<PendingXdccRequest> _xdccRequests = [];
 
     internal DccRequestRegistry Requests { get; } = new();
+
+    internal PendingXdccRequest AddXdccRequest(
+        NetworkSessionId sessionId,
+        string bot,
+        string pack,
+        bool isSecure,
+        DateTimeOffset requestedAt)
+    {
+        var request = new PendingXdccRequest(
+            Guid.NewGuid(), sessionId, bot, pack, isSecure, requestedAt);
+        lock (_gate) _xdccRequests.Add(request);
+        return request;
+    }
+
+    internal PendingXdccRequest[] XdccRequests(NetworkSessionId sessionId)
+    {
+        lock (_gate)
+            return [.. _xdccRequests.Where(request => request.NetworkSessionId == sessionId)];
+    }
+
+    internal bool RemoveXdccRequest(PendingXdccRequest request)
+    {
+        lock (_gate)
+            return _xdccRequests.RemoveAll(pending => pending.Id == request.Id) > 0;
+    }
+
+    internal PendingXdccRequest? ReserveXdccRequest(
+        DccRequest request,
+        IEqualityComparer<string> senderComparer)
+    {
+        if (request.Direction != DccRequestDirection.Incoming ||
+            request.State != DccRequestState.Pending ||
+            request.Offer.Type != DccRequestType.Send ||
+            request.Offer.IsPassiveResponse)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            var index = _xdccRequests.FindIndex(pending =>
+                pending.DccRequestId is null &&
+                pending.RequestedAt <= request.CreatedAt &&
+                pending.NetworkSessionId == request.NetworkSessionId &&
+                pending.IsSecure == request.Offer.IsSecure &&
+                senderComparer.Equals(pending.Bot, request.Sender));
+            if (index < 0) return null;
+
+            var match = _xdccRequests[index] with { DccRequestId = request.Id };
+            _xdccRequests[index] = match;
+            return match;
+        }
+    }
+
+    internal int CancelXdccRequests(
+        NetworkSessionId sessionId,
+        string bot,
+        IEqualityComparer<string> senderComparer)
+    {
+        lock (_gate)
+            return _xdccRequests.RemoveAll(request =>
+                request.NetworkSessionId == sessionId &&
+                senderComparer.Equals(request.Bot, bot));
+    }
+
+    internal void ClearXdccRequests(NetworkSessionId? sessionId = null)
+    {
+        lock (_gate)
+        {
+            if (sessionId is { } id)
+            {
+                _xdccRequests.RemoveAll(request => request.NetworkSessionId == id);
+            }
+            else
+            {
+                _xdccRequests.Clear();
+            }
+        }
+    }
 
     internal bool TryBeginResume(int requestId, PendingDccResume pending)
     {
@@ -391,3 +471,12 @@ internal sealed class OutgoingDccSend(
 }
 
 internal sealed record PendingDccResume(DccDownloadTarget Target, long Position);
+
+internal sealed record PendingXdccRequest(
+    Guid Id,
+    NetworkSessionId NetworkSessionId,
+    string Bot,
+    string Pack,
+    bool IsSecure,
+    DateTimeOffset RequestedAt,
+    int? DccRequestId = null);

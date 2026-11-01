@@ -1318,6 +1318,7 @@ internal static class ThemeTests
     {
         using var temporary = new TemporaryDirectory();
         var store = new AppearanceSettingsStore(Path.Combine(temporary.Path, "appearance.json"));
+        Assert.False(store.Load().XdccAuto);
         store.Save(new AppearanceSettings(
             "green", "full", "userhost", "off",
             new Dictionary<string, string> { ["whois"] = "dedicated" },
@@ -1344,7 +1345,8 @@ internal static class ThemeTests
             StatusBouncer: true,
             StatusChannelModes: false,
             StatusUserModes: true,
-            StatusTotals: false));
+            StatusTotals: false,
+            XdccAuto: true));
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
@@ -1361,6 +1363,7 @@ internal static class ThemeTests
         Assert.False(loaded.StatusChannelModes);
         Assert.True(loaded.StatusUserModes);
         Assert.False(loaded.StatusTotals);
+        Assert.True(loaded.XdccAuto);
         Assert.Equal("userhost", loaded.DefaultBanmask);
         Assert.Equal("rekkals", loaded.Nickname!);
         Assert.Equal("rekkals_", loaded.AlternateNickname!);

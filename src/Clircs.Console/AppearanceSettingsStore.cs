@@ -36,7 +36,8 @@ internal sealed record AppearanceSettings(
     bool StatusChannelModes = true,
     bool StatusUserModes = true,
     bool StatusBouncer = true,
-    bool StatusTotals = true);
+    bool StatusTotals = true,
+    bool XdccAuto = false);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -100,7 +101,8 @@ internal sealed class AppearanceSettingsStore
                 stored.StatusChannelModes,
                 stored.StatusUserModes,
                 stored.StatusBouncer,
-                stored.StatusTotals);
+                stored.StatusTotals,
+                stored.XdccAuto);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -148,6 +150,7 @@ internal sealed class AppearanceSettingsStore
             DccAddress = settings.DccAddress,
             DccPorts = settings.DccPorts,
             DccDownloads = settings.DccDownloads,
+            XdccAuto = settings.XdccAuto,
             AwayMessage = settings.AwayMessage,
             OutputRoutes = new Dictionary<string, string>(settings.OutputRoutes, StringComparer.OrdinalIgnoreCase)
         };
@@ -206,6 +209,7 @@ internal sealed class AppearanceSettingsStore
         public string DccAddress { get; set; } = "auto";
         public string DccPorts { get; set; } = "random";
         public string? DccDownloads { get; set; }
+        public bool XdccAuto { get; set; }
         public string AwayMessage { get; set; } = "away";
         public Dictionary<string, string> OutputRoutes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }

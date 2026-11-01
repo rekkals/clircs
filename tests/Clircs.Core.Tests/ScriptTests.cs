@@ -838,6 +838,7 @@ internal static class ScriptTests
         {
             ("notice", ["n"]),
             ("dcc", []),
+            ("xdcc", []),
             ("users", []),
             ("backup", []),
             ("server", ["connect"]),
@@ -874,6 +875,7 @@ internal static class ScriptTests
         string[] denied =
         [
             "/dcc send Nick secret.txt",
+            "/xdcc get Bot 1",
             "/users export stolen.json",
             "/backup create",
             "/backup restore snapshot.zip",

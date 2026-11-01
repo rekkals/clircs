@@ -42,5 +42,6 @@ internal sealed class ClientPreferences
     public string DccAddress { get; set; } = "auto";
     public DccPortRange DccPorts { get; set; } = DccPortRange.Random;
     public string DccDownloads { get; set; }
+    public bool XdccAuto { get; set; }
     public BanmaskStyle BanmaskStyle { get; set; } = BanmaskStyle.Host;
 }

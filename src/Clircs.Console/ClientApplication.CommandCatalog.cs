@@ -253,7 +253,10 @@ internal sealed partial class ClientApplication
             new("List", "/xdcc list <bot>"),
             new("Download", "/xdcc get <bot> <pack>"),
             new("Secure download", "/xdcc sget <bot> <pack>"),
-            new("Incoming", "Use /dcc accept <id> or /dcc reject <id> when the bot offers the file")
+            new("Auto-accept", "Enable /set xdcc.auto on before requesting packs"),
+            new("Pending", "/xdcc pending"),
+            new("Cancel", "/xdcc cancel <bot> (waiting requests only)"),
+            new("Incoming", "Other offers require /dcc accept <id> or /dcc reject <id>")
         ],
         "set" =>
         [
@@ -262,7 +265,7 @@ internal sealed partial class ClientApplication
             new("Behavior", "banmask, clonedetect, datechange, highlight, joininfo, kickrejoin"),
             new("Status bar", "status.lagmeter, status.tls, status.bouncer, status.chanmodes, status.usermodes, status.totals"),
             new("Network", "usermodes, network.reconnect, kill.reconnect"),
-            new("DCC", "dcc.address, dcc.ports, dcc.downloads"),
+            new("DCC", "dcc.address, dcc.ports, dcc.downloads, xdcc.auto"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
             new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, snotice.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
         ],
@@ -382,6 +385,7 @@ internal sealed partial class ClientApplication
             "dcc.address" => ("<auto|IP|hostname>", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", "/set dcc.address 2603:8081:3000:48b3::20"),
             "dcc.ports" => ("<random|port|first-last>", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
             "dcc.downloads" => ("<folder>", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
+            "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", "/set xdcc.auto on"),
             _ when setting.StartsWith("hostmasks", StringComparison.Ordinal) =>
                 ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", $"/set {setting} host"),
             "notice.output" =>
@@ -436,6 +440,7 @@ internal sealed partial class ClientApplication
         "dcc.address" => _preferences.DccAddress,
         "dcc.ports" => _preferences.DccPorts.ToString(),
         "dcc.downloads" => _preferences.DccDownloads,
+        "xdcc.auto" => _preferences.XdccAuto ? "on" : "off",
         "hostmasks" => _preferences.JoinHostmasks == _preferences.PartHostmasks && _preferences.PartHostmasks == _preferences.QuitHostmasks
             ? FormatHostmaskVisibility(_preferences.JoinHostmasks) : "mixed",
         "hostmasks.join" => FormatHostmaskVisibility(_preferences.JoinHostmasks),

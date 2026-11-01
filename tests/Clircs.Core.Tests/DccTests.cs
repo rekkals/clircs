@@ -70,6 +70,9 @@ internal static class DccTests
         suite.Add("DCC partial downloads are scoped to their network and sender", DownloadStoreScopesPartialResume);
         suite.Add("DCC resume rejects a partial file changed after selection", DownloadStoreRejectsChangedPartial);
         suite.Add("XDCC requests build LIST, SEND, and SSEND commands", XdccRequestsAreValidated);
+        suite.Add("XDCC authorizations match only eligible requested transfers", XdccAuthorizationsMatchRequests);
+        suite.Add("XDCC reservations are separate and consumed exactly once", XdccReservationsAreOneUse);
+        suite.Add("XDCC cancellation revokes reserved work within its scope", XdccCancellationPreservesOtherRequests);
     }
 
     private static void XdccRequestsAreValidated()
@@ -93,6 +96,109 @@ internal static class DccTests
         Assert.False(ClientApplication.TryBuildXdccRequest("get", "0", out _, out _));
         Assert.False(ClientApplication.TryBuildXdccRequest("get", "##12", out _, out _));
         Assert.False(ClientApplication.TryBuildXdccRequest("get", "12x", out _, out _));
+    }
+
+    private static void XdccAuthorizationsMatchRequests()
+    {
+        var coordinator = new DccCoordinator();
+        var sessionId = NetworkSessionId.New();
+        var now = DateTimeOffset.UtcNow;
+        var comparer = new IrcNameComparer(IrcCaseMapping.Rfc1459);
+        var authorization = coordinator.AddXdccRequest(
+            sessionId, "[Bot]", "#12", true, now);
+        var offer = coordinator.Requests.Add(
+            sessionId, "example", "{bot}",
+            new DccOffer(
+                DccRequestType.Send, "pack.bin", "127.0.0.1", 0, 1, "123", "", IsSecure: true),
+            now.AddDays(2));
+
+        DccRequest[] unmatched =
+        [
+            offer with { NetworkSessionId = NetworkSessionId.New() },
+            offer with { Sender = "OtherBot" },
+            offer with { CreatedAt = now.AddTicks(-1) },
+            offer with { Direction = DccRequestDirection.Outgoing },
+            offer with { State = DccRequestState.Connecting },
+            offer with { Offer = offer.Offer with { IsSecure = false } },
+            offer with { Offer = offer.Offer with { Type = DccRequestType.Chat } },
+            offer with { Offer = offer.Offer with { Port = 5000 } }
+        ];
+
+        foreach (var candidate in unmatched)
+        {
+            Assert.True(coordinator.ReserveXdccRequest(candidate, comparer) is null);
+        }
+
+        Assert.True(coordinator.ReserveXdccRequest(
+            offer, new IrcNameComparer(IrcCaseMapping.Ascii)) is null);
+        Assert.True(coordinator.ReserveXdccRequest(offer, comparer)?.Id == authorization.Id);
+        Assert.True(coordinator.ReserveXdccRequest(offer, comparer) is null);
+    }
+
+    private static void XdccReservationsAreOneUse()
+    {
+        var coordinator = new DccCoordinator();
+        var sessionId = NetworkSessionId.New();
+        var now = DateTimeOffset.UtcNow;
+        var comparer = new IrcNameComparer(IrcCaseMapping.Rfc1459);
+        var first = coordinator.AddXdccRequest(sessionId, "Bot", "#1", false, now);
+        var second = coordinator.AddXdccRequest(sessionId, "Bot", "#1", false, now);
+        var offer = coordinator.Requests.Add(
+            sessionId, "example", "bot",
+            new DccOffer(DccRequestType.Send, "pack.bin", "127.0.0.1", 5000, 1, null, ""),
+            now.AddSeconds(1));
+
+        Assert.True(coordinator.ReserveXdccRequest(
+            offer with { Offer = offer.Offer with { IsSecure = true } }, comparer) is null);
+
+        var firstMatch = coordinator.ReserveXdccRequest(offer, comparer);
+        var secondMatch = coordinator.ReserveXdccRequest(
+            offer with { Id = offer.Id + 1 }, comparer);
+        Assert.True(firstMatch?.Id == first.Id);
+        Assert.True(secondMatch?.Id == second.Id);
+        Assert.True(coordinator.ReserveXdccRequest(
+            offer with { Id = offer.Id + 2 }, comparer) is null);
+
+        Assert.True(coordinator.RemoveXdccRequest(firstMatch!));
+        Assert.False(coordinator.RemoveXdccRequest(firstMatch!));
+        Assert.True(coordinator.RemoveXdccRequest(second));
+        Assert.Equal(0, coordinator.XdccRequests(sessionId).Length);
+    }
+
+    private static void XdccCancellationPreservesOtherRequests()
+    {
+        var coordinator = new DccCoordinator();
+        var firstSession = NetworkSessionId.New();
+        var secondSession = NetworkSessionId.New();
+        var now = DateTimeOffset.UtcNow;
+        var comparer = new IrcNameComparer(IrcCaseMapping.Rfc1459);
+        coordinator.AddXdccRequest(firstSession, "[Bot]", "#1", false, now);
+        coordinator.AddXdccRequest(firstSession, "[BOT]", "#2", true, now);
+        var otherBot = coordinator.AddXdccRequest(firstSession, "OtherBot", "#3", false, now);
+        var otherNetwork = coordinator.AddXdccRequest(secondSession, "[Bot]", "#4", false, now);
+        var offer = coordinator.Requests.Add(
+            firstSession, "example", "{bot}",
+            new DccOffer(DccRequestType.Send, "pack.bin", "127.0.0.1", 5000, 1, null, ""),
+            now.AddSeconds(1));
+        var reserved = coordinator.ReserveXdccRequest(offer, comparer);
+        Assert.True(reserved is not null);
+
+        Assert.Equal(2, coordinator.CancelXdccRequests(firstSession, "{BOT}", comparer));
+        var replacement = coordinator.AddXdccRequest(
+            firstSession, "[Bot]", "#1", false, now.AddSeconds(2));
+
+        Assert.False(coordinator.RemoveXdccRequest(reserved!));
+        Assert.True(coordinator.XdccRequests(firstSession)
+            .Select(request => request.Id)
+            .ToHashSet()
+            .SetEquals([otherBot.Id, replacement.Id]));
+
+        coordinator.ClearXdccRequests(firstSession);
+        Assert.Equal(0, coordinator.XdccRequests(firstSession).Length);
+        Assert.Equal(otherNetwork.Id, coordinator.XdccRequests(secondSession).Single().Id);
+
+        coordinator.ClearXdccRequests();
+        Assert.Equal(0, coordinator.XdccRequests(secondSession).Length);
     }
 
     private static void ChatParsesIntegerAddress()

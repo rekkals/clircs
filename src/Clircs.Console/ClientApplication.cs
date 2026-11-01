@@ -273,6 +273,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.DccAddress = appearance.DccAddress;
         if (DccPortRange.TryParse(appearance.DccPorts, out var dccPorts)) _preferences.DccPorts = dccPorts;
         _preferences.DccDownloads = ResolveDccDownloadDirectory(appearance.DccDownloads, dataDirectory);
+        _preferences.XdccAuto = appearance.XdccAuto;
         if (BanmaskFormatter.TryParse(appearance.DefaultBanmask, out var banmaskStyle)) _preferences.BanmaskStyle = banmaskStyle;
         _presenter.SetHostmaskVisibility(_preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
         _scriptManager = new ScriptManager(

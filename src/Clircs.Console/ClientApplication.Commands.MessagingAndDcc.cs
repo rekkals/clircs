@@ -368,36 +368,119 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        const string usage = "Usage: /xdcc list <bot> or /xdcc <get|sget> <bot> <pack>";
-        var operation = input.Arguments.Count > 0 ? input.Arguments[0] : string.Empty;
-        var isList = operation.Equals("list", StringComparison.OrdinalIgnoreCase);
-        var expectedCount = isList ? 2 : 3;
-        var packArgument = input.Arguments.Count == 3 ? input.Arguments[2] : null;
+        const string usage =
+            "Usage: /xdcc list <bot>, /xdcc <get|sget> <bot> <pack>, " +
+            "/xdcc pending, or /xdcc cancel <bot>";
 
-        if (input.Arguments.Count != expectedCount ||
-            !TryBuildXdccRequest(operation, packArgument, out var request, out var pack))
+        var operation = input.Arguments.Count > 0
+            ? input.Arguments[0].ToLowerInvariant()
+            : string.Empty;
+        var expectedCount = operation switch
+        {
+            "pending" => 1,
+            "list" or "cancel" => 2,
+            "get" or "sget" => 3,
+            _ => 0
+        };
+        if (expectedCount == 0 || input.Arguments.Count != expectedCount)
         {
             return CommandResult.Failure(usage);
         }
 
         var session = RequireSession(out var failure);
-        if (session is null)
+        if (session is null) return failure;
+
+        if (operation == "pending")
         {
-            return failure;
+            var requests = _dcc.XdccRequests(session.State.Id);
+            if (requests.Length == 0)
+            {
+                return CommandResult.Success(
+                    "No pending XDCC auto-accept requests on this connection");
+            }
+
+            var rows = requests.Select(entry => (IReadOnlyList<string>)
+            [
+                entry.Bot,
+                entry.Pack,
+                entry.IsSecure ? "SSEND" : "SEND"
+            ]).ToArray();
+
+            return CommandResult.Success(new PresentationBlock(
+                "Pending XDCC Requests",
+                Table: new PresentationTable(["Bot", "Pack", "Type"], rows)));
         }
 
         var bot = input.Arguments[1];
-        await session.SendMessageAsync(bot, request, cancellationToken, createQueryBuffer: false);
+        if (string.IsNullOrWhiteSpace(bot) ||
+            bot.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)) ||
+            bot.IndexOfAny([',', ':', '!', '@', '*', '?', '$']) >= 0 ||
+            session.Features.IsChannel(session.Features.NormalizeMessageTarget(bot)))
+        {
+            return CommandResult.Failure("XDCC requires one bot nickname");
+        }
 
-        if (isList)
+        if (operation == "cancel")
+        {
+            _dcc.CancelXdccRequests(
+                session.State.Id, bot, IrcNameComparerFor(session));
+            try
+            {
+                await session.SendMessageAsync(
+                    bot, "XDCC REMOVE", cancellationToken, createQueryBuffer: false);
+            }
+            catch (Exception exception) when (
+                IsExpectedCommandFailure(exception) || exception is InvalidOperationException)
+            {
+                return CommandResult.Failure(
+                    $"Pending XDCC auto-accept requests cleared for {bot}, " +
+                    $"but XDCC REMOVE could not be sent: {exception.Message}");
+            }
+
+            return CommandResult.Success(
+                $"XDCC REMOVE request sent to {bot}; pending auto-accept requests cleared");
+        }
+
+        var packArgument = operation == "list" ? null : input.Arguments[2];
+        if (!TryBuildXdccRequest(operation, packArgument, out var wireRequest, out var pack))
+        {
+            return CommandResult.Failure(usage);
+        }
+        if (session.ConnectionState != IrcConnectionState.Online)
+        {
+            return CommandResult.Failure("Not connected to a server");
+        }
+
+        var isSecure = operation == "sget";
+        PendingXdccRequest? authorization = null;
+        if (operation != "list" && _preferences.XdccAuto)
+        {
+            authorization = _dcc.AddXdccRequest(
+                session.State.Id, bot, pack, isSecure, DateTimeOffset.Now);
+        }
+
+        try
+        {
+            await session.SendMessageAsync(
+                bot, wireRequest, cancellationToken, createQueryBuffer: false);
+        }
+        catch
+        {
+            if (authorization is not null)
+            {
+                _dcc.RemoveXdccRequest(authorization);
+            }
+            throw;
+        }
+
+        if (operation == "list")
         {
             return CommandResult.Success($"XDCC LIST request sent to {bot}");
         }
 
-        var transferCommand = operation.Equals("sget", StringComparison.OrdinalIgnoreCase)
-            ? "SSEND"
-            : "SEND";
-        return CommandResult.Success($"XDCC {transferCommand} request sent to {bot} for pack {pack}");
+        var transferCommand = isSecure ? "SSEND" : "SEND";
+        return CommandResult.Success(
+            $"XDCC {transferCommand} request sent to {bot} for pack {pack}");
     }
 
     internal static bool TryBuildXdccRequest(
@@ -803,7 +886,10 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private CommandResult StartIncomingDccSend(DccRequest request, DccDownloadTarget? resumeTarget = null)
+    private CommandResult StartIncomingDccSend(
+        DccRequest request,
+        DccDownloadTarget? resumeTarget = null,
+        bool switchToBuffer = true)
     {
         if (request.Offer.Filename is not { } filename || request.Offer.Size is not { } size)
         {
@@ -841,7 +927,7 @@ internal sealed partial class ClientApplication
             InitialOffset: target.InitialOffset);
         _dcc.SetTransfer(request.Id, transfer);
         CancelDccExpiration(request.Id);
-        if (FindSession(request.NetworkSessionId) is { } session)
+        if (switchToBuffer && FindSession(request.NetworkSessionId) is { } session)
         {
             SwitchTo(session, DccBuffer(session));
         }
@@ -857,7 +943,8 @@ internal sealed partial class ClientApplication
     private async ValueTask<CommandResult> StartIncomingPassiveDccSendAsync(
         DccRequest request,
         CancellationToken cancellationToken,
-        DccDownloadTarget? resumeTarget = null)
+        DccDownloadTarget? resumeTarget = null,
+        bool switchToBuffer = true)
     {
         if (request.Offer.Filename is not { } filename || request.Offer.Size is not { } size ||
             request.Offer.PassiveToken is not { } token)
@@ -904,7 +991,10 @@ internal sealed partial class ClientApplication
                 target.InitialOffset);
             _dcc.SetTransfer(request.Id, transfer);
             CancelDccExpiration(request.Id);
-            SwitchTo(session, DccBuffer(session));
+            if (switchToBuffer)
+            {
+                SwitchTo(session, DccBuffer(session));
+            }
             PublishDccState(connecting!,
                 target.IsResume
                     ? $"Waiting to resume passive DCC {DccProtocolName(request.Offer)} #{request.Id} from " +
@@ -917,7 +1007,7 @@ internal sealed partial class ClientApplication
             return CommandResult.Success();
         }
         catch (Exception exception) when (exception is SocketException or IOException or UnauthorizedAccessException or
-            InvalidOperationException or ArgumentException or NotSupportedException)
+            InvalidOperationException or ArgumentException or NotSupportedException or OperationCanceledException)
         {
             if (target is not null && !target.IsResume) DccDownloadStore.Discard(target);
             if (listener is not null) await listener.DisposeAsync();

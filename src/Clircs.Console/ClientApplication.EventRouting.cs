@@ -257,6 +257,7 @@ internal sealed partial class ClientApplication
                 DisplayCommandResult(OpenAwayMessageIndex(context.EventSession, network.Key, network.Name));
             }
         }
+        TryAutoAcceptXdcc(context.Event);
         return true;
     }
 

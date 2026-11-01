@@ -1,16 +1,101 @@
-using System.Globalization;
 using Clircs.Commands;
 using Clircs.Dcc;
 using Clircs.Identity;
+using Clircs.Networking;
 using Clircs.Protocol;
 using Clircs.Sessions;
 using Clircs.State;
+using System.Globalization;
 
 namespace Clircs.ConsoleClient;
 
 // Owns DCC negotiation, transfers, chat sessions, and runtime transitions.
 internal sealed partial class ClientApplication
 {
+    private void TryAutoAcceptXdcc(SessionEvent sessionEvent)
+    {
+        if (_exitRequested || !_preferences.XdccAuto ||
+            sessionEvent.Fields is not { } fields ||
+            fields.GetValueOrDefault("event") != "dcc.request" ||
+            fields.GetValueOrDefault("dcc.state") != "pending" ||
+            fields.GetValueOrDefault("private") != "true" ||
+            fields.GetValueOrDefault("replay") == "true" ||
+            !int.TryParse(
+                fields.GetValueOrDefault("dcc.id"),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var requestId) ||
+            !_dcc.Requests.TryGet(requestId, out var request) ||
+            request is null ||
+            request.NetworkSessionId != sessionEvent.NetworkSessionId ||
+            request.Offer.Size is null ||
+            FindSession(request.NetworkSessionId) is not { } session ||
+            session.ConnectionState != IrcConnectionState.Online)
+        {
+            return;
+        }
+
+        var authorization = _dcc.ReserveXdccRequest(
+            request, IrcNameComparerFor(session));
+        if (authorization is null) return;
+
+        var context = new CommandContext(
+            sessionEvent.NetworkSessionId, sessionEvent.BufferId);
+        if (!_applicationWork.TryStart(
+                "XDCC auto-accept",
+                () => AutoAcceptXdccAsync(context, requestId, authorization),
+                LogUnexpectedApplicationWorkFailure))
+        {
+            _dcc.RemoveXdccRequest(authorization);
+        }
+    }
+
+    private async Task AutoAcceptXdccAsync(
+        CommandContext context,
+        int requestId,
+        PendingXdccRequest authorization)
+    {
+        try
+        {
+            await _commandExecution.ExecuteAsync(
+                context,
+                async cancellationToken =>
+                {
+                    if (!_dcc.RemoveXdccRequest(authorization) ||
+                        _exitRequested || !_preferences.XdccAuto ||
+                        !_dcc.Requests.TryGet(requestId, out var request) ||
+                        request is not { State: DccRequestState.Pending } ||
+                        request.NetworkSessionId != authorization.NetworkSessionId ||
+                        FindSession(request.NetworkSessionId) is not { } session ||
+                        session.ConnectionState != IrcConnectionState.Online)
+                    {
+                        return CommandResult.Success();
+                    }
+
+                    var result = request.Offer.IsPassiveRequest
+                        ? await StartIncomingPassiveDccSendAsync(
+                            request, cancellationToken, switchToBuffer: false)
+                        : StartIncomingDccSend(request, switchToBuffer: false);
+
+                    if (!result.Succeeded &&
+                        _dcc.Requests.TryGet(requestId, out var current) &&
+                        current is { State: DccRequestState.Pending or DccRequestState.Failed })
+                    {
+                        PublishDccState(
+                            current,
+                            result.Message ?? $"Could not automatically accept DCC request #{requestId}");
+                    }
+
+                    return CommandResult.Success();
+                },
+                _applicationWork.Token);
+        }
+        finally
+        {
+            _dcc.RemoveXdccRequest(authorization);
+        }
+    }
+
     private SessionEvent RouteDccProtocolEvent(SessionEvent sessionEvent)
     {
         var eventName = sessionEvent.Fields?.GetValueOrDefault("event");
@@ -485,6 +570,7 @@ internal sealed partial class ClientApplication
 
     private void InvalidateDccRequests(IrcNetworkSession session, string reason)
     {
+        _dcc.ClearXdccRequests(session.State.Id);
         foreach (var request in _dcc.Requests.Invalidate(session.State.Id, reason))
         {
             CancelDccExpiration(request.Id);

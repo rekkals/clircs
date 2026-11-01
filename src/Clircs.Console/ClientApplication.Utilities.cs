@@ -466,7 +466,8 @@ internal sealed partial class ClientApplication
         _preferences.StatusChannelModes,
         _preferences.StatusUserModes,
         _preferences.StatusBouncer,
-        _preferences.StatusTotals);
+        _preferences.StatusTotals,
+        _preferences.XdccAuto);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -507,6 +508,7 @@ internal sealed partial class ClientApplication
         _preferences.DccAddress = settings.DccAddress;
         if (DccPortRange.TryParse(settings.DccPorts, out var ports)) _preferences.DccPorts = ports;
         _preferences.DccDownloads = settings.DccDownloads ?? _preferences.DccDownloads;
+        _preferences.XdccAuto = settings.XdccAuto;
         if (BanmaskFormatter.TryParse(settings.DefaultBanmask, out var mask)) _preferences.BanmaskStyle = mask;
         _presenter.SetHostmaskVisibility(_preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
     }

@@ -235,7 +235,8 @@ internal sealed partial class ClientApplication
                 new("status.totals", _preferences.StatusTotals ? "on" : "off"),
                 new("dcc.address", _preferences.DccAddress),
                 new("dcc.ports", _preferences.DccPorts.ToString()),
-                new("dcc.downloads", _preferences.DccDownloads)
+                new("dcc.downloads", _preferences.DccDownloads),
+                new("xdcc.auto", _preferences.XdccAuto ? "on" : "off")
             };
             fields.Add(new PresentationField("network.reconnect", _preferences.NetworkReconnect ? "on" : "off"));
             fields.Add(new PresentationField("kill.reconnect", _preferences.KillReconnect ? "on" : "off"));
@@ -256,11 +257,11 @@ internal sealed partial class ClientApplication
         var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
 
         if (input.Arguments.Count == 1 &&
-            setting.StartsWith("status.", StringComparison.Ordinal) &&
-            CurrentSettingValue(setting) is { } currentStatusValue)
+            (setting.StartsWith("status.", StringComparison.Ordinal) || setting == "xdcc.auto") &&
+            CurrentSettingValue(setting) is { } currentValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
-                $"{setting} is {currentStatusValue}."));
+                $"{setting} is {currentValue}."));
         }
 
         if (setting == "datechange" && input.Arguments.Count == 1)
@@ -453,6 +454,16 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure($"dcc.downloads is invalid: {exception.Message}"));
                 }
                 break;
+            case "xdcc.auto":
+                if (!TryParseOnOff(value, out var xdccAuto))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "xdcc.auto must be on or off."));
+                }
+
+                _preferences.XdccAuto = xdccAuto;
+                value = xdccAuto ? "on" : "off";
+                break;
             case "who.output":
             case "whois.output":
             case "whowas.output":
@@ -497,6 +508,10 @@ internal sealed partial class ClientApplication
         try
         {
             SaveAppearanceSettings();
+            if (setting == "xdcc.auto" && !_preferences.XdccAuto)
+            {
+                _dcc.ClearXdccRequests();
+            }
             return ValueTask.FromResult(CommandResult.Success(
                 clearingUserModes
                     ? "Automatic user modes cleared."

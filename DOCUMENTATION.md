@@ -286,11 +286,23 @@ XDCC pack requests use the normal incoming DCC transfer system:
 /xdcc list <bot>
 /xdcc get <bot> <pack>
 /xdcc sget <bot> <pack>
+/xdcc pending
+/xdcc cancel <bot>
 ```
 
-The first asks the bot for its `LIST`, the second requests an ordinary `SEND`, and the third asks for `SSEND` (and doesn't fall back to plaintext). Pack numbers may be written as `42` or `#42`.
+The first asks the bot for its `LIST`, the second requests an ordinary `SEND`, and the third asks for `SSEND` without falling back to plaintext. Pack numbers may be written as `42` or `#42`.
 
-The resulting offer still requires `/dcc accept <id>` or `/dcc reject <id>`. Normal download, validation, progress, resume, cancellation, and collision-safe filename behavior applies.
+`xdcc.auto` defaults to `off`, requiring normal `/dcc accept <id>` or `/dcc reject <id>` handling. Enable it with `/set xdcc.auto on` before requesting packs to automatically accept one matching transfer per request. Matching uses the bot, connection, and SEND/SSEND type. Downloads start without switching your current window.
+
+`/xdcc pending` lists waiting autoaccept requests on the active connection. `/xdcc cancel <bot>` clears that bot's waiting authorizations on that connection and sends `XDCC REMOVE` to leave its queue. Active downloads continue; use `/dcc cancel <id>` to cancel those.
+
+Waiting authorizations have no additional timeout. They are cleared when consumed, canceled, autoaccept is disabled, or the IRC connection closes. Enabling autoaccept does not authorize earlier requests or existing offers.
+
+DCC offers do not contain XDCC pack numbers, so clircs cannot independently verify the requested pack number from an offer.
+
+Scripts cannot invoke `/xdcc` or `/dcc`. Requests sent through ordinary messages or raw IRC commands do not create autoaccept authorizations.
+
+Normal download validation, progress, resume, cancellation, and collision-safe filename behavior applies.
 
 ### DCC Settings and Passive Connections
 
