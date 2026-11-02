@@ -458,7 +458,7 @@ internal sealed partial class ClientApplication
                 });
             var outcome = await loop.RunAsync(
                 (attempt, attempts, delay) => PublishStatus(session, SessionEventKind.Status,
-                    $"{(kind == SessionDisconnectKind.Killed ? "Kill reconnect" : "Reconnect")} attempt {attempt}/{attempts} in {FormatDuration(delay)}. Use /reconnect cancel to stop."),
+                    $"{(kind == SessionDisconnectKind.Killed ? "Kill reconnect" : "Reconnect")} attempt {attempt}/{attempts} in {FormatDuration(TimeSpan.FromSeconds(Math.Round(delay.TotalSeconds, MidpointRounding.AwayFromZero)))}. Use /reconnect cancel to stop."),
                 (attempt, exception) => PublishStatus(session, SessionEventKind.Error,
                     exception is TimeoutException ? exception.Message : ReconnectFailureMessage(attempt, exception)),
                 token);
