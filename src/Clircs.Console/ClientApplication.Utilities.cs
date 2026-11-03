@@ -467,7 +467,8 @@ internal sealed partial class ClientApplication
         _preferences.StatusUserModes,
         _preferences.StatusBouncer,
         _preferences.StatusTotals,
-        _preferences.XdccAuto);
+        _preferences.XdccAuto,
+        _preferences.Startup);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -501,6 +502,7 @@ internal sealed partial class ClientApplication
         _preferences.StatusBouncer = settings.StatusBouncer;
         _preferences.StatusTotals = settings.StatusTotals;
         _preferences.DateChange = settings.DateChange;
+        _preferences.Startup = settings.Startup;
         _preferences.CloneDetection = settings.CloneDetection;
         _preferences.NetworkReconnect = settings.NetworkReconnect;
         _preferences.KillReconnect = settings.KillReconnect;

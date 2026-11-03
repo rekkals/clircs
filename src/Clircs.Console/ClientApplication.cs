@@ -266,6 +266,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.StatusBouncer = appearance.StatusBouncer;
         _preferences.StatusTotals = appearance.StatusTotals;
         _preferences.DateChange = appearance.DateChange;
+        _preferences.Startup = appearance.Startup;
         _preferences.CloneDetection = appearance.CloneDetection;
         _preferences.NetworkReconnect = appearance.NetworkReconnect;
         _preferences.KillReconnect = appearance.KillReconnect;
@@ -295,7 +296,9 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     public async Task RunAsync()
     {
         _presenter.EnterFullScreen();
-        _windowStates.ReplaceHistory(_localStatusBuffer.Id, [LocalStartupEvent()]);
+        _windowStates.ReplaceHistory(
+            _localStatusBuffer.Id,
+            _preferences.Startup ? [LocalStartupEvent()] : []);
         RedrawActiveBuffer();
         var startupContext = CaptureCommandContext();
         if (_recoveredRestore == BackupRestorePhase.RolledBack)

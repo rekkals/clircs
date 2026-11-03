@@ -49,7 +49,9 @@ internal sealed partial class ClientApplication
             _windowStates.Activate(session.State.Id, session.State.StatusBuffer.Id);
             _windowStates.ReplaceHistory(
                 session.State.StatusBuffer.Id,
-                [StartupEvent(session, session.State.StatusBuffer)]);
+                _preferences.Startup
+                    ? [StartupEvent(session, session.State.StatusBuffer)]
+                    : []);
         }
 
         session.EventRaised += QueueInboundSessionEvent;

@@ -37,7 +37,8 @@ internal sealed record AppearanceSettings(
     bool StatusUserModes = true,
     bool StatusBouncer = true,
     bool StatusTotals = true,
-    bool XdccAuto = false);
+    bool XdccAuto = false,
+    bool Startup = true);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -102,7 +103,8 @@ internal sealed class AppearanceSettingsStore
                 stored.StatusUserModes,
                 stored.StatusBouncer,
                 stored.StatusTotals,
-                stored.XdccAuto);
+                stored.XdccAuto,
+                stored.Startup);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -137,6 +139,7 @@ internal sealed class AppearanceSettingsStore
             StatusBouncer = settings.StatusBouncer,
             StatusTotals = settings.StatusTotals,
             DateChange = settings.DateChange,
+            Startup = settings.Startup,
             DefaultBanmask = settings.DefaultBanmask,
             Nickname = settings.Nickname,
             AlternateNickname = settings.AlternateNickname,
@@ -196,6 +199,7 @@ internal sealed class AppearanceSettingsStore
         public bool StatusBouncer { get; set; } = true;
         public bool StatusTotals { get; set; } = true;
         public bool DateChange { get; set; } = true;
+        public bool Startup { get; set; } = true;
         public string DefaultBanmask { get; set; } = "host";
         public string? Nickname { get; set; }
         public string? AlternateNickname { get; set; }

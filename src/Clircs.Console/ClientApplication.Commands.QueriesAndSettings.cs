@@ -227,6 +227,7 @@ internal sealed partial class ClientApplication
                 new("hostmasks.part", FormatHostmaskVisibility(_preferences.PartHostmasks)),
                 new("hostmasks.quit", FormatHostmaskVisibility(_preferences.QuitHostmasks)),
                 new("kickrejoin", _preferences.AutoRejoinOnKick ? "on" : "off"),
+                new("startup", _preferences.Startup ? "on" : "off"),
                 new("status.lagmeter", _preferences.LagMeter ? "on" : "off"),
                 new("status.tls", _preferences.StatusTls ? "on" : "off"),
                 new("status.bouncer", _preferences.StatusBouncer ? "on" : "off"),
@@ -257,7 +258,7 @@ internal sealed partial class ClientApplication
         var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
 
         if (input.Arguments.Count == 1 &&
-            (setting.StartsWith("status.", StringComparison.Ordinal) || setting == "xdcc.auto") &&
+            (setting.StartsWith("status.", StringComparison.Ordinal) || setting is "xdcc.auto" or "startup") &&
             CurrentSettingValue(setting) is { } currentValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
@@ -375,6 +376,13 @@ internal sealed partial class ClientApplication
                         _preferences.StatusTotals = statusEnabled;
                         break;
                 }
+                break;
+            case "startup":
+                if (!TryParseOnOff(value, out var startup))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure("startup must be on or off."));
+                }
+                _preferences.Startup = startup;
                 break;
             case "datechange":
                 if (!TryParseOnOff(value, out var dateChange))

@@ -35,6 +35,7 @@ internal sealed class ClientPreferences
     public bool StatusTotals { get; set; } = true;
     public bool StatusBouncer { get; set; } = true;
     public bool DateChange { get; set; } = true;
+    public bool Startup { get; set; } = true;
     public bool CloneDetection { get; set; } = true;
     public bool NetworkReconnect { get; set; } = true;
     public bool KillReconnect { get; set; }
