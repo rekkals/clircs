@@ -31,9 +31,9 @@ internal sealed record TerminalTheme(
 {
     public ConsoleColor Kick { get; init; } = ConsoleColor.Red;
 
-    public ConsoleColor TopicForeground { get; init; } = ConsoleColor.Gray;
+    public ConsoleColor TopicForeground { get; init; } = ConsoleColor.Black;
 
-    public ConsoleColor TopicBackground { get; init; } = ConsoleColor.DarkBlue;
+    public ConsoleColor TopicBackground { get; init; } = ConsoleColor.DarkCyan;
 
     public string GridOpen { get; init; } = "[ ";
 
