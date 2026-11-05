@@ -367,6 +367,25 @@ public sealed class IrcSessionProcessor
                             ("outputFamily", "invite"), ("routeConfigured", "true"))));
                 }
                 break;
+            case "301":
+                if (message.Parameters.Count >= 3)
+                {
+                    var awayTarget = message.Parameters[1];
+                    var hasAwayQuery =
+                        _state.TryGetBuffer(awayTarget, out var awayQuery) &&
+                        awayQuery!.Kind == BufferKind.Query;
+                    events.Add(Event(
+                        hasAwayQuery ? awayQuery! : _state.StatusBuffer,
+                        SessionEventKind.Notice,
+                        $"{awayTarget} is away: {message.Parameters[2]}",
+                        now,
+                        Fields(
+                            ("event", "away.reply"),
+                            ("numeric", "301"),
+                            ("target", awayTarget),
+                            ("routeActive", hasAwayQuery ? null : "true"))));
+                }
+                break;
             case "305":
                 _state.SetAway(false);
                 events.Add(Status(

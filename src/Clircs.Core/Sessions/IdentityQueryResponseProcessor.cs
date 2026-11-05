@@ -126,6 +126,12 @@ internal sealed class IdentityQueryResponseProcessor
                 _features.IsChannel(message.Parameters[1]):
                 sessionEvents = [];
                 return false;
+            case "301" when
+                message.Parameters.Count < 3 ||
+                PeekWhoisRequest(message.Parameters[1]) is null &&
+                !_whoisResults.ContainsKey(message.Parameters[1]):
+                sessionEvents = [];
+                return false;
             case var command when IsWhoisNumeric(command):
                 var whois = ProcessWhois(message, now);
                 if (whois is not null) results.Add(whois);
