@@ -22,16 +22,38 @@ internal sealed partial class ClientApplication
         var fields = new List<PresentationField>
         {
             new("Network", session.Features.NetworkName ?? session.State.DisplayName),
+            new("Profile", profile?.DisplayName ?? "none"),
             new("Connection", ConnectionStatusLabel(session)),
-            new("IRC server", session.State.ServerName ?? session.Options.Endpoint.Host),
+            new("Server", session.State.ServerName ?? session.Options.Endpoint.Host),
             new("Server TLS", upstreamTls switch
             {
                 true => "enabled",
                 false => "disabled",
                 null => "not confirmed"
-            }),
-            new("Nickname", session.CurrentNickname)
+            })
         };
+
+        if (session.State.BouncerName is null)
+        {
+            fields.Add(new PresentationField(
+                "Server endpoint",
+                session.Options.Endpoint.ToString()));
+        }
+        else
+        {
+            if (BouncerDisplayName(session.State.BouncerName) is { } bouncerName)
+            {
+                fields.Add(new PresentationField("Bouncer", bouncerName));
+            }
+            fields.Add(new PresentationField(
+                "Bouncer endpoint",
+                $"{session.Options.Endpoint.Host}:{session.Options.Endpoint.Port}"));
+            fields.Add(new PresentationField(
+                "Bouncer TLS",
+                session.State.ClientTransportTls ? "enabled" : "disabled"));
+        }
+
+        fields.Add(new PresentationField("Nickname", session.CurrentNickname));
         if (!session.Options.Identity.Username.Equals(
             _preferences.Username,
             StringComparison.Ordinal))
@@ -40,35 +62,22 @@ internal sealed partial class ClientApplication
                 "Username",
                 session.Options.Identity.Username));
         }
-        if (session.State.BouncerName is null)
+        if (session.State.AccountName is not null)
         {
-            fields.Insert(4, new PresentationField("Server endpoint", session.Options.Endpoint.ToString()));
+            fields.Add(new PresentationField("Account", session.State.AccountName));
         }
-        else
+
+        if (profile is not null)
         {
-            fields.Insert(4, new PresentationField(
-                "Bouncer endpoint",
-                $"{session.Options.Endpoint.Host}:{session.Options.Endpoint.Port}"));
-            fields.Insert(5, new PresentationField(
-                "Bouncer TLS",
-                session.State.ClientTransportTls ? "enabled" : "disabled"));
-            if (BouncerDisplayName(session.State.BouncerName) is { } bouncerName)
-            {
-                fields.Insert(6, new PresentationField("Connected through", bouncerName));
-            }
-        }
-        if (profile is null)
-        {
-            fields.Add(new PresentationField("Profile", "none"));
-        }
-        else
-        {
-            fields.Add(new PresentationField("Profile", profile.DisplayName));
-            fields.Add(new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)));
             var userModes = profile.UserModesOverride ?? _preferences.UserModes;
             fields.Add(new PresentationField(
                 "User modes",
                 userModes.Length == 0 ? "not set" : userModes));
+            fields.Add(new PresentationField(
+                "Autojoin",
+                profile.AutojoinChannels.Count == 0
+                    ? "none"
+                    : string.Join(", ", profile.AutojoinChannels)));
             fields.Add(new PresentationField(
                 "Saved password",
                 _networkCredentials.HasServerPassword(profile.Id) ? "yes" : "no"));
@@ -77,12 +86,11 @@ internal sealed partial class ClientApplication
                 : profile.Sasl.Mechanism == SaslMechanisms.Plain
                     ? $"PLAIN as {profile.Sasl.Username} ({(profile.Sasl.Required ? "required" : "optional")})"
                     : $"EXTERNAL ({(profile.Sasl.Required ? "required" : "optional")})"));
-            fields.Add(new PresentationField("Reconnect limit", profile.Reconnect.MaximumAttempts.ToString(CultureInfo.InvariantCulture)));
+            fields.Add(new PresentationField(
+                "Reconnect limit",
+                profile.Reconnect.MaximumAttempts.ToString(CultureInfo.InvariantCulture)));
         }
-        if (session.State.AccountName is not null)
-        {
-            fields.Add(new PresentationField("Authenticated account", session.State.AccountName));
-        }
+
         return CommandResult.Success(new PresentationBlock("Network Status", fields));
     }
 
