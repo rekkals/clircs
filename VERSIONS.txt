@@ -1,6 +1,44 @@
 clircs Version History
 
-This records progress through the early development builds. It's grouped by milestone. Sort of.
+v0.9.1
+
+- Made window numbers contiguous and grouped by connection, closing gaps and keeping newly opened channels with their network.
+- Separated Network and Profile in the Active Windows list and simplified its Window column.
+- Added an optional connection lag meter with fixed-width values and warning colors.
+- Added status-bar settings for the lag meter, TLS indicators, bouncer name, channel modes, user modes, and member totals.
+- Limited Activity to half the status bar and added a count of additional active windows when the list does not fit.
+- Removed the +Y member count from the channel status bar while retaining support for that mode elsewhere.
+- Matched the default topic-bar colors to the status bar.
+- Added /set startup on|off to control the automatic startup presentation at launch and on new connections.
+- Added date separators for displayed history dates and live midnight changes, while suppressing separators triggered by server greetings.
+- Added /uptime for local clircs runtime information and /uptime say to send it to the active conversation.
+- Added a version-aware default quit message that can be restored with /set quitmsg default.
+- Made /close --force use the configured quit message when closing a network connection.
+- Rounded reconnect delay messages to whole seconds.
+- Added logs to user-data backups.
+- Added /backup restore with confirmation, complete data replacement, and recovery handling.
+- Added encrypted saved server/bouncer passwords to network profiles.
+- Added optional automatic acceptance of requested XDCC transfers, with commands to inspect and cancel pending requests.
+- Added a separate raw script permission for /raw and /quote.
+- Added script APIs for finding or creating windows and writing local output with IRC formatting or theme colors.
+- Added input handlers for script-owned windows and text-mode script command arguments.
+- Added a single permission-approval prompt when loading a script, with remembered approval and a new prompt for additional requested permissions.
+- Removed the separate irc script permission for normal allowlisted IRC commands.
+- Replaced /script list output with a compact table and made /script alone display usage.
+- Integrated script command help and subtopics with /help.
+- Added separate server-notice routing through snotice.output and standardized output-setting terminology on window.
+- Renamed the caller-ID output setting to callerid.output.
+- Made /set arrange settings into as many columns as the terminal width allows.
+- Fixed info-box paging to preserve the original rows instead of repeating headings or dropping fields.
+- Simplified manual /names output while retaining member totals for the automatic join list.
+- Made failed WHOWAS lookups return a single readable line instead of a numeric and an empty info box.
+- Corrected /help set validation for output and hostmask setting names.
+- Changed wording and order of Network Status information.
+- Fixed status bar flicker on Activity updates.
+- Added standalone 301 handling for away replies outside of WHOIS.
+- Temporarily removed official ZNC support. This follows unresolved ambiguity around server-time tags on the enabling CAP ACK. /reconnect tolerate remains available.
+
+(Earlier version history records progress through development builds and is grouped by milestone. Sort of.)
 
 v0.9.0
 

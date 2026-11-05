@@ -4,7 +4,7 @@ Hey! This is the (much) longer reference. If all you want to do is get shit runn
 
 ## Installation
 
-clircs runs on 64-bit Windows 10 and 11. The v0.9.0 packaged release comes as a ZIP in two versions: one with .NET 10 included and one that uses the .NET 10 Runtime already installed on your computer. If you're building clircs from source, you'll need the SDK instead.
+clircs runs on 64-bit Windows 10 and 11. The v0.9.1 packaged release comes as a ZIP in two versions: one with .NET 10 included and one that uses the .NET 10 Runtime already installed on your computer. If you're building clircs from source, you'll need the SDK instead.
 
 ### Get the Precompiled Package
 
@@ -17,7 +17,7 @@ Extract all of the ZIP's contents wherever you want and run `clircs.exe`.
 
 That's it.
 
-There is no installer for v0.9.0. Extracting the ZIP **is** the installation.
+There is no installer for v0.9.1. Extracting the ZIP **is** the installation.
 
 Except for the part about Windows ShitScreen potentially whining about it being an unknown publisher. If it says that, click More Info, then Run Anyway. Also, it may refuse to run it at all. If it does, do not, under any circumstances, disable SmartScreen system-wide on your machine. Just build it from source ... and then hope Windows will let you run **that**.
 
@@ -25,7 +25,7 @@ Except for the part about Windows ShitScreen potentially whining about it being 
 
 Get the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) first. You can't just install the Runtime.
 
-Go to the [0.9.0 release page](https://github.com/rekkals/clircs/releases/tag/v0.9.0) and download **Source code (zip)**. Extract that, get the folder with `clircs.sln` open in PowerShell and run:
+Go to the [0.9.1 release page](https://github.com/rekkals/clircs/releases/tag/v0.9.1) and download **Source code (zip)**. Extract that, get the folder with `clircs.sln` open in PowerShell and run:
 
 ```
 dotnet build clircs.sln -c Release
