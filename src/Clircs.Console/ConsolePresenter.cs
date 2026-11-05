@@ -160,7 +160,10 @@ internal sealed class ConsolePresenter
                 (_readingInput && !_specialInputActive && !string.Equals(_prompt, model.Prompt, StringComparison.Ordinal));
             if (!changed) return false;
 
-            if (_eventBatchDepth == 0 && _chromeVisible && HasInteractiveConsole) ClearInputUnsafe();
+            if (!_fullScreen && _eventBatchDepth == 0 && _chromeVisible && HasInteractiveConsole)
+            {
+                ClearInputUnsafe();
+            }
             ApplyChromeUnsafe(model);
             var layoutChanged = previousHeaderVisible != (_topicBar is not null);
             if (_eventBatchDepth > 0)
@@ -1835,11 +1838,53 @@ internal sealed class ConsolePresenter
 
     private void WriteStatusBarUnsafe(int width)
     {
-        EraseCurrentRowUnsafe(width);
-        SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
+        if (_fullScreen)
+        {
+            Console.Write(FormatStatusBarRow(_statusBar, _theme, width));
+            return;
+        }
 
-        var activityLayout = CalculateStatusActivityLayout(_statusBar.Activity, width);
-        var fullContext = string.Join(_theme.StatusSeparator, _statusBar.Fields);
+        EraseCurrentRowUnsafe(width);
+        foreach (var segment in BuildStatusBarSegments(_statusBar, _theme, width))
+        {
+            SetConsoleColorsUnsafe(segment.Foreground, _theme.StatusBackground);
+            Console.Write(segment.Text);
+        }
+        ResetConsoleColorsUnsafe();
+    }
+
+    internal static string FormatStatusBarRow(
+        StatusBarModel status,
+        TerminalTheme theme,
+        int width)
+    {
+        var output = new StringBuilder();
+        ConsoleColor? foreground = null;
+        foreach (var segment in BuildStatusBarSegments(status, theme, width))
+        {
+            if (foreground != segment.Foreground)
+            {
+                output.Append("\u001b[")
+                    .Append(AnsiForeground(segment.Foreground))
+                    .Append(';')
+                    .Append(AnsiBackground(theme.StatusBackground))
+                    .Append('m');
+                foreground = segment.Foreground;
+            }
+            output.Append(segment.Text);
+        }
+        output.Append("\u001b[0m");
+        return output.ToString();
+    }
+
+    private static IReadOnlyList<(string Text, ConsoleColor Foreground)> BuildStatusBarSegments(
+        StatusBarModel status,
+        TerminalTheme theme,
+        int width)
+    {
+        var segments = new List<(string Text, ConsoleColor Foreground)>();
+        var activityLayout = CalculateStatusActivityLayout(status.Activity, width);
+        var fullContext = string.Join(theme.StatusSeparator, status.Fields);
         var maximumContext = Math.Max(0, width - 1) - activityLayout.Width;
         var context = fullContext.Length <= maximumContext
             ? fullContext
@@ -1847,50 +1892,50 @@ internal sealed class ConsolePresenter
         var paddedContext = context.PadRight(maximumContext);
 
         if (ClipStatusWarning(
-                _statusBar.Warning, fullContext.Length, maximumContext) is { } warning)
+                status.Warning, fullContext.Length, maximumContext) is { } warning)
         {
-            Console.Write(paddedContext[..warning.Start]);
-            SetConsoleColorsUnsafe(
-                ReadableStatusWarningColor(_theme, warning),
-                _theme.StatusBackground);
-            Console.Write(paddedContext.Substring(warning.Start, warning.Length));
-            SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
-            Console.Write(paddedContext[(warning.Start + warning.Length)..]);
+            segments.Add((paddedContext[..warning.Start], theme.StatusForeground));
+            segments.Add((
+                paddedContext.Substring(warning.Start, warning.Length),
+                ReadableStatusWarningColor(theme, warning)));
+            segments.Add((
+                paddedContext[(warning.Start + warning.Length)..],
+                theme.StatusForeground));
         }
         else
         {
-            Console.Write(paddedContext);
+            segments.Add((paddedContext, theme.StatusForeground));
         }
 
         if (activityLayout.Width > 0)
         {
-            Console.Write(" Act: ");
+            segments.Add((" Act: ", theme.StatusForeground));
             for (var index = 0; index < activityLayout.VisibleCount; index++)
             {
                 if (index > 0)
                 {
-                    Console.Write(',');
+                    segments.Add((",", theme.StatusForeground));
                 }
 
-                var activityColor = ReadableActivityColor(
-                    _theme, _statusBar.Activity[index].Kind);
-                SetConsoleColorsUnsafe(activityColor, _theme.StatusBackground);
-                Console.Write(_statusBar.Activity[index].Number);
-                SetConsoleColorsUnsafe(_theme.StatusForeground, _theme.StatusBackground);
+                segments.Add((
+                    status.Activity[index].Number.ToString(),
+                    ReadableActivityColor(theme, status.Activity[index].Kind)));
             }
 
             if (activityLayout.HiddenCount > 0)
             {
                 if (activityLayout.VisibleCount > 0)
                 {
-                    Console.Write(',');
+                    segments.Add((",", theme.StatusForeground));
                 }
 
-                Console.Write($"+{activityLayout.HiddenCount}");
+                segments.Add((
+                    $"+{activityLayout.HiddenCount}",
+                    theme.StatusForeground));
             }
         }
 
-        ResetConsoleColorsUnsafe();
+        return segments;
     }
 
     internal static (int VisibleCount, int HiddenCount, int Width) CalculateStatusActivityLayout(

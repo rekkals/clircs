@@ -34,6 +34,8 @@ internal static class ThemeTests
         suite.Add("status activity retains whole entries and counts omitted windows", StatusActivityKeepsWholeEntries);
         suite.Add("status activity respects its half-row budget at narrow widths", StatusActivityStaysWithinBudget);
         suite.Add("bounded status activity preserves lag warning clipping", StatusActivityPreservesLagWarningClipping);
+        suite.Add("assembled status rows preserve warning and activity colors", StatusBarRowPreservesColors);
+        suite.Add("short status rows fill the usable width", ShortStatusBarRowFillsUsableWidth);
         suite.Add("LINKS output defaults to the status window", LinksDefaultsToStatus);
         suite.Add("LIST output defaults to a dedicated result window", ListDefaultsToDedicated);
         suite.Add("DNS output defaults to active and formats addresses and nicknames", DnsDefaultsAndFormatting);
@@ -1655,6 +1657,45 @@ internal static class ThemeTests
                 Assert.Equal(warning.Start, clipped.Start);
             }
         }
+    }
+
+    private static void StatusBarRowPreservesColors()
+    {
+        var theme = TerminalTheme.BuiltIns["clircs"] with
+        {
+            StatusForeground = ConsoleColor.Black,
+            StatusBackground = ConsoleColor.DarkCyan,
+            Message = ConsoleColor.Gray,
+            Warning = ConsoleColor.Yellow,
+            Highlight = ConsoleColor.Green
+        };
+        const string context = "EFNet[Lag:1.2]";
+        var status = new StatusBarModel(
+            [context],
+            [new(2, SessionEventKind.Message), new(3, SessionEventKind.Highlight)],
+            new StatusWarning(context.IndexOf("1.2", StringComparison.Ordinal), 3));
+
+        var row = ConsolePresenter.FormatStatusBarRow(status, theme, 60);
+        var expected =
+            "\u001b[30;46mEFNet[Lag:\u001b[93;46m1.2" +
+            "\u001b[30;46m]" + new string(' ', 36) +
+            " Act: \u001b[37;46m2\u001b[30;46m,\u001b[92;46m3\u001b[0m";
+        Assert.Equal(expected, row);
+    }
+
+    private static void ShortStatusBarRowFillsUsableWidth()
+    {
+        var theme = TerminalTheme.BuiltIns["clircs"] with
+        {
+            StatusForeground = ConsoleColor.Black,
+            StatusBackground = ConsoleColor.DarkCyan
+        };
+        var status = new StatusBarModel(["offline"], []);
+        var row = ConsolePresenter.FormatStatusBarRow(status, theme, 60);
+
+        Assert.Equal(
+            "\u001b[30;46m" + "offline".PadRight(59) + "\u001b[0m",
+            row);
     }
 
     private static void LinksDefaultsToStatus()
