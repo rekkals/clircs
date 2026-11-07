@@ -1802,10 +1802,19 @@ internal sealed class ConsolePresenter
         var top = Console.CursorTop;
         var barTop = Math.Clamp(Console.WindowTop, 0, Console.BufferHeight - 1);
         Console.SetCursorPosition(0, barTop);
-        EraseCurrentRowUnsafe(width);
+        if (_topicBar is null || !_fullScreen)
+        {
+            EraseCurrentRowUnsafe(width);
+        }
         if (_topicBar is null)
         {
             _topicBarWasVisible = false;
+        }
+        else if (_fullScreen)
+        {
+            Console.Write(FormatTopicBarRow(
+                _topicBar, _bufferHeader.FormattedPrimary, _theme, width));
+            _topicBarWasVisible = true;
         }
         else
         {
@@ -1834,6 +1843,117 @@ internal sealed class ConsolePresenter
         }
         var restoreTop = _topicBar is not null && top == barTop && barTop + 1 < Console.BufferHeight ? barTop + 1 : top;
         Console.SetCursorPosition(Math.Min(left, width - 1), Math.Min(restoreTop, Console.BufferHeight - 1));
+    }
+
+    internal static string FormatTopicBarRow(
+        string topic,
+        IrcFormattedText? formatted,
+        TerminalTheme theme,
+        int width)
+    {
+        width = Math.Max(2, width);
+        var text = topic.Length < width
+            ? topic
+            : width > 4 ? topic[..(width - 4)] + "..." : string.Empty;
+        var output = new StringBuilder();
+        var styledLength = 0;
+
+        if (formatted is not null)
+        {
+            var comparable = Math.Min(text.Length, formatted.PlainText.Length);
+            while (styledLength < comparable && text[styledLength] == formatted.PlainText[styledLength])
+            {
+                styledLength++;
+            }
+
+            AppendIrcFormattedRange(
+                output,
+                formatted,
+                0,
+                styledLength,
+                theme,
+                theme.TopicForeground,
+                theme.TopicBackground);
+        }
+
+        output.Append(
+            $"\u001b[{AnsiForeground(theme.TopicForeground)};{AnsiBackground(theme.TopicBackground)}m");
+        output.Append(text[styledLength..].PadRight(Math.Max(0, width - 1 - styledLength)));
+        output.Append("\u001b[0m");
+        return output.ToString();
+    }
+
+    private static void AppendIrcFormattedRange(
+        StringBuilder output,
+        IrcFormattedText formatted,
+        int start,
+        int length,
+        TerminalTheme theme,
+        ConsoleColor defaultColor,
+        ConsoleColor defaultBackground)
+    {
+        if (length <= 0) return;
+
+        var end = start + length;
+        var runStart = 0;
+        foreach (var run in formatted.Runs)
+        {
+            var runEnd = runStart + run.Text.Length;
+            var sliceStart = Math.Max(start, runStart);
+            var sliceEnd = Math.Min(end, runEnd);
+            if (sliceEnd > sliceStart)
+            {
+                var foreground = FormattedForeground(theme, run.Style, defaultColor);
+                var background = IrcColor(run.Style.Background, defaultBackground);
+                if (run.Style.Reverse) (foreground, background) = (background, foreground);
+                if (run.Style.Bold) foreground = Brighten(foreground);
+
+                output.Append($"\u001b[{AnsiForeground(foreground)};{AnsiBackground(background)}m");
+                if (run.Style.Italic) output.Append("\u001b[3m");
+                if (run.Style.Underline) output.Append("\u001b[4m");
+
+                AppendHyperlinkedRange(
+                    output, formatted.PlainText, sliceStart, sliceEnd - sliceStart);
+                output.Append("\u001b[0m");
+            }
+            if (runEnd >= end) break;
+            runStart = runEnd;
+        }
+    }
+
+    private static void AppendHyperlinkedRange(
+        StringBuilder output,
+        string text,
+        int start,
+        int length)
+    {
+        if (length <= 0) return;
+
+        var end = Math.Min(text.Length, start + length);
+        var cursor = start;
+        foreach (var link in TerminalHyperlinkDetector.Find(text))
+        {
+            var linkStart = Math.Max(start, link.Start);
+            var linkEnd = Math.Min(end, link.Start + link.Length);
+            if (linkEnd <= linkStart) continue;
+
+            if (linkStart > cursor)
+            {
+                output.Append(text, cursor, linkStart - cursor);
+            }
+
+            output.Append("\u001b]8;;")
+                .Append(link.Target)
+                .Append("\u001b\\")
+                .Append(text, linkStart, linkEnd - linkStart)
+                .Append("\u001b]8;;\u001b\\");
+            cursor = linkEnd;
+        }
+
+        if (cursor < end)
+        {
+            output.Append(text, cursor, end - cursor);
+        }
     }
 
     private void WriteStatusBarUnsafe(int width)
@@ -2183,6 +2303,16 @@ internal sealed class ConsolePresenter
         ConsoleColor defaultBackground = ConsoleColor.Black)
     {
         if (length <= 0) return;
+
+        if (_fullScreen)
+        {
+            var output = new StringBuilder();
+            AppendIrcFormattedRange(
+                output, formatted, start, length, _theme, defaultColor, defaultBackground);
+            Console.Write(output.ToString());
+            return;
+        }
+
         var end = start + length;
         var runStart = 0;
         foreach (var run in formatted.Runs)
@@ -2197,11 +2327,6 @@ internal sealed class ConsolePresenter
                 if (run.Style.Reverse) (foreground, background) = (background, foreground);
                 if (run.Style.Bold) foreground = Brighten(foreground);
                 SetConsoleColorsUnsafe(foreground, background);
-                if (_fullScreen)
-                {
-                    if (run.Style.Italic) Console.Write("\u001b[3m");
-                    if (run.Style.Underline) Console.Write("\u001b[4m");
-                }
                 WriteHyperlinkedRangeUnsafe(formatted.PlainText, sliceStart, sliceEnd - sliceStart);
                 ResetConsoleColorsUnsafe();
             }
@@ -2323,20 +2448,9 @@ internal sealed class ConsolePresenter
             return;
         }
 
-        var end = Math.Min(text.Length, start + length);
-        var cursor = start;
-        foreach (var link in TerminalHyperlinkDetector.Find(text))
-        {
-            var linkStart = Math.Max(start, link.Start);
-            var linkEnd = Math.Min(end, link.Start + link.Length);
-            if (linkEnd <= linkStart) continue;
-            if (linkStart > cursor) Console.Write(text.AsSpan(cursor, linkStart - cursor));
-            Console.Write($"\u001b]8;;{link.Target}\u001b\\");
-            Console.Write(text.AsSpan(linkStart, linkEnd - linkStart));
-            Console.Write("\u001b]8;;\u001b\\");
-            cursor = linkEnd;
-        }
-        if (cursor < end) Console.Write(text.AsSpan(cursor, end - cursor));
+        var output = new StringBuilder();
+        AppendHyperlinkedRange(output, text, start, length);
+        Console.Write(output.ToString());
     }
 
     private void BeginOutputUnsafe()

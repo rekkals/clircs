@@ -36,6 +36,8 @@ internal static class ThemeTests
         suite.Add("bounded status activity preserves lag warning clipping", StatusActivityPreservesLagWarningClipping);
         suite.Add("assembled status rows preserve warning and activity colors", StatusBarRowPreservesColors);
         suite.Add("short status rows fill the usable width", ShortStatusBarRowFillsUsableWidth);
+        suite.Add("topic rows pad and truncate to the usable width", TopicBarRowsFillUsableWidth);
+        suite.Add("clipped topic links preserve formatting and their full target", TopicBarLinksPreserveFormatting);
         suite.Add("LINKS output defaults to the status window", LinksDefaultsToStatus);
         suite.Add("LIST output defaults to a dedicated result window", ListDefaultsToDedicated);
         suite.Add("DNS output defaults to active and formats addresses and nicknames", DnsDefaultsAndFormatting);
@@ -1696,6 +1698,41 @@ internal static class ThemeTests
         Assert.Equal(
             "\u001b[30;46m" + "offline".PadRight(59) + "\u001b[0m",
             row);
+    }
+
+    private static void TopicBarRowsFillUsableWidth()
+    {
+        var theme = TerminalTheme.BuiltIns["clircs"] with
+        {
+            TopicForeground = ConsoleColor.Black,
+            TopicBackground = ConsoleColor.DarkCyan
+        };
+
+        Assert.Equal(
+            "\u001b[30;46mHi" + new string(' ', 7) + "\u001b[0m",
+            ConsolePresenter.FormatTopicBarRow("Hi", null, theme, 10));
+        Assert.Equal(
+            "\u001b[30;46mABCDEF...\u001b[0m",
+            ConsolePresenter.FormatTopicBarRow("ABCDEFGHIJK", null, theme, 10));
+    }
+
+    private static void TopicBarLinksPreserveFormatting()
+    {
+        var theme = TerminalTheme.BuiltIns["clircs"] with
+        {
+            TopicForeground = ConsoleColor.Black,
+            TopicBackground = ConsoleColor.DarkCyan
+        };
+        const string url = "https://example.test/path";
+        var formatted = IrcTextFormatting.Parse("\u000304\u001f" + url);
+        var row = ConsolePresenter.FormatTopicBarRow(
+            formatted.PlainText, formatted, theme, 16);
+        var expected =
+            "\u001b[91;46m\u001b[4m" +
+            "\u001b]8;;" + url + "\u001b\\https://exam\u001b]8;;\u001b\\" +
+            "\u001b[0m\u001b[30;46m...\u001b[0m";
+
+        Assert.Equal(expected, row);
     }
 
     private static void LinksDefaultsToStatus()
