@@ -193,33 +193,43 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                     "Network Profiles",
                     Table: new PresentationTable(
-                        ["Name", "No.", "Server", "Nick", "SASL"],
+                        ["Name", "No.", "Server", "SASL"],
                         profileRows))));
-            case "use":
-                if (input.Arguments.Count != 2)
-                {
-                    return ValueTask.FromResult(CommandResult.Failure("Usage: /network use <name-or-number>"));
-                }
-
-                var selected = FindSession(input.Arguments[1], sessions);
-                return ValueTask.FromResult(selected is null
-                    ? CommandResult.Failure($"No live network matches '{input.Arguments[1]}'.")
-                    : SwitchTo(selected, selected.State.StatusBuffer));
             case "status":
                 if (input.Arguments.Count > 2)
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("Usage: /network status [name-or-number]"));
+                    return ValueTask.FromResult(CommandResult.Failure("Usage: /network status [name|number]"));
                 }
 
-                var statusSession = input.Arguments.Count > 1
-                    ? FindSession(input.Arguments[1], sessions)
-                    : ActiveSession();
-                if (statusSession is not null)
+                if (input.Arguments.Count == 1)
                 {
-                    return ValueTask.FromResult(SessionStatus(statusSession));
+                    var activeStatusSession = ActiveSession();
+                    return ValueTask.FromResult(activeStatusSession is null
+                        ? CommandResult.Failure("No active network session.")
+                        : SessionStatus(activeStatusSession));
                 }
 
-                var statusProfile = input.Arguments.Count > 1 ? _profileStore.Find(input.Arguments[1]) : null;
+                var statusSelector = input.Arguments[1];
+                var statusMatches = FindNetworkStatusMatches(
+                    statusSelector,
+                    sessions,
+                    session => ProfileFor(session)?.DisplayName);
+
+                if (statusMatches.Length > 1)
+                {
+                    var choices = string.Join(", ", statusMatches.Select(index =>
+                        $"{(index + 1).ToString(CultureInfo.InvariantCulture)} ({sessions[index].State.DisplayName})"));
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        $"More than one connection matches '{statusSelector}': {choices}. " +
+                        "Use /network status <number> with a connection number from /network."));
+                }
+
+                if (statusMatches.Length == 1)
+                {
+                    return ValueTask.FromResult(SessionStatus(sessions[statusMatches[0]]));
+                }
+
+                var statusProfile = _profileStore.Find(statusSelector);
                 return ValueTask.FromResult(statusProfile is null
                     ? CommandResult.Failure("No matching live network session or saved profile.")
                     : ProfileStatus(statusProfile));
@@ -311,8 +321,39 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkPassword(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network list|profiles|add|server|username|usermodes|remove|use|status|sasl|password"));
+                    "Usage: /network list|profiles|add|server|username|usermodes|remove|status|sasl|password"));
         }
+    }
+
+    internal static int[] FindNetworkStatusMatches(
+        string selector,
+        IReadOnlyList<IrcNetworkSession> sessions,
+        Func<IrcNetworkSession, string?> profileNameFor)
+    {
+        if (int.TryParse(
+                selector,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var number) &&
+            number >= 1 && number <= sessions.Count)
+        {
+            return [number - 1];
+        }
+
+        var matches = new List<int>();
+        for (var index = 0; index < sessions.Count; index++)
+        {
+            var session = sessions[index];
+            if (session.State.DisplayName.Equals(selector, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(session.Features.NetworkName, selector, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profileNameFor(session), selector, StringComparison.OrdinalIgnoreCase) ||
+                session.State.Id.ToString().StartsWith(selector, StringComparison.OrdinalIgnoreCase))
+            {
+                matches.Add(index);
+            }
+        }
+
+        return matches.ToArray();
     }
 
     private CommandResult ConfigureNetworkServer(
@@ -490,7 +531,6 @@ internal sealed partial class ClientApplication
                 profile.DisplayName,
                 profile.IsConfigured ? "1" : string.Empty,
                 servers[0],
-                profile.Identity.Nicknames[0],
                 sasl
             ]);
 
@@ -499,7 +539,6 @@ internal sealed partial class ClientApplication
                 string.Empty,
                 (index + 2).ToString(CultureInfo.InvariantCulture),
                 server,
-                string.Empty,
                 string.Empty
             ]));
         }

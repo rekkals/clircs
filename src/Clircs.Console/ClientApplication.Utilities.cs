@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using Clircs.Commands;
@@ -22,8 +21,8 @@ internal sealed partial class ClientApplication
         var fields = new List<PresentationField>
         {
             new("Network", session.Features.NetworkName ?? session.State.DisplayName),
-            new("Profile", profile?.DisplayName ?? "none"),
             new("Connection", ConnectionStatusLabel(session)),
+            new("Nickname", session.CurrentNickname),
             new("Server", session.State.ServerName ?? session.Options.Endpoint.Host),
             new("Server TLS", upstreamTls switch
             {
@@ -53,15 +52,6 @@ internal sealed partial class ClientApplication
                 session.State.ClientTransportTls ? "enabled" : "disabled"));
         }
 
-        fields.Add(new PresentationField("Nickname", session.CurrentNickname));
-        if (!session.Options.Identity.Username.Equals(
-            _preferences.Username,
-            StringComparison.Ordinal))
-        {
-            fields.Add(new PresentationField(
-                "Username",
-                session.Options.Identity.Username));
-        }
         if (session.State.AccountName is not null)
         {
             fields.Add(new PresentationField("Account", session.State.AccountName));
@@ -69,6 +59,14 @@ internal sealed partial class ClientApplication
 
         if (profile is not null)
         {
+            fields.Add(PresentationField.Section("Profile Settings"));
+            fields.Add(new PresentationField("Name", profile.DisplayName));
+
+            if (profile.UsernameOverride is { } usernameOverride)
+            {
+                fields.Add(new PresentationField("Username", usernameOverride));
+            }
+
             var userModes = profile.UserModesOverride ?? _preferences.UserModes;
             fields.Add(new PresentationField(
                 "User modes",
@@ -86,9 +84,6 @@ internal sealed partial class ClientApplication
                 : profile.Sasl.Mechanism == SaslMechanisms.Plain
                     ? $"PLAIN as {profile.Sasl.Username} ({(profile.Sasl.Required ? "required" : "optional")})"
                     : $"EXTERNAL ({(profile.Sasl.Required ? "required" : "optional")})"));
-            fields.Add(new PresentationField(
-                "Reconnect limit",
-                profile.Reconnect.MaximumAttempts.ToString(CultureInfo.InvariantCulture)));
         }
 
         return CommandResult.Success(new PresentationBlock("Network Status", fields));
@@ -98,12 +93,10 @@ internal sealed partial class ClientApplication
     {
         var fields = new List<PresentationField>
         {
-            new("Servers", profile.IsConfigured ? string.Join(", ", profile.Endpoints) : "[unconfigured]"),
-            new("Nicknames", string.Join(", ", profile.Identity.Nicknames))
+            new("Servers", profile.IsConfigured ? string.Join(", ", profile.Endpoints) : "[unconfigured]")
         };
 
-        if (profile.UsernameOverride is { } usernameOverride &&
-            !usernameOverride.Equals(_preferences.Username, StringComparison.Ordinal))
+        if (profile.UsernameOverride is { } usernameOverride)
         {
             fields.Add(new PresentationField("Username", usernameOverride));
         }
@@ -124,8 +117,7 @@ internal sealed partial class ClientApplication
                     ? $"PLAIN as {profile.Sasl.Username} ({(profile.Sasl.Required ? "required" : "optional")}; " +
                       $"password {(_networkCredentials.HasSaslSecret(profile.Id) ? "saved" : "missing")})"
                     : $"EXTERNAL ({(profile.Sasl.Required ? "required" : "optional")}; certificate password " +
-                      $"{(_networkCredentials.HasSaslSecret(profile.Id) ? "saved" : "missing")})"),
-            new PresentationField("Reconnect limit", profile.Reconnect.MaximumAttempts.ToString(CultureInfo.InvariantCulture))
+                      $"{(_networkCredentials.HasSaslSecret(profile.Id) ? "saved" : "missing")})")
         ]);
 
         return CommandResult.Success(new PresentationBlock(

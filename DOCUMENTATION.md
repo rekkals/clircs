@@ -67,7 +67,17 @@ Automatic reconnect (after unintentional disconnection) can be enabled via the `
 
 ### Network Profiles
 
-Profiles can be configured for multiple networks, each with their own TLS and SASL settings, plus multiple server endpoints per profile.
+Profiles store network-specific settings, including server endpoints, TLS, SASL, username overrides, user modes, and autojoin.
+
+Use `/network` to list connections and their connection numbers. Inspect connection details with:
+
+```
+/network status [name|number]
+```
+
+With no argument, this shows the active connection. Names can match an advertised network name, a profile name, or a connection name. If a name matches multiple connections, use a connection number from `/network`.
+
+Network Status shows connection details first, followed by Profile Settings when a profile is attached. A saved profile with no matching connection can also be inspected by name.
 
 #### Adding and Configuring Profiles
 
@@ -83,7 +93,7 @@ You can add specific servers to network profiles using:
 /network server add <profile> <host> [port] [--tls]
 ```
 
-Check current profile settings with `/network profiles`, and remove individual servers with:
+List saved profiles and their server numbers with `/network profiles`. Remove individual servers with:
 
 ```
 /network server remove <profile> <number>

@@ -32,7 +32,11 @@ internal static class PresentationTests
     private static void SanitizationRetainsLayout()
     {
         var block = new PresentationBlock(
-            "Title\u001b[31m", [new PresentationField("Label", "Value")],
+            "Title\u001b[31m",
+            [
+                new PresentationField("Label", "Value"),
+                PresentationField.Section("Profile\u001b[31m Settings")
+            ],
             Grid: ["one"], BracketGridCells: true, GridColumns: 3, GridColumnWidth: 12,
             FieldLabelWidth: 19, AutoFieldColumns: true);
         var sanitized = SessionEventBuilder.SanitizePresentation(block)!;
@@ -42,6 +46,8 @@ internal static class PresentationTests
         Assert.Equal(12, sanitized.GridColumnWidth!.Value);
         Assert.Equal(19, sanitized.FieldLabelWidth!.Value);
         Assert.True(sanitized.AutoFieldColumns);
+        Assert.True(sanitized.Fields![1].IsSectionHeading);
+        Assert.Equal("Profile[31m Settings", sanitized.Fields![1].Label);
     }
 
     private static void ExtendedColorsAreVisible()

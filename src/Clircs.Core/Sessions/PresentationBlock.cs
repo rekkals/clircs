@@ -14,6 +14,11 @@ public sealed record PresentationField
     public string Value { get; init; }
 
     public IrcFormattedText FormattedValue { get; init; }
+
+    public bool IsSectionHeading { get; init; }
+
+    public static PresentationField Section(string title) =>
+        new(title, string.Empty) { IsSectionHeading = true };
 }
 
 public sealed record PresentationTable

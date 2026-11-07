@@ -37,7 +37,10 @@ internal sealed class SessionEventBuilder(NetworkSessionState state)
             Fields = presentation.Fields?.Select(field => new PresentationField(
                 TerminalTextSanitizer.Sanitize(field.Label),
                 TerminalTextSanitizer.Sanitize(field.Value),
-                field.FormattedValue)).ToArray(),
+                field.FormattedValue)
+            {
+                IsSectionHeading = field.IsSectionHeading
+            }).ToArray(),
             Table = presentation.Table is null ? null : new PresentationTable(
                 presentation.Table.Columns.Select(TerminalTextSanitizer.Sanitize).ToArray(),
                 presentation.Table.Rows.Select(row => (IReadOnlyList<string>)row

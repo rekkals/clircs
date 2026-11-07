@@ -30,6 +30,8 @@ internal static class ApplicationOrchestrationTests
         suite.Add("live session registry owns reconnect lifecycle", LiveSessionRegistryOwnsReconnectAsync);
         suite.Add("local status window retains history without consuming a number", LocalStatusWindowRetainsHistoryWithoutNumber);
         suite.Add("window context resolves active and explicit buffers", WindowContextResolvesBuffersAsync);
+        suite.Add("network status matches connection, network, and profile names", NetworkStatusMatchesNamesAsync);
+        suite.Add("network status retains ambiguous matches and supports connection numbers", NetworkStatusKeepsAmbiguousMatchesAsync);
         suite.Add("client preferences own application-wide defaults", ClientPreferencesOwnDefaults);
         suite.Add("CAP failures distinguish registration from live-session errors", CapabilityFailuresHaveDistinctMessages);
         suite.Add("services notices identify their bracketed channel", ServicesNoticesIdentifyChannel);
@@ -386,6 +388,49 @@ internal static class ApplicationOrchestrationTests
         var online = coordinator.OnlineSnapshot(StringComparer.OrdinalIgnoreCase);
         Assert.True(online.Contains("Alice"));
         Assert.Equal(0, changes.Offline.Length);
+    }
+
+    private static async ValueTask NetworkStatusMatchesNamesAsync()
+    {
+        var options = new IrcConnectionOptions(
+            new IrcEndpoint("irc.example.test", 6697, true),
+            new IrcIdentity(["test"], "test", "Test User"));
+        await using var session = new IrcNetworkSession(
+            "Temporary", options, new TcpIrcTransportFactory());
+        session.Features.ObserveNetworkName("Libera.Chat");
+        IrcNetworkSession[] sessions = [session];
+        Func<IrcNetworkSession, string?> profileNameFor = _ => "Libera";
+
+        Assert.True(ClientApplication.FindNetworkStatusMatches(
+            "LIBERA.CHAT", sessions, profileNameFor).SequenceEqual([0]));
+        Assert.True(ClientApplication.FindNetworkStatusMatches(
+            "libera", sessions, profileNameFor).SequenceEqual([0]));
+        Assert.True(ClientApplication.FindNetworkStatusMatches(
+            "temporary", sessions, profileNameFor).SequenceEqual([0]));
+        Assert.Equal(0, ClientApplication.FindNetworkStatusMatches(
+            "Missing", sessions, profileNameFor).Length);
+    }
+
+    private static async ValueTask NetworkStatusKeepsAmbiguousMatchesAsync()
+    {
+        var options = new IrcConnectionOptions(
+            new IrcEndpoint("irc.example.test", 6697, true),
+            new IrcIdentity(["test"], "test", "Test User"));
+        await using var first = new IrcNetworkSession("Direct", options, new TcpIrcTransportFactory());
+        await using var second = new IrcNetworkSession("Bouncer", options, new TcpIrcTransportFactory());
+        first.Features.ObserveNetworkName("EFnet");
+        second.Features.ObserveNetworkName("EFnet");
+        IrcNetworkSession[] sessions = [first, second];
+
+        string? ProfileName(IrcNetworkSession session) =>
+            session == first ? "EFnet" : "EFnet-Lurker";
+
+        Assert.True(ClientApplication.FindNetworkStatusMatches(
+            "efnet", sessions, ProfileName).SequenceEqual([0, 1]));
+        Assert.True(ClientApplication.FindNetworkStatusMatches(
+            "2", sessions, ProfileName).SequenceEqual([1]));
+        Assert.True(ClientApplication.FindNetworkStatusMatches(
+            "efnet-lurker", sessions, ProfileName).SequenceEqual([1]));
     }
 
     private static async ValueTask LiveSessionRegistryIsolatesMetadataAsync()

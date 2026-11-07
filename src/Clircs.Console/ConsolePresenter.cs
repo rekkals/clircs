@@ -1016,10 +1016,22 @@ internal sealed class ConsolePresenter
         }
         else if (block.Fields is { Count: > 0 })
         {
-            var labelWidth = block.FieldLabelWidth ?? block.Fields.Max(field => field.Label.Length);
+            var labelWidth = PresentationFieldLabelWidth(block);
             var fieldLeading = new string(' ', sideLength + labelWidth + 2);
             foreach (var field in block.Fields)
             {
+                if (field.IsSectionHeading)
+                {
+                    var headingLeading = new string(' ', sideLength + 1);
+                    foreach (var line in TerminalWordWrapper.Wrap(
+                        headingLeading, headingLeading, field.Label, consoleWidth))
+                    {
+                        rows += PresentationRowsForLength(
+                            sideLength + 1 + line.Text.Length, consoleWidth);
+                    }
+                    continue;
+                }
+
                 var wrapped = TerminalWordWrapper.Wrap(
                     fieldLeading, fieldLeading, field.Value, consoleWidth);
                 for (var index = 0; index < wrapped.Count; index++)
@@ -1089,11 +1101,20 @@ internal sealed class ConsolePresenter
 
     private static int EffectiveWidth(int? width) => width ?? (HasInteractiveConsole ? Math.Max(2, Console.BufferWidth) : 120);
 
+    private static int PresentationFieldLabelWidth(PresentationBlock block) =>
+        block.FieldLabelWidth ?? (block.Fields ?? [])
+            .Where(field => !field.IsSectionHeading)
+            .Select(field => field.Label.Length)
+            .DefaultIfEmpty(0)
+            .Max();
+
     internal static FieldLayout? CalculateFieldLayout(
         PresentationBlock block,
         int availableWidth)
     {
-        if (!block.AutoFieldColumns || block.Fields is not { Count: > 1 } fields)
+        if (!block.AutoFieldColumns ||
+            block.Fields is not { Count: > 1 } fields ||
+            fields.Any(field => field.IsSectionHeading))
         {
             return null;
         }
@@ -1377,9 +1398,24 @@ internal sealed class ConsolePresenter
             }
             else if (block.Fields is { Count: > 0 })
             {
-                var labelWidth = block.FieldLabelWidth ?? block.Fields.Max(field => field.Label.Length);
+                var labelWidth = PresentationFieldLabelWidth(block);
                 foreach (var field in block.Fields)
                 {
+                    if (field.IsSectionHeading)
+                    {
+                        var headingLeading = new string(
+                            ' ', prefix.Length + _theme.InfoSide.Length + 1);
+                        foreach (var line in TerminalWordWrapper.Wrap(
+                            headingLeading, headingLeading, field.Label, consoleWidth))
+                        {
+                            writer.Write(prefix, _theme.Dim);
+                            writer.Write(_theme.InfoSide, _theme.Label);
+                            writer.Write(" ", _theme.Label);
+                            writer.Write(line.Text, _theme.Accent);
+                            writer.EndLine();
+                        }
+                        continue;
+                    }
                     var leading = new string(' ', prefix.Length + _theme.InfoSide.Length + labelWidth + 2);
                     var lines = TerminalWordWrapper.Wrap(leading, leading, field.Value, consoleWidth);
                     var formattedOffset = 0;

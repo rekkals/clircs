@@ -202,6 +202,7 @@ internal sealed partial class ClientApplication
         "network" =>
         [
             new("Profiles", "/network profiles"),
+            new("Status", "/network status [name|number]"),
             new("Create profile", "/network add <name> <host> [port] [--tls]"),
             new("Add server", "/network server add <profile> <host> [port] [--tls]"),
             new("Remove server", "/network server remove <profile> <number>"),
@@ -216,8 +217,7 @@ internal sealed partial class ClientApplication
             new("SASL status", "/network sasl <profile>"),
             new("Enable PLAIN", "/network sasl <profile> [plain] <account> [required|optional]"),
             new("Enable EXTERNAL", "/network sasl <profile> external <certificate.pfx> [required|optional]"),
-            new("Disable SASL", "/network sasl <profile> off"),
-            new("Security", "SASL requires TLS; passwords are encrypted with Windows DPAPI")
+            new("Disable SASL", "/network sasl <profile> off")
         ],
         "ignore" =>
         [

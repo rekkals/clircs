@@ -2197,7 +2197,17 @@ internal static class ThemeTests
                     new PresentationField("Action", "ignore")
                 ],
                 Table: table,
-                Summary: "End of results.")
+                Summary: "End of results."),
+            new("Network Status",
+                Fields:
+                [
+                    new PresentationField("Network", "EFnet"),
+                    new PresentationField("Nickname", "slakker"),
+                    PresentationField.Section("Profile Settings"),
+                    new PresentationField("Name", "EFnet"),
+                    new PresentationField("Autojoin", "#one, #two")
+                ],
+                AutoFieldColumns: true)
         ];
 
         blocks = [.. blocks, blocks[0] with { AutoFieldColumns = true }];
@@ -2212,6 +2222,14 @@ internal static class ThemeTests
                 DateTimeOffset.Now,
                 Presentation: block);
             var originalRows = CaptureRows(() => presenter.Event(sessionEvent, "status"));
+
+            if (block.Title == "Network Status")
+            {
+                Assert.True(originalRows.Any(row =>
+                    row.Contains("Network   EFnet", StringComparison.Ordinal)));
+                Assert.True(originalRows.Any(row =>
+                    row.EndsWith("Profile Settings", StringComparison.Ordinal)));
+            }
 
             if (block.AutoFieldColumns)
             {
