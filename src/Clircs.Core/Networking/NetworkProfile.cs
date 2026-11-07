@@ -3,17 +3,12 @@ using Clircs.Identity;
 
 namespace Clircs.Networking;
 
-public sealed record ReconnectPolicy(int MaximumAttempts, TimeSpan InitialDelay, TimeSpan MaximumDelay)
+public sealed record ReconnectPolicy(TimeSpan InitialDelay, TimeSpan MaximumDelay)
 {
-    public static ReconnectPolicy Default { get; } = new(99, TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(2));
+    public static ReconnectPolicy Default { get; } = new(TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(2));
 
     public ReconnectPolicy Validate()
     {
-        if (MaximumAttempts is < 0 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(MaximumAttempts), "Reconnect attempts must be from 0 through 100.");
-        }
-
         if (InitialDelay < TimeSpan.FromSeconds(1) || InitialDelay > TimeSpan.FromMinutes(10))
         {
             throw new ArgumentOutOfRangeException(nameof(InitialDelay), "The initial reconnect delay must be from 1 second through 10 minutes.");

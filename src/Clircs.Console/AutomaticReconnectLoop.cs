@@ -14,17 +14,21 @@ internal sealed class AutomaticReconnectLoop
 {
     private static readonly double[] DelayScheduleSeconds = [2d, 5d, 10d, 20d, 30d, 60d];
     private readonly ReconnectPolicy _policy;
+    private readonly int _maximumAttempts;
     private readonly Func<TimeSpan, CancellationToken, Task> _wait;
     private readonly Func<int, CancellationToken, Task> _attempt;
     private readonly Func<double> _random;
 
     public AutomaticReconnectLoop(
         ReconnectPolicy policy,
+        int maximumAttempts,
         Func<int, CancellationToken, Task> attempt,
         Func<TimeSpan, CancellationToken, Task>? wait = null,
         Func<double>? random = null)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumAttempts);
         _policy = policy.Validate();
+        _maximumAttempts = maximumAttempts;
         _attempt = attempt;
         _wait = wait ?? Task.Delay;
         _random = random ?? Random.Shared.NextDouble;
@@ -35,20 +39,21 @@ internal sealed class AutomaticReconnectLoop
         Action<int, Exception> attemptFailed,
         CancellationToken cancellationToken)
     {
-        if (_policy.MaximumAttempts == 0)
+        if (_maximumAttempts == 0)
         {
             return AutomaticReconnectOutcome.NoAttemptsConfigured;
         }
 
-        for (var attempt = 1; attempt <= _policy.MaximumAttempts; attempt++)
+        for (var index = 0; index < _maximumAttempts; index++)
         {
+            var attempt = index + 1;
             if (cancellationToken.IsCancellationRequested)
             {
                 return AutomaticReconnectOutcome.Canceled;
             }
 
             var delay = DelayForAttempt(attempt, _policy, _random());
-            attemptScheduled(attempt, _policy.MaximumAttempts, delay);
+            attemptScheduled(attempt, _maximumAttempts, delay);
             try
             {
                 await _wait(delay, cancellationToken).ConfigureAwait(false);

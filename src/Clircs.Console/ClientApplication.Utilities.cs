@@ -468,7 +468,8 @@ internal sealed partial class ClientApplication
         _preferences.StatusBouncer,
         _preferences.StatusTotals,
         _preferences.XdccAuto,
-        _preferences.Startup);
+        _preferences.Startup,
+        _preferences.ReconnectLimit);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -506,6 +507,7 @@ internal sealed partial class ClientApplication
         _preferences.CloneDetection = settings.CloneDetection;
         _preferences.NetworkReconnect = settings.NetworkReconnect;
         _preferences.KillReconnect = settings.KillReconnect;
+        _preferences.ReconnectLimit = settings.ReconnectLimit;
         _preferences.AwayLogging = settings.AwayLogging;
         _preferences.DccAddress = settings.DccAddress;
         if (DccPortRange.TryParse(settings.DccPorts, out var ports)) _preferences.DccPorts = ports;

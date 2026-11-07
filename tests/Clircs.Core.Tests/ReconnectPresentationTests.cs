@@ -8,10 +8,27 @@ internal static class ReconnectPresentationTests
     public static void Register(TestSuite suite)
     {
         suite.Add("reconnect failures have concise descriptions", FormatsReconnectFailures);
+        suite.Add("zero reconnect limit schedules no attempts", ZeroLimitMakesNoAttemptsAsync);
         suite.Add("automatic reconnect stops immediately after success", StopsAfterSuccessAsync);
         suite.Add("automatic reconnect cancellation interrupts its delay", CancellationInterruptsDelayAsync);
         suite.Add("automatic reconnect cancellation during an attempt suppresses its failure", CancellationDuringAttemptIsQuietAsync);
         suite.Add("automatic reconnect exhausts the configured attempts", ExhaustsConfiguredAttemptsAsync);
+    }
+
+    private static async ValueTask ZeroLimitMakesNoAttemptsAsync()
+    {
+        var loop = new AutomaticReconnectLoop(
+            Clircs.Networking.ReconnectPolicy.Default,
+            0,
+            (_, _) => throw new InvalidOperationException("No reconnect attempt should run."),
+            (_, _) => throw new InvalidOperationException("No reconnect delay should run."));
+
+        var outcome = await loop.RunAsync(
+            (_, _, _) => throw new InvalidOperationException("No reconnect attempt should be scheduled."),
+            (_, _) => throw new InvalidOperationException("No reconnect failure should be reported."),
+            CancellationToken.None);
+
+        Assert.Equal(AutomaticReconnectOutcome.NoAttemptsConfigured, outcome);
     }
 
     private static async ValueTask StopsAfterSuccessAsync()
@@ -19,7 +36,8 @@ internal static class ReconnectPresentationTests
         var attempts = new List<int>();
         var scheduled = new List<int>();
         var loop = new AutomaticReconnectLoop(
-            new Clircs.Networking.ReconnectPolicy(5, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)),
+            new Clircs.Networking.ReconnectPolicy(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)),
+            int.MaxValue,
             (attempt, _) =>
             {
                 attempts.Add(attempt);
@@ -43,7 +61,8 @@ internal static class ReconnectPresentationTests
         using var cancellation = new CancellationTokenSource();
         var attempts = 0;
         var loop = new AutomaticReconnectLoop(
-            new Clircs.Networking.ReconnectPolicy(5, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)),
+            new Clircs.Networking.ReconnectPolicy(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)),
+            5,
             (_, _) =>
             {
                 attempts++;
@@ -69,9 +88,9 @@ internal static class ReconnectPresentationTests
         var failures = 0;
         var loop = new AutomaticReconnectLoop(
             new Clircs.Networking.ReconnectPolicy(
-                5,
                 TimeSpan.FromSeconds(2),
                 TimeSpan.FromSeconds(60)),
+            5,
             (_, _) =>
             {
                 attempts++;
@@ -96,7 +115,8 @@ internal static class ReconnectPresentationTests
         var attempts = new List<int>();
         var failures = new List<int>();
         var loop = new AutomaticReconnectLoop(
-            new Clircs.Networking.ReconnectPolicy(3, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)),
+            new Clircs.Networking.ReconnectPolicy(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)),
+            3,
             (attempt, _) =>
             {
                 attempts.Add(attempt);

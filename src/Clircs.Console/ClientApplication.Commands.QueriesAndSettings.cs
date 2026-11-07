@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -242,6 +243,9 @@ internal sealed partial class ClientApplication
             fields.Add(new PresentationField("network.reconnect", _preferences.NetworkReconnect ? "on" : "off"));
             fields.Add(new PresentationField("kill.reconnect", _preferences.KillReconnect ? "on" : "off"));
             fields.Add(new PresentationField(
+                "reconnect.limit",
+                _preferences.ReconnectLimit.ToString(CultureInfo.InvariantCulture)));
+            fields.Add(new PresentationField(
                 "usermodes",
                 _preferences.UserModes.Length == 0 ? "not set" : _preferences.UserModes));
             fields.AddRange(OutputRoutingCoordinator.SettingOrder
@@ -258,7 +262,8 @@ internal sealed partial class ClientApplication
         var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
 
         if (input.Arguments.Count == 1 &&
-            (setting.StartsWith("status.", StringComparison.Ordinal) || setting is "xdcc.auto" or "startup") &&
+            (setting.StartsWith("status.", StringComparison.Ordinal) ||
+             setting is "xdcc.auto" or "startup" or "reconnect.limit") &&
             CurrentSettingValue(setting) is { } currentValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
@@ -425,6 +430,15 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure("kill.reconnect must be on or off."));
                 }
                 _preferences.KillReconnect = killReconnect;
+                break;
+            case "reconnect.limit":
+                if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var reconnectLimit) ||
+                    reconnectLimit < 0)
+                {
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "reconnect.limit must be a nonnegative whole number."));
+                }
+                _preferences.ReconnectLimit = reconnectLimit;
                 break;
             case "dcc.address":
                 if (!IsValidDccAddressSetting(value))

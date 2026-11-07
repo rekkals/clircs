@@ -39,6 +39,7 @@ internal sealed class ClientPreferences
     public bool CloneDetection { get; set; } = true;
     public bool NetworkReconnect { get; set; } = true;
     public bool KillReconnect { get; set; }
+    public int ReconnectLimit { get; set; } = 100;
     public bool AwayLogging { get; set; }
     public string DccAddress { get; set; } = "auto";
     public DccPortRange DccPorts { get; set; } = DccPortRange.Random;

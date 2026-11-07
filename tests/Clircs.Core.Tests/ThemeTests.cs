@@ -26,6 +26,7 @@ internal static class ThemeTests
         suite.Add("damaged themes are isolated without losing built-ins", DamagedThemeIsIsolated);
         suite.Add("theme parsing accepts comments and rejects ambiguous duplicates", ThemeParsingIsDeterministic);
         suite.Add("appearance settings persist theme routes and hostmask visibility", AppearancePersistence);
+        suite.Add("negative saved reconnect limits are rejected", NegativeReconnectLimitIsRejected);
         suite.Add("lag meter defaults on for new and existing settings files", LagMeterDefaultsOn);
         suite.Add("date changes default on for new and existing settings files", DateChangeDefaultsOn);
         suite.Add("lag values retain three characters across thresholds and regional settings", LagValuesHaveFixedWidth);
@@ -1358,7 +1359,8 @@ internal static class ThemeTests
             StatusChannelModes: false,
             StatusUserModes: true,
             StatusTotals: false,
-            XdccAuto: true));
+            XdccAuto: true,
+            ReconnectLimit: int.MaxValue));
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
@@ -1384,11 +1386,23 @@ internal static class ThemeTests
         Assert.False(loaded.CloneDetection);
         Assert.False(loaded.NetworkReconnect);
         Assert.False(loaded.KillReconnect);
+        Assert.Equal(int.MaxValue, loaded.ReconnectLimit);
         Assert.Equal("203.0.113.42", loaded.DccAddress);
         Assert.Equal("50000-50009", loaded.DccPorts);
         Assert.Equal(Path.Combine(temporary.Path, "downloads"), loaded.DccDownloads!);
         Assert.Equal("out getting lunch", loaded.AwayMessage);
         Assert.Equal(string.Empty, loaded.UserModes);
+    }
+
+    private static void NegativeReconnectLimitIsRejected()
+    {
+        using var temporary = new TemporaryDirectory();
+        var path = Path.Combine(temporary.Path, "appearance.json");
+        File.WriteAllText(path, """{"SchemaVersion":1,"ReconnectLimit":-1}""");
+        var store = new AppearanceSettingsStore(path);
+
+        Assert.Equal(100, store.Load().ReconnectLimit);
+        Assert.True(store.LoadError is not null);
     }
 
     private static void LagMeterDefaultsOn()
@@ -1417,6 +1431,7 @@ internal static class ThemeTests
             Assert.True(settings.StatusChannelModes);
             Assert.True(settings.StatusUserModes);
             Assert.True(settings.StatusTotals);
+            Assert.Equal(100, settings.ReconnectLimit);
         }
     }
 

@@ -65,6 +65,8 @@ TLS certificates are validated normally. A self-signed or otherwise untrusted ce
 
 Automatic reconnect (after unintentional disconnection) can be enabled via the `network.reconnect` setting, including after KILL by turning `kill.reconnect` on. Existing channel and query windows stay open unless you `/part`.
 
+Use `/set reconnect.limit <number>` to set the (global) maximum number of reconnect attempts. Older per-profile `reconnect_max_attempts` values no longer apply.
+
 ### Network Profiles
 
 Profiles store network-specific settings, including server endpoints, TLS, SASL, username overrides, user modes, and autojoin.

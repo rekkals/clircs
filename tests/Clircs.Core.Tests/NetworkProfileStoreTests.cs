@@ -274,15 +274,17 @@ internal static class NetworkProfileStoreTests
                 [new IrcEndpoint("irc1.example.test", 6697, true), new IrcEndpoint("irc2.example.test", 6667, false)],
                 new IrcIdentity(["TestNick", "TestNick_"], "test", "Test User"),
                 ["#one", "#two"],
-                new ReconnectPolicy(5, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(90)),
+                new ReconnectPolicy(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(90)),
                 "CanonicalNet",
                 ["Alice", "Bob"],
                 "+iw",
                 usernameOverride: "slakker/irc.fxnet.org");
             var store = new NetworkProfileStore(path);
             store.Add(profile);
+            File.AppendAllText(path, "\nreconnect_max_attempts = 5\n");
 
             var reloaded = new NetworkProfileStore(path);
+            Assert.True(reloaded.LoadError is null);
             var saved = reloaded.Find("testnet");
             Assert.True(saved is not null);
             Assert.Equal(id, saved!.Id);
@@ -290,13 +292,16 @@ internal static class NetworkProfileStoreTests
             Assert.Equal("irc2.example.test", saved.Endpoints[1].Host);
             Assert.Equal("TestNick_", saved.Identity.Nicknames[1]);
             Assert.Equal("#two", saved.AutojoinChannels[1]);
-            Assert.Equal(5, saved.Reconnect.MaximumAttempts);
+            Assert.Equal(TimeSpan.FromSeconds(3), saved.Reconnect.InitialDelay);
+            Assert.Equal(TimeSpan.FromSeconds(90), saved.Reconnect.MaximumDelay);
             Assert.Equal("CanonicalNet", saved.NetworkName!);
             Assert.Equal("Bob", saved.NotifyNicknames[1]);
             Assert.Equal("+iw", saved.UserModesOverride!);
             Assert.Equal("slakker/irc.fxnet.org", saved.UsernameOverride!);
 
+            reloaded.Replace(saved);
             var text = File.ReadAllText(path);
+            Assert.False(text.Contains("reconnect_max_attempts", StringComparison.Ordinal));
             Assert.True(text.Contains("user_modes = ", StringComparison.Ordinal));
             Assert.True(text.Contains(
                 "username_override = \"slakker/irc.fxnet.org\"",

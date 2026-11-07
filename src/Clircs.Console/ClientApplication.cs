@@ -270,6 +270,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.CloneDetection = appearance.CloneDetection;
         _preferences.NetworkReconnect = appearance.NetworkReconnect;
         _preferences.KillReconnect = appearance.KillReconnect;
+        _preferences.ReconnectLimit = appearance.ReconnectLimit;
         _preferences.AwayLogging = appearance.AwayLogging;
         _preferences.DccAddress = appearance.DccAddress;
         if (DccPortRange.TryParse(appearance.DccPorts, out var dccPorts)) _preferences.DccPorts = dccPorts;

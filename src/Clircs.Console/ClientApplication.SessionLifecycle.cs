@@ -438,10 +438,12 @@ internal sealed partial class ClientApplication
         var token = cancellation.Token;
         var profile = ProfileFor(session);
         var policy = profile?.Reconnect ?? ReconnectPolicy.Default;
+        var maximumAttempts = _preferences.ReconnectLimit;
         try
         {
             var loop = new AutomaticReconnectLoop(
                 policy,
+                maximumAttempts,
                 async (attempt, attemptToken) =>
                 {
                     var route = ConnectionRouteFor(session);
@@ -468,12 +470,12 @@ internal sealed partial class ClientApplication
             if (outcome == AutomaticReconnectOutcome.NoAttemptsConfigured)
             {
                 PublishStatus(session, SessionEventKind.Status,
-                    "This network profile allows no automatic reconnect attempts. Use /reconnect to try manually.");
+                    "reconnect.limit is 0. Use /reconnect to try manually.");
             }
             else if (outcome == AutomaticReconnectOutcome.Exhausted)
             {
                 PublishStatus(session, SessionEventKind.Error,
-                    $"Reconnect stopped after {policy.MaximumAttempts} unsuccessful attempts. Use /reconnect to try again.");
+                    $"Reconnect stopped after {maximumAttempts} unsuccessful attempts. Use /reconnect to try again.");
             }
         }
         finally

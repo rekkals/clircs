@@ -38,7 +38,8 @@ internal sealed record AppearanceSettings(
     bool StatusBouncer = true,
     bool StatusTotals = true,
     bool XdccAuto = false,
-    bool Startup = true);
+    bool Startup = true,
+    int ReconnectLimit = 100);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -67,6 +68,11 @@ internal sealed class AppearanceSettingsStore
             if (stored.SchemaVersion != 1)
             {
                 throw new InvalidDataException($"Unsupported appearance schema {stored.SchemaVersion}.");
+            }
+            if (stored.ReconnectLimit < 0)
+            {
+                throw new InvalidDataException(
+                    "reconnect.limit must be a nonnegative whole number.");
             }
             return new AppearanceSettings(
                 stored.Theme,
@@ -104,7 +110,8 @@ internal sealed class AppearanceSettingsStore
                 stored.StatusBouncer,
                 stored.StatusTotals,
                 stored.XdccAuto,
-                stored.Startup);
+                stored.Startup,
+                stored.ReconnectLimit);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -149,6 +156,7 @@ internal sealed class AppearanceSettingsStore
             CloneDetection = settings.CloneDetection,
             NetworkReconnect = settings.NetworkReconnect,
             KillReconnect = settings.KillReconnect,
+            ReconnectLimit = settings.ReconnectLimit,
             AwayLogging = settings.AwayLogging,
             DccAddress = settings.DccAddress,
             DccPorts = settings.DccPorts,
@@ -209,6 +217,7 @@ internal sealed class AppearanceSettingsStore
         public bool CloneDetection { get; set; } = true;
         public bool NetworkReconnect { get; set; } = true;
         public bool KillReconnect { get; set; }
+        public int ReconnectLimit { get; set; } = 100;
         public bool AwayLogging { get; set; }
         public string DccAddress { get; set; } = "auto";
         public string DccPorts { get; set; } = "random";

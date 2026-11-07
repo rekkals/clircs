@@ -263,9 +263,7 @@ public sealed class NetworkProfileStore
             }
             else throw new InvalidDataException($"Unsupported SASL mechanism '{mechanism}'.");
         }
-        var reconnectAttempts = ParseInt(values, "reconnect_max_attempts", 99);
         var reconnect = new ReconnectPolicy(
-            reconnectAttempts,
             TimeSpan.FromSeconds(ParseInt(values, "reconnect_initial_seconds", 2)),
             TimeSpan.FromSeconds(ParseInt(values, "reconnect_max_seconds", 120)));
         return new NetworkProfile(
@@ -323,7 +321,6 @@ public sealed class NetworkProfileStore
                 }
                 builder.Append("sasl_required = ").Append(profile.Sasl.Required ? "true" : "false").Append('\n');
             }
-            builder.Append("reconnect_max_attempts = ").Append(profile.Reconnect.MaximumAttempts).Append('\n');
             builder.Append("reconnect_initial_seconds = ").Append((int)profile.Reconnect.InitialDelay.TotalSeconds).Append('\n');
             builder.Append("reconnect_max_seconds = ").Append((int)profile.Reconnect.MaximumDelay.TotalSeconds).Append('\n');
         }
