@@ -1,3 +1,4 @@
+using Clircs.Commands;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
 using Clircs.Networking;
@@ -23,6 +24,13 @@ internal static class ApplicationOrchestrationTests
         suite.Add("join attempts follow negotiated IRC case mapping", JoinAttemptsUseIrcCaseMapping);
         suite.Add("denied and disconnected joins discard cycle state", JoinFailuresDiscardCycleState);
         suite.Add("forwarded joins transfer cycle and return state", ForwardedJoinsTransferState);
+        suite.Add("getnick claims wait for server results", GetnickClaimsWaitForServer);
+        suite.Add("getnick pauses after confirmed manual departure", GetnickPausesAfterManualDeparture);
+        suite.Add("getnick rejected and forced changes do not pause pursuit", GetnickRejectionsAndForcedChangesDoNotPause);
+        suite.Add("getnick reconfiguration cancels stale claims", GetnickReconfigurationCancelsOldClaims);
+        suite.Add("getnick transport preserves notify ownership and request correlation", GetnickTransportKeepsNotifySeparate);
+        suite.Add("MONITOR rejections survive refreshes and allow explicit retry", GetnickMonitorRejectionsCanRetryAsync);
+        suite.Add("getnick distinguishes disabling from literal nicknames", GetnickControlWordIsLiteralWhenQuoted);
         suite.Add("notify monitor ownership can restart after completion", NotifyMonitorCanRestart);
         suite.Add("notify refresh operations are serialized", SerializesNotifyRefreshAsync);
         suite.Add("failed ISON sends do not corrupt later reply correlation", FailedIsonDoesNotRemainPending);
@@ -336,6 +344,149 @@ internal static class ApplicationOrchestrationTests
         Assert.Equal(destination, routed);
     }
 
+    private static void GetnickClaimsWaitForServer()
+    {
+        var coordinator = new GetnickCoordinator(StringComparer.OrdinalIgnoreCase);
+        coordinator.Configure("wanted", "fallback");
+        var generation = coordinator.Snapshot().Generation;
+        Assert.True(coordinator.TryBeginClaim("wanted", generation, 0, out var first));
+        Assert.False(coordinator.TryBeginClaim("wanted", generation, 60_000, out _));
+        coordinator.NicknameRejected("wanted");
+        Assert.True(first.CancellationToken.IsCancellationRequested);
+        Assert.False(coordinator.TryBeginClaim("wanted", generation, 59_999, out _));
+        Assert.True(coordinator.TryBeginClaim("wanted", generation, 60_000, out var retry));
+
+        coordinator.NicknameChanged("wanted", forced: false);
+        Assert.True(retry.CancellationToken.IsCancellationRequested);
+        Assert.True(coordinator.Snapshot().WatchTarget is null);
+        Assert.Equal("wanted", coordinator.Snapshot().Target!);
+    }
+
+    private static void GetnickPausesAfterManualDeparture()
+    {
+        var coordinator = new GetnickCoordinator(StringComparer.OrdinalIgnoreCase);
+        coordinator.Configure("wanted", "fallback");
+        Assert.True(coordinator.BeginManualChange("other") is null);
+        coordinator.NicknameChanged("other", forced: false);
+        Assert.Equal("wanted", coordinator.Snapshot().WatchTarget!);
+
+        coordinator.NicknameChanged("wanted", forced: false);
+        coordinator.BeginManualChange("temporary");
+        Assert.False(coordinator.Snapshot().Paused);
+        coordinator.NicknameChanged("temporary", forced: false);
+        Assert.True(coordinator.Snapshot().Paused);
+        Assert.True(coordinator.Snapshot().WatchTarget is null);
+        coordinator.NicknameChanged("wanted", forced: false);
+        Assert.False(coordinator.Snapshot().Paused);
+
+        coordinator.BeginManualChange("temporary");
+        coordinator.NicknameChanged("temporary", forced: false);
+        coordinator.Reset();
+        Assert.False(coordinator.Snapshot().Paused);
+        coordinator.Configure("wanted", "fallback");
+        Assert.Equal("wanted", coordinator.Snapshot().WatchTarget!);
+    }
+
+    private static void GetnickRejectionsAndForcedChangesDoNotPause()
+    {
+        var coordinator = new GetnickCoordinator(StringComparer.OrdinalIgnoreCase);
+        foreach (var rejected in new string?[] { "temporary", null })
+        {
+            coordinator.Configure("wanted", "wanted");
+            coordinator.BeginManualChange("temporary");
+            coordinator.NicknameRejected(rejected);
+            coordinator.NicknameChanged("forced", forced: false);
+            Assert.False(coordinator.Snapshot().Paused);
+            Assert.Equal("wanted", coordinator.Snapshot().WatchTarget!);
+        }
+
+        coordinator.Configure("wanted", "wanted");
+        coordinator.BeginManualChange("temporary");
+        coordinator.NicknameChanged("temporary", forced: true);
+        Assert.False(coordinator.Snapshot().Paused);
+    }
+
+    private static void GetnickReconfigurationCancelsOldClaims()
+    {
+        var coordinator = new GetnickCoordinator(StringComparer.OrdinalIgnoreCase);
+        coordinator.Configure("wanted", "fallback");
+        var generation = coordinator.Snapshot().Generation;
+        Assert.True(coordinator.TryBeginClaim("wanted", generation, 0, out var obsolete));
+
+        coordinator.Configure("wanted", "fallback");
+        Assert.True(obsolete.CancellationToken.IsCancellationRequested);
+        Assert.False(coordinator.TryBeginClaim("wanted", generation, 60_000, out _));
+        Assert.True(coordinator.TryBeginClaim(
+            "wanted", coordinator.Snapshot().Generation, 0, out var current));
+        coordinator.AbandonClaim(obsolete);
+        Assert.True(coordinator.IsCurrentClaim(current));
+
+        coordinator.Reset();
+        Assert.True(current.CancellationToken.IsCancellationRequested);
+        Assert.False(coordinator.IsCurrentClaim(current));
+    }
+
+    private static void GetnickTransportKeepsNotifySeparate()
+    {
+        var comparer = StringComparer.OrdinalIgnoreCase;
+        var coordinator = new NotifyCoordinator(comparer);
+        Assert.Equal(0, coordinator.ApplyMonitor(["Alice"], online: false, ["wanted"]).Length);
+        Assert.True(coordinator.ApplyMonitor(
+            ["Alice"], online: true, ["Alice", "wanted"]).SequenceEqual(["Alice"]));
+        coordinator.EnqueueIson(["wanted"], 7);
+        coordinator.EnqueueIson(["Alice"], 8);
+        var first = coordinator.ApplyIson(["Alice"], [], comparer);
+        Assert.True(first.Requested.SequenceEqual(["wanted"]));
+        Assert.True(first.GetnickGeneration == 7);
+        Assert.Equal(0, first.Offline.Length);
+        var second = coordinator.ApplyIson(["Alice"], ["Alice"], comparer);
+        Assert.True(second.Requested.SequenceEqual(["Alice"]));
+        Assert.True(second.GetnickGeneration == 8);
+        Assert.False(coordinator.OnlineSnapshot(comparer).Contains("wanted"));
+    }
+
+    private static async ValueTask GetnickMonitorRejectionsCanRetryAsync()
+    {
+        var comparer = StringComparer.OrdinalIgnoreCase;
+        var coordinator = new NotifyCoordinator(comparer);
+        coordinator.RejectMonitor(["wanted"]);
+        coordinator.SetMonitorSubscriptions(new HashSet<string>(["Alice", "wanted"], comparer));
+        Assert.True(coordinator.RejectedMonitorSnapshot(comparer).Contains("wanted"));
+        Assert.True(coordinator.MonitorSubscriptionsSnapshot(comparer).SetEquals(["Alice"]));
+
+        await coordinator.RefreshAsync(_ => Task.CompletedTask, CancellationToken.None);
+        Assert.True(coordinator.RejectedMonitorSnapshot(comparer).Contains("wanted"));
+
+        await coordinator.RefreshAsync(
+            _ => Task.CompletedTask, CancellationToken.None, retryRejectedMonitor: true);
+        coordinator.SetMonitorSubscriptions(new HashSet<string>(["Alice", "wanted"], comparer));
+        Assert.Equal(0, coordinator.RejectedMonitorSnapshot(comparer).Count);
+        Assert.True(coordinator.MonitorSubscriptionsSnapshot(comparer).SetEquals(["Alice", "wanted"]));
+
+        coordinator.RejectMonitor(["wanted"]);
+        coordinator.ApplyMonitor([], online: false, ["wanted"]);
+        Assert.False(coordinator.RejectedMonitorSnapshot(comparer).Contains("wanted"));
+        Assert.True(coordinator.MonitorSubscriptionsSnapshot(comparer).Contains("wanted"));
+    }
+
+    private static void GetnickControlWordIsLiteralWhenQuoted()
+    {
+        foreach (var (argument, nickname, disable) in new[]
+        {
+            ("off", "off", true),
+            ("OFF", "OFF", true),
+            ("\"off\"", "off", false),
+            ("slakker", "slakker", false),
+            ("\"slakker\"", "slakker", false)
+        })
+        {
+            var input = (CommandInput)CommandLineParser.Parse(
+                $"/network getnick \"Test Net\" {argument}");
+            Assert.Equal(disable, ClientApplication.IsGetnickOff(input));
+            Assert.Equal(nickname, input.Arguments[2]);
+        }
+    }
+
     private static void NotifyMonitorCanRestart()
     {
         var coordinator = new NotifyCoordinator(StringComparer.OrdinalIgnoreCase);
@@ -379,7 +530,7 @@ internal static class ApplicationOrchestrationTests
     private static void FailedIsonDoesNotRemainPending()
     {
         var coordinator = new NotifyCoordinator(StringComparer.OrdinalIgnoreCase);
-        coordinator.ApplyMonitor(online: true, ["Alice"]);
+        coordinator.ApplyMonitor(["Alice"], online: true, ["Alice"]);
         var failed = new[] { "Alice" };
         coordinator.EnqueueIson(failed);
         coordinator.RemoveFailedIson(failed);

@@ -1020,6 +1020,9 @@ internal sealed class ConsolePresenter
             var fieldLeading = new string(' ', sideLength + labelWidth + 2);
             foreach (var field in block.Fields)
             {
+                if (field.BlankLineBefore)
+                    rows += PresentationRowsForLength(sideLength, consoleWidth);
+
                 if (field.IsSectionHeading)
                 {
                     var headingLeading = new string(' ', sideLength + 1);
@@ -1114,7 +1117,7 @@ internal sealed class ConsolePresenter
     {
         if (!block.AutoFieldColumns ||
             block.Fields is not { Count: > 1 } fields ||
-            fields.Any(field => field.IsSectionHeading))
+            fields.Any(field => field.IsSectionHeading || field.BlankLineBefore))
         {
             return null;
         }
@@ -1401,6 +1404,13 @@ internal sealed class ConsolePresenter
                 var labelWidth = PresentationFieldLabelWidth(block);
                 foreach (var field in block.Fields)
                 {
+                    if (field.BlankLineBefore)
+                    {
+                        writer.Write(prefix, _theme.Dim);
+                        writer.Write(_theme.InfoSide, _theme.Label);
+                        writer.EndLine();
+                    }
+
                     if (field.IsSectionHeading)
                     {
                         var headingLeading = new string(

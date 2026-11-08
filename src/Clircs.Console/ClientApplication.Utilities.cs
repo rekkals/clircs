@@ -12,6 +12,11 @@ namespace Clircs.ConsoleClient;
 // Owns shared application helpers for status, appearance, formatting, and lookup.
 internal sealed partial class ClientApplication
 {
+    private static string FormatGetnickStatus(string? target, bool paused = false) =>
+        target is null
+            ? "disabled"
+            : $"{(paused ? "paused" : "enabled")} ({target})";
+
     private CommandResult SessionStatus(IrcNetworkSession session)
     {
         var profile = ProfileFor(session);
@@ -59,8 +64,13 @@ internal sealed partial class ClientApplication
 
         if (profile is not null)
         {
-            fields.Add(PresentationField.Section("Profile Settings"));
+            fields.Add(PresentationField.Section("Profile Settings", blankLineBefore: true));
             fields.Add(new PresentationField("Name", profile.DisplayName));
+            fields.Add(new PresentationField(
+                "Getnick",
+                FormatGetnickStatus(
+                    profile.GetnickTarget,
+                    RuntimeFor(session)?.Getnick.Snapshot().Paused == true)));
 
             if (profile.UsernameOverride is { } usernameOverride)
             {
@@ -105,6 +115,7 @@ internal sealed partial class ClientApplication
 
         fields.AddRange(
         [
+            new PresentationField("Getnick", FormatGetnickStatus(profile.GetnickTarget)),
             new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)),
             new PresentationField("User modes", userModes.Length == 0 ? "not set" : userModes),
             new PresentationField("Notify", profile.NotifyNicknames.Count == 0 ? "none" : string.Join(", ", profile.NotifyNicknames)),

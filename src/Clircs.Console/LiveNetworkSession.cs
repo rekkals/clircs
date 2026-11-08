@@ -26,5 +26,7 @@ internal sealed class LiveNetworkSession(
 
     public NotifyCoordinator Notify { get; } = new(new IrcNameComparer(session.State.CaseMapping));
 
+    public GetnickCoordinator Getnick { get; } = new(new IrcNameComparer(session.State.CaseMapping));
+
     public JoinAttemptRegistry Joins { get; } = new(new IrcNameComparer(session.State.CaseMapping));
 }

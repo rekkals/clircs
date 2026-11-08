@@ -65,6 +65,9 @@ internal sealed partial class ClientApplication
         session.ChannelMemberJoined += OnChannelMemberJoined;
         session.IsonReplyReceived += OnIsonReplyReceived;
         session.MonitorStatusReceived += OnMonitorStatusReceived;
+        session.MonitorListFullReceived += OnMonitorListFullReceived;
+        session.NicknameChanged += OnSessionNicknameChanged;
+        session.NicknameRejected += OnSessionNicknameRejected;
         session.WireLineTransferred += OnWireLineTransferred;
         RedrawActiveBuffer(session, session.State.StatusBuffer, pendingEvent: null);
         StartSessionWork(
@@ -123,11 +126,15 @@ internal sealed partial class ClientApplication
         session.ChannelMemberJoined -= OnChannelMemberJoined;
         session.IsonReplyReceived -= OnIsonReplyReceived;
         session.MonitorStatusReceived -= OnMonitorStatusReceived;
+        session.MonitorListFullReceived -= OnMonitorListFullReceived;
+        session.NicknameChanged -= OnSessionNicknameChanged;
+        session.NicknameRejected -= OnSessionNicknameRejected;
         session.WireLineTransferred -= OnWireLineTransferred;
         await _inboundSessionEvents.DrainAsync();
         var closingRuntime = _liveSessions.Runtime(session);
         CancelReconnectUnsafe(session.State.Id);
         closingRuntime?.Notify.Stop();
+        closingRuntime?.Getnick.Reset();
         foreach (var timedBan in _sessionTransientState.TimedBansFor(session.State.Id))
             timedBan.Cancel();
 
@@ -295,6 +302,18 @@ internal sealed partial class ClientApplication
     private void OnSessionRegistrationCompleted(IrcNetworkSession session)
     {
         _inboundResourceCircuitBreaker.Reset(session.State.Id);
+        var target = ProfileFor(session)?.GetnickTarget;
+        RuntimeFor(session)?.Getnick.Configure(
+            target,
+            session.CurrentNickname,
+            session.Features.NicknameLengthLimit);
+
+        if (target is not null &&
+            NicknameLengthError(session, target) is { } error)
+        {
+            PublishStatus(session, SessionEventKind.Error, $"Getnick: {error}");
+        }
+
         StartNotifyMonitor(session);
         StartSessionWork(
             session,
@@ -346,6 +365,7 @@ internal sealed partial class ClientApplication
         if (_liveSessions.Runtime(session) is { } runtime)
         {
             runtime.Notify.Stop();
+            runtime.Getnick.Reset();
             runtime.Joins.Reset();
         }
 
@@ -600,10 +620,9 @@ internal sealed partial class ClientApplication
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var profile = ProfileFor(session);
-                if (profile is not null && profile.NotifyNicknames.Count > 0 && session.ConnectionState == IrcConnectionState.Online)
+                if (session.ConnectionState == IrcConnectionState.Online)
                     await coordinator.RefreshAsync(
-                        token => RequestNotifyStatusAsync(session, profile, coordinator, token).AsTask(),
+                        token => RequestNotifyStatusAsync(session, coordinator, token).AsTask(),
                         cancellationToken);
                 await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken);
             }
@@ -617,20 +636,39 @@ internal sealed partial class ClientApplication
 
     private async ValueTask RequestNotifyStatusAsync(
         IrcNetworkSession session,
-        NetworkProfile profile,
         NotifyCoordinator coordinator,
         CancellationToken cancellationToken)
     {
+        var profile = ProfileFor(session);
+        var runtime = RuntimeFor(session);
+        if (profile is null || runtime is null ||
+            session.ConnectionState != IrcConnectionState.Online) return;
+
+        var comparer = IrcNameComparerFor(session);
+        var getnick = runtime.Getnick.Snapshot();
+        var requested = new HashSet<string>(profile.NotifyNicknames, comparer);
+        if (getnick.WatchTarget is { } target) requested.Add(target);
+
         if (session.Features.Supports("MONITOR"))
         {
-            await SynchronizeMonitorAsync(session, profile, coordinator, cancellationToken);
-            return;
+            await SynchronizeMonitorAsync(session, requested, coordinator, cancellationToken);
+            if (getnick.WatchTarget is not { } watchTarget) return;
+
+            if (!coordinator.RejectedMonitorSnapshot(comparer).Contains(watchTarget))
+            {
+                await session.SendAsync(
+                    "MONITOR", ["S"], IrcOutboundPriority.Automation, cancellationToken);
+                return;
+            }
+
+            requested.Clear();
+            requested.Add(watchTarget);
         }
 
         var batches = new List<string[]>();
         var current = new List<string>();
         var length = 5;
-        foreach (var nickname in profile.NotifyNicknames)
+        foreach (var nickname in requested)
         {
             if (current.Count > 0 && length + nickname.Length + 1 > 350)
             {
@@ -644,7 +682,7 @@ internal sealed partial class ClientApplication
         if (current.Count > 0) batches.Add(current.ToArray());
         foreach (var batch in batches)
         {
-            coordinator.EnqueueIson(batch);
+            coordinator.EnqueueIson(batch, getnick.Generation);
             try
             {
                 await session.SendAsync("ISON", batch, IrcOutboundPriority.Automation, cancellationToken);
@@ -659,16 +697,17 @@ internal sealed partial class ClientApplication
 
     private async ValueTask SynchronizeMonitorAsync(
         IrcNetworkSession session,
-        NetworkProfile profile,
+        HashSet<string> desired,
         NotifyCoordinator coordinator,
         CancellationToken cancellationToken)
     {
         var comparer = IrcNameComparerFor(session);
-        var desired = new HashSet<string>(profile.NotifyNicknames, comparer);
+        var rejected = coordinator.RejectedMonitorSnapshot(comparer);
+        var wanted = new HashSet<string>(desired.Except(rejected, comparer), comparer);
         var existing = coordinator.MonitorSubscriptionsSnapshot(comparer);
 
-        var removed = existing.Except(desired, comparer).ToArray();
-        var added = desired.Except(existing, comparer).ToArray();
+        var removed = existing.Except(wanted, comparer).ToArray();
+        var added = wanted.Except(existing, comparer).ToArray();
         foreach (var batch in MonitorBatches(removed))
             await session.SendAsync("MONITOR", ["-", string.Join(',', batch)], IrcOutboundPriority.Automation, cancellationToken);
         foreach (var batch in MonitorBatches(added))
@@ -695,18 +734,51 @@ internal sealed partial class ClientApplication
         if (current.Count > 0) yield return current.ToArray();
     }
 
+    private void OnSessionNicknameChanged(
+        IrcNetworkSession session,
+        string nickname,
+        bool forced)
+    {
+        var runtime = RuntimeFor(session);
+        if (runtime is null) return;
+        var previous = runtime.Getnick.Snapshot().WatchTarget;
+        runtime.Getnick.NicknameChanged(nickname, forced);
+        if (!string.Equals(previous, runtime.Getnick.Snapshot().WatchTarget, StringComparison.Ordinal))
+            ScheduleNotifyRefresh(session);
+    }
+
+    private void OnSessionNicknameRejected(
+        IrcNetworkSession session,
+        string? nickname)
+    {
+        var runtime = RuntimeFor(session);
+        if (runtime is null) return;
+        var previous = runtime.Getnick.Snapshot().WatchTarget;
+        runtime.Getnick.NicknameRejected(nickname);
+        if (!string.Equals(previous, runtime.Getnick.Snapshot().WatchTarget, StringComparison.Ordinal))
+            ScheduleNotifyRefresh(session);
+    }
+
     private void OnIsonReplyReceived(IrcNetworkSession session, IReadOnlyList<string> reportedOnline)
     {
         var profile = ProfileFor(session);
-        if (profile is null) return;
-        var comparer = IrcNameComparerFor(session);
         var runtime = RuntimeFor(session);
-        if (runtime is null) return;
+        if (profile is null || runtime is null) return;
+        var comparer = IrcNameComparerFor(session);
         var changes = runtime.Notify.ApplyIson(profile.NotifyNicknames, reportedOnline, comparer);
         foreach (var nickname in changes.Online)
             PublishStatus(session, SessionEventKind.Notice, $"Notify: {nickname} is online");
         foreach (var nickname in changes.Offline)
             PublishStatus(session, SessionEventKind.Notice, $"Notify: {nickname} is offline");
+
+        var getnick = runtime.Getnick.Snapshot();
+        if (changes.GetnickGeneration is { } generation &&
+            getnick.WatchTarget is { } target &&
+            changes.Requested.Contains(target, comparer) &&
+            !reportedOnline.Contains(target, comparer))
+        {
+            ScheduleGetnickClaim(session, target, generation);
+        }
     }
 
     private void OnMonitorStatusReceived(
@@ -716,21 +788,115 @@ internal sealed partial class ClientApplication
     {
         var runtime = RuntimeFor(session);
         if (runtime is null) return;
-        var changed = runtime.Notify.ApplyMonitor(online, nicknames);
+        var profile = ProfileFor(session);
+        var changed = runtime.Notify.ApplyMonitor(profile?.NotifyNicknames ?? [], online, nicknames);
 
         foreach (var nickname in changed)
             PublishStatus(session, SessionEventKind.Notice,
                 $"Notify: {nickname} is {(online ? "online" : "offline")}");
+
+        if (!online)
+        {
+            var generation = runtime.Getnick.Snapshot().Generation;
+            foreach (var nickname in nicknames)
+                ScheduleGetnickClaim(session, nickname, generation);
+        }
+    }
+
+    private void OnMonitorListFullReceived(
+        IrcNetworkSession session,
+        IReadOnlyList<string> nicknames)
+    {
+        var runtime = RuntimeFor(session);
+        if (runtime is null) return;
+        runtime.Notify.RejectMonitor(nicknames);
+        if (runtime.Getnick.Snapshot().WatchTarget is { } target &&
+            nicknames.Contains(target, IrcNameComparerFor(session)))
+        {
+            ScheduleNotifyRefresh(session);
+        }
+    }
+
+    private void ScheduleNotifyRefresh(
+        IrcNetworkSession session,
+        bool retryRejectedMonitor = false) =>
+        StartSessionWork(
+            session,
+            "nickname availability refresh",
+            () => RefreshNotifyTransportAsync(session, retryRejectedMonitor));
+
+    private void ScheduleGetnickClaim(
+        IrcNetworkSession session,
+        string nickname,
+        long generation)
+    {
+        var runtime = RuntimeFor(session);
+        if (runtime is null || session.ConnectionState != IrcConnectionState.Online ||
+            !runtime.Getnick.TryBeginClaim(nickname, generation, Environment.TickCount64, out var claim))
+        {
+            return;
+        }
+
+        StartSessionWork(
+            session,
+            "getnick claim",
+            () => SendGetnickClaimAsync(session, runtime.Getnick, claim));
+    }
+
+    private async Task SendGetnickClaimAsync(
+        IrcNetworkSession session,
+        GetnickCoordinator coordinator,
+        GetnickClaim claim)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            SessionWorkToken(session), claim.CancellationToken);
+        var sent = false;
+        try
+        {
+            if (!coordinator.IsCurrentClaim(claim) ||
+                session.ConnectionState != IrcConnectionState.Online) return;
+
+            await session.SendAsync(
+                "NICK",
+                [claim.Nickname],
+                IrcOutboundPriority.Automation,
+                cancellation.Token,
+                cancelBeforeSend: true);
+            sent = true;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (IsExpectedConnectionFailure(exception))
+        {
+            PublishStatus(session, SessionEventKind.Error,
+                $"Could not request nickname {claim.Nickname}: {exception.Message}");
+        }
+        finally
+        {
+            if (!sent) coordinator.AbandonClaim(claim);
+        }
     }
 
     private void OnSessionServerFeaturesUpdated(IrcNetworkSession session)
     {
         ReindexLiveIrcNames(session);
+
+        var getnick = RuntimeFor(session)?.Getnick;
+        var nicknameLengthChanged = getnick?.UpdateNicknameLength(
+            session.Features.NicknameLengthLimit) == true;
+        if (nicknameLengthChanged &&
+            getnick?.Snapshot().Target is { } target &&
+            NicknameLengthError(session, target) is { } error)
+        {
+            PublishStatus(session, SessionEventKind.Error, $"Getnick: {error}");
+        }
+
         StartSessionWork(
             session,
             "advertised-network association",
             () => AssociateAdvertisedNetworkAsync(session));
-        if (session.Features.Supports("MONITOR"))
+        if (session.Features.Supports("MONITOR") || nicknameLengthChanged)
         {
             StartSessionWork(
                 session,
@@ -748,17 +914,23 @@ internal sealed partial class ClientApplication
         if (runtime is null) return;
         var comparer = IrcNameComparerFor(session);
         runtime.Notify.Reindex(comparer);
+        runtime.Getnick.Reindex(comparer);
         runtime.Joins.Reindex(comparer);
     }
 
-    private async Task RefreshNotifyTransportAsync(IrcNetworkSession session)
+    private async Task RefreshNotifyTransportAsync(
+        IrcNetworkSession session,
+        bool retryRejectedMonitor = false)
     {
         var runtime = RuntimeFor(session);
         var profile = ProfileFor(session);
-        if (runtime is null || profile is null || session.ConnectionState != IrcConnectionState.Online) return;
+        if (runtime is null || profile is null ||
+            session.ConnectionState != IrcConnectionState.Online) return;
+
         await runtime.Notify.RefreshAsync(
-            token => RequestNotifyStatusAsync(session, profile, runtime.Notify, token).AsTask(),
-            runtime.Work.Token);
+            token => RequestNotifyStatusAsync(session, runtime.Notify, token).AsTask(),
+            runtime.Work.Token,
+            retryRejectedMonitor);
     }
 
     private void OnChannelSynchronized(IrcNetworkSession session, ChannelState channel)

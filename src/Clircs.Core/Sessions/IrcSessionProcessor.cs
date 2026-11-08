@@ -883,6 +883,14 @@ public sealed class IrcSessionProcessor
                             ("numeric", "470"), ("joinForward", "true"))));
                 }
                 break;
+            case "432":
+                var invalidNick = message.Parameters.Count >= 2 ? message.Parameters[1] : "unknown";
+                events.Add(Status(
+                    SessionEventKind.Error,
+                    $"Invalid nickname: {invalidNick}",
+                    now,
+                    Fields(("numeric", "432"), ("routeActive", "true"))));
+                break;
             case "433":
                 var usedNick = message.Parameters.Count >= 2 ? message.Parameters[1] : "unknown";
                 events.Add(Status(SessionEventKind.Error, $"Nickname is already in use: {usedNick}", now,

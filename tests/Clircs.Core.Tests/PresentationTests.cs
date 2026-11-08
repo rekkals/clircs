@@ -35,7 +35,7 @@ internal static class PresentationTests
             "Title\u001b[31m",
             [
                 new PresentationField("Label", "Value"),
-                PresentationField.Section("Profile\u001b[31m Settings")
+                PresentationField.Section("Profile\u001b[31m Settings", blankLineBefore: true)
             ],
             Grid: ["one"], BracketGridCells: true, GridColumns: 3, GridColumnWidth: 12,
             FieldLabelWidth: 19, AutoFieldColumns: true);
@@ -47,6 +47,7 @@ internal static class PresentationTests
         Assert.Equal(19, sanitized.FieldLabelWidth!.Value);
         Assert.True(sanitized.AutoFieldColumns);
         Assert.True(sanitized.Fields![1].IsSectionHeading);
+        Assert.True(sanitized.Fields![1].BlankLineBefore);
         Assert.Equal("Profile[31m Settings", sanitized.Fields![1].Label);
     }
 

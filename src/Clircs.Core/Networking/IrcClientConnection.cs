@@ -135,14 +135,16 @@ public sealed class IrcClientConnection : IAsyncDisposable
         IReadOnlyList<string> parameters,
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
         CancellationToken cancellationToken = default,
-        bool forceTrailingParameter = false)
+        bool forceTrailingParameter = false,
+        bool cancelBeforeSend = false)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         var outbound = _outbound ?? throw new InvalidOperationException("Not connected to a server.");
         var line = forceTrailingParameter
             ? IrcLineBuilder.BuildWithTrailingParameter(command, parameters.ToArray())
             : IrcLineBuilder.Build(command, parameters.ToArray());
-        await outbound.EnqueueAsync(line, priority, cancellationToken).ConfigureAwait(false);
+        await outbound.EnqueueAsync(
+            line, priority, cancellationToken, cancelBeforeSend).ConfigureAwait(false);
         RaiseWireLine(IrcWireDirection.Sent, IrcTextEncoding.Decode(line.AsSpan(0, line.Length - 2)));
     }
 

@@ -15,6 +15,7 @@ internal static class FloodResilienceTests
         suite.Add("automated IRC output is paced after a small burst", OutboundTrafficIsPacedAsync);
         suite.Add("interactive IRC output is not paced", InteractiveOutputIsNotPacedAsync);
         suite.Add("IRC output queue rejects excess pending work", OutboundQueueIsBoundedAsync);
+        suite.Add("canceled queued IRC output is discarded without interrupting an active write", CanceledQueuedOutputIsNotSentAsync);
         suite.Add("automatic CTCP replies have sender and network limits", AutomaticCtcpRepliesAreLimited);
         suite.Add("scrollback reports and enforces its emergency resource boundary", EmergencyScrollbackLimitIsExplicit);
         suite.Add("old window scrollback remains available until the ordinary limit", OldWindowScrollbackIsRetainedUntilOrdinaryLimit);
@@ -69,6 +70,31 @@ internal static class FloodResilienceTests
         Assert.True(exception.Message.Contains("queue is full", StringComparison.OrdinalIgnoreCase));
         transport.Release.TrySetResult();
         await Task.WhenAll(active, pendingOne, pendingTwo);
+    }
+
+    private static async ValueTask CanceledQueuedOutputIsNotSentAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cancellation = new CancellationTokenSource();
+        var transport = new BlockingTransport();
+        await using var scheduler = new IrcOutboundScheduler(transport);
+
+        var active = scheduler.EnqueueAsync(
+            "PING :active\r\n"u8.ToArray(), IrcOutboundPriority.Automation,
+            cancellation.Token, cancelBeforeSend: true).AsTask();
+        await transport.WriteStarted.Task.WaitAsync(timeout.Token);
+        var queued = scheduler.EnqueueAsync(
+            "NICK stale\r\n"u8.ToArray(), IrcOutboundPriority.Automation,
+            cancellation.Token, cancelBeforeSend: true).AsTask();
+
+        cancellation.Cancel();
+        transport.Release.TrySetResult();
+        await active.WaitAsync(timeout.Token);
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => queued.WaitAsync(timeout.Token));
+        await scheduler.EnqueueAsync(
+            "PING :after\r\n"u8.ToArray(), IrcOutboundPriority.Automation, timeout.Token);
+        Assert.True(transport.WrittenLines.SequenceEqual(["PING :active\r\n", "PING :after\r\n"]));
     }
 
     private static void AutomaticCtcpRepliesAreLimited()
@@ -202,12 +228,14 @@ internal static class FloodResilienceTests
     {
         public TaskCompletionSource WriteStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<string> WrittenLines { get; } = [];
         public string RemoteDescription => "test";
         public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken) => new(0);
         public async ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
         {
             WriteStarted.TrySetResult();
             await Release.Task.WaitAsync(cancellationToken);
+            WrittenLines.Add(IrcTextEncoding.Decode(bytes.Span));
         }
         public ValueTask CloseAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

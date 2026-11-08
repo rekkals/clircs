@@ -107,6 +107,20 @@ Then connect using:
 /server <profile> [number]
 ```
 
+#### Getnick
+
+Automatically acquire a nickname when it becomes available:
+
+```
+/network getnick <profile> <nickname>
+/network getnick <profile>
+/network getnick <profile> off
+```
+
+The target is saved per profile. Don't specify a nickname to see what's set, or use `off` to disable it.
+
+Once the target nickname has been successfully acquired, you can still `/nick` away and pause it, then resume it once you change back or reset it.
+
 #### Server and Bouncer Passwords
 
 Manage a profile's saved server password or complete bouncer login string with:

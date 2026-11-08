@@ -54,9 +54,15 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
     public async ValueTask EnqueueAsync(
         ReadOnlyMemory<byte> bytes,
         IrcOutboundPriority priority,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool cancelBeforeSend = false)
     {
-        var item = new OutboundItem(bytes.ToArray());
+        if (cancelBeforeSend) cancellationToken.ThrowIfCancellationRequested();
+
+        var item = new OutboundItem(bytes.ToArray())
+        {
+            BeforeSendCancellation = cancelBeforeSend ? cancellationToken : default
+        };
         lock (_lifecycleGate)
         {
             if (!_accepting)
@@ -84,7 +90,10 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
             _queues[(int)priority].Enqueue(item with { Priority = priority });
             _available.Release();
         }
-        await item.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var completion = cancelBeforeSend
+            ? item.Completion.Task
+            : item.Completion.Task.WaitAsync(cancellationToken);
+        await completion.ConfigureAwait(false);
     }
 
     public async ValueTask DisposeAsync()
@@ -124,14 +133,35 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
                     continue;
                 }
 
+                var writeStarted = false;
                 try
                 {
+                    item.BeforeSendCancellation.ThrowIfCancellationRequested();
                     if (item.Priority is not (IrcOutboundPriority.Critical or IrcOutboundPriority.Interactive))
                     {
-                        await WaitForSendBudgetAsync(item.Bytes.Length, _stopping.Token).ConfigureAwait(false);
+                        using var budgetCancellation = item.BeforeSendCancellation.CanBeCanceled
+                            ? CancellationTokenSource.CreateLinkedTokenSource(
+                                _stopping.Token, item.BeforeSendCancellation)
+                            : null;
+
+                        await WaitForSendBudgetAsync(
+                            item.Bytes.Length,
+                            budgetCancellation?.Token ?? _stopping.Token).ConfigureAwait(false);
                     }
+
+                    item.BeforeSendCancellation.ThrowIfCancellationRequested();
+
+                    // Once writing starts, finish the line even if its request is canceled.
+                    writeStarted = true;
                     await _transport.WriteAsync(item.Bytes, _stopping.Token).ConfigureAwait(false);
                     item.Completion.TrySetResult();
+                }
+                catch (OperationCanceledException) when (
+                    !writeStarted &&
+                    item.BeforeSendCancellation.IsCancellationRequested &&
+                    !_stopping.IsCancellationRequested)
+                {
+                    item.Completion.TrySetCanceled(item.BeforeSendCancellation);
                 }
                 catch (Exception exception)
                 {
@@ -215,5 +245,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public IrcOutboundPriority Priority { get; init; }
+
+        public CancellationToken BeforeSendCancellation { get; init; }
     }
 }

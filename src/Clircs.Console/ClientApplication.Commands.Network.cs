@@ -287,6 +287,8 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkUsername(input));
             case "usermodes":
                 return ValueTask.FromResult(ConfigureNetworkUserModes(input));
+            case "getnick":
+                return ValueTask.FromResult(ConfigureNetworkGetnick(input));
             case "remove":
                 if (input.Arguments.Count != 2)
                 {
@@ -321,7 +323,7 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkPassword(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network list|profiles|add|server|username|usermodes|remove|status|sasl|password"));
+                    "Usage: /network list|profiles|add|server|username|usermodes|getnick|remove|status|sasl|password"));
         }
     }
 
@@ -585,6 +587,111 @@ internal sealed partial class ClientApplication
         {
             return CommandResult.Failure(exception.Message);
         }
+    }
+
+    private static string? NicknameLengthError(
+        IrcNetworkSession session,
+        string nickname) =>
+        session.Features.NicknameLengthLimit is { } limit &&
+        IrcTextEncoding.Encode(nickname).Length > limit
+            ? $"Nickname '{nickname}' exceeds the server's limit of {limit.ToString(CultureInfo.InvariantCulture)} characters."
+            : null;
+
+    private CommandResult ConfigureNetworkGetnick(CommandInput input)
+    {
+        const string usage = "Usage: /network getnick <profile> [nickname|off]";
+        if (input.Arguments.Count is < 2 or > 3)
+            return CommandResult.Failure(usage);
+
+        var profile = _profileStore.Find(input.Arguments[1]);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                $"No saved network profile matches '{input.Arguments[1]}'.");
+        }
+
+        if (input.Arguments.Count == 2)
+        {
+            var matches = SessionsSnapshot()
+                .Select((session, index) => (Session: session, Number: index + 1))
+                .Where(match => ProfileIdFor(match.Session) == profile.Id)
+                .ToArray();
+
+            if (matches.Length > 1)
+            {
+                return CommandResult.Success(new PresentationBlock(
+                    $"Getnick: {profile.DisplayName}",
+                    matches.Select(match => new PresentationField(
+                        $"Connection {match.Number.ToString(CultureInfo.InvariantCulture)}",
+                        FormatGetnickStatus(
+                            profile.GetnickTarget,
+                            RuntimeFor(match.Session)?.Getnick.Snapshot().Paused == true)))
+                        .ToArray()));
+            }
+
+            var paused = matches.Length == 1 &&
+                RuntimeFor(matches[0].Session)?.Getnick.Snapshot().Paused == true;
+            return CommandResult.Success(
+                $"Getnick for {profile.DisplayName}: {FormatGetnickStatus(profile.GetnickTarget, paused)}.");
+        }
+
+        var target = IsGetnickOff(input) ? null : input.Arguments[2];
+        if (target is not null)
+        {
+            foreach (var session in SessionsSnapshot())
+            {
+                if (ProfileIdFor(session) != profile.Id ||
+                    session.ConnectionState != IrcConnectionState.Online) continue;
+
+                if (NicknameLengthError(session, target) is { } error)
+                    return CommandResult.Failure(error);
+            }
+        }
+        try
+        {
+            var updated = profile.WithGetnickTarget(target);
+            _profileStore.Replace(updated);
+
+            foreach (var session in SessionsSnapshot())
+            {
+                if (ProfileIdFor(session) != updated.Id) continue;
+                var runtime = RuntimeFor(session);
+                if (runtime is null) continue;
+
+                var online = session.ConnectionState == IrcConnectionState.Online;
+                runtime.Getnick.Configure(
+                    updated.GetnickTarget,
+                    online ? session.CurrentNickname : null,
+                    online ? session.Features.NicknameLengthLimit : null);
+                if (online)
+                {
+                    StartNotifyMonitor(session);
+                    ScheduleNotifyRefresh(session, retryRejectedMonitor: true);
+                }
+            }
+
+            return CommandResult.Success(
+                $"Getnick for {updated.DisplayName}: {FormatGetnickStatus(updated.GetnickTarget)}.");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or
+            InvalidOperationException or
+            IOException or
+            UnauthorizedAccessException)
+        {
+            return CommandResult.Failure(exception.Message);
+        }
+    }
+
+    // Only bare off disables getnick; quoted "off" is a literal nickname.
+    internal static bool IsGetnickOff(CommandInput input)
+    {
+        var raw = input.RawArguments.TrimEnd();
+        return input.Arguments.Count == 3 &&
+            input.Arguments[2].Equals("off", StringComparison.OrdinalIgnoreCase) &&
+            raw.Length >= 4 &&
+            raw.EndsWith("off", StringComparison.OrdinalIgnoreCase) &&
+            char.IsWhiteSpace(raw[^4]);
     }
 
     private CommandResult ConfigureNetworkUserModes(CommandInput input)
@@ -1097,7 +1204,22 @@ internal sealed partial class ClientApplication
             return CommandResult.Success($"Default nickname set to {_preferences.Nickname}.");
         }
 
-        await session.SendNicknameAsync(requestedNickname, cancellationToken);
+        if (NicknameLengthError(session, requestedNickname) is { } error)
+        {
+            return CommandResult.Failure(error);
+        }
+
+        var getnick = RuntimeFor(session)?.Getnick;
+        var change = getnick?.BeginManualChange(requestedNickname);
+        try
+        {
+            await session.SendNicknameAsync(requestedNickname, cancellationToken);
+        }
+        catch
+        {
+            getnick?.CancelManualChange(change);
+            throw;
+        }
         return CommandResult.Success();
     }
 
@@ -1678,15 +1800,25 @@ internal sealed partial class ClientApplication
         {
             profile = profile.WithNotify(updated);
             _profileStore.Replace(profile);
+            foreach (var otherSession in SessionsSnapshot())
+            {
+                if (ReferenceEquals(otherSession, session) ||
+                    ProfileIdFor(otherSession) != profile.Id ||
+                    otherSession.ConnectionState != IrcConnectionState.Online) continue;
+
+                StartNotifyMonitor(otherSession);
+                ScheduleNotifyRefresh(otherSession, retryRejectedMonitor: true);
+            }
+
             var runtime = RuntimeFor(session);
             if (runtime is not null && session.ConnectionState == IrcConnectionState.Online)
             {
                 await runtime.Notify.RefreshAsync(
-                    token => RequestNotifyStatusAsync(session, profile, runtime.Notify, token).AsTask(),
-                    cancellationToken);
+                    token => RequestNotifyStatusAsync(session, runtime.Notify, token).AsTask(),
+                    cancellationToken,
+                    retryRejectedMonitor: true);
             }
-            if (profile.NotifyNicknames.Count > 0) StartNotifyMonitor(session);
-            else runtime?.Notify.Stop();
+            StartNotifyMonitor(session);
             return CommandResult.Success($"Notify list for {profile.DisplayName}: " +
                 (profile.NotifyNicknames.Count == 0 ? "empty" : string.Join(", ", profile.NotifyNicknames)));
         }

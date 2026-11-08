@@ -278,7 +278,8 @@ internal static class NetworkProfileStoreTests
                 "CanonicalNet",
                 ["Alice", "Bob"],
                 "+iw",
-                usernameOverride: "slakker/irc.fxnet.org");
+                usernameOverride: "slakker/irc.fxnet.org",
+                getnickTarget: "off");
             var store = new NetworkProfileStore(path);
             store.Add(profile);
             File.AppendAllText(path, "\nreconnect_max_attempts = 5\n");
@@ -298,8 +299,10 @@ internal static class NetworkProfileStoreTests
             Assert.Equal("Bob", saved.NotifyNicknames[1]);
             Assert.Equal("+iw", saved.UserModesOverride!);
             Assert.Equal("slakker/irc.fxnet.org", saved.UsernameOverride!);
+            Assert.Equal("off", saved.GetnickTarget!);
 
-            reloaded.Replace(saved);
+            reloaded.Replace(saved.WithNotify(["Alice", "Bob", "Carol"]));
+            Assert.Equal("off", new NetworkProfileStore(path).Find("TestNet")!.GetnickTarget!);
             var text = File.ReadAllText(path);
             Assert.False(text.Contains("reconnect_max_attempts", StringComparison.Ordinal));
             Assert.True(text.Contains("user_modes = ", StringComparison.Ordinal));
@@ -307,6 +310,8 @@ internal static class NetworkProfileStoreTests
                 "username_override = \"slakker/irc.fxnet.org\"",
                 StringComparison.Ordinal));
             Assert.True(text.Contains("[[network]]", StringComparison.Ordinal));
+            reloaded.Replace(saved.WithGetnickTarget(null));
+            Assert.True(new NetworkProfileStore(path).Find("TestNet")!.GetnickTarget is null);
         }
         finally
         {

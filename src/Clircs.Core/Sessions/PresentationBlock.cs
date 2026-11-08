@@ -17,8 +17,14 @@ public sealed record PresentationField
 
     public bool IsSectionHeading { get; init; }
 
-    public static PresentationField Section(string title) =>
-        new(title, string.Empty) { IsSectionHeading = true };
+    public bool BlankLineBefore { get; init; }
+
+    public static PresentationField Section(string title, bool blankLineBefore = false) =>
+        new(title, string.Empty)
+        {
+            IsSectionHeading = true,
+            BlankLineBefore = blankLineBefore
+        };
 }
 
 public sealed record PresentationTable

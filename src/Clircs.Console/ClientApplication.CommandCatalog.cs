@@ -210,6 +210,7 @@ internal sealed partial class ClientApplication
             new("Use global username", "/network username <profile>"),
             new("Set user modes", "/network usermodes <profile> <modes>"),
             new("Use global user modes", "/network usermodes <profile>"),
+            new("Getnick", "/network getnick <profile> [nickname|off]"),
             new("Remove profile", "/network remove <profile>"),
             new("Password status", "/network password <profile>"),
             new("Save password", "/network password <profile> set"),

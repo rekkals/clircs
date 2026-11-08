@@ -230,6 +230,9 @@ public sealed class NetworkProfileStore
         var usernameOverride = values.TryGetValue("username_override", out var usernameOverrideValue)
             ? ParseString(usernameOverrideValue)
             : null;
+        var getnickTarget = values.TryGetValue("getnick_target", out var getnickTargetValue)
+            ? ParseString(getnickTargetValue)
+            : null;
         var autojoin = values.TryGetValue("autojoin", out var autojoinValue)
             ? ParseArray<string>(autojoinValue)
             : [];
@@ -277,7 +280,8 @@ public sealed class NetworkProfileStore
             notify,
             userModesOverride,
             sasl,
-            usernameOverride);
+            usernameOverride,
+            getnickTarget);
     }
 
     private static string Serialize(IEnumerable<NetworkProfile> profiles)
@@ -300,6 +304,10 @@ public sealed class NetworkProfileStore
             if (profile.UsernameOverride is not null)
             {
                 Append(builder, "username_override", profile.UsernameOverride);
+            }
+            if (profile.GetnickTarget is not null)
+            {
+                Append(builder, "getnick_target", profile.GetnickTarget);
             }
             Append(builder, "real_name", profile.Identity.RealName);
             AppendArray(builder, "autojoin", profile.AutojoinChannels);

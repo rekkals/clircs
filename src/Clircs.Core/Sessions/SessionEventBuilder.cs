@@ -39,7 +39,8 @@ internal sealed class SessionEventBuilder(NetworkSessionState state)
                 TerminalTextSanitizer.Sanitize(field.Value),
                 field.FormattedValue)
             {
-                IsSectionHeading = field.IsSectionHeading
+                IsSectionHeading = field.IsSectionHeading,
+                BlankLineBefore = field.BlankLineBefore
             }).ToArray(),
             Table = presentation.Table is null ? null : new PresentationTable(
                 presentation.Table.Columns.Select(TerminalTextSanitizer.Sanitize).ToArray(),

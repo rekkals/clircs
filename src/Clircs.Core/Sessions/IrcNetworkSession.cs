@@ -90,6 +90,12 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     public event Action<IrcNetworkSession, bool, IReadOnlyList<string>>? MonitorStatusReceived;
 
+    public event Action<IrcNetworkSession, IReadOnlyList<string>>? MonitorListFullReceived;
+
+    public event Action<IrcNetworkSession, string, bool>? NicknameChanged;
+
+    public event Action<IrcNetworkSession, string?>? NicknameRejected;
+
     public event Action<IrcNetworkSession, IrcWireLine>? WireLineTransferred;
 
     public NetworkSessionState State { get; }
@@ -242,8 +248,11 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         string command,
         IReadOnlyList<string> parameters,
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
-        CancellationToken cancellationToken = default) =>
-        _connection.SendAsync(command, parameters, priority, cancellationToken);
+        CancellationToken cancellationToken = default,
+        bool cancelBeforeSend = false) =>
+        _connection.SendAsync(
+            command, parameters, priority, cancellationToken,
+            cancelBeforeSend: cancelBeforeSend);
 
     public ValueTask SendRawAsync(string rawLine, CancellationToken cancellationToken = default) =>
         _connection.SendRawAsync(rawLine, IrcOutboundPriority.Interactive, cancellationToken);
@@ -676,9 +685,11 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             occurredAt = serverTime.ToLocalTime();
         }
 
+        var previousNickname = CurrentNickname;
         var processedEvents = registrationProtocolMessage
             ? []
             : _processor.Process(message, occurredAt);
+        ObserveNicknameResult(message, previousNickname);
         if (_synchronizationCompleted)
         {
             StartBouncerMetadataProbe();
@@ -808,7 +819,59 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             MonitorStatusReceived?.Invoke(this, message.Command == "730", nicknames);
         }
 
+        if (message.Command == "734" && message.Parameters.Count >= 4)
+        {
+            var rejected = message.Parameters[2]
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(new IrcNameComparer(State.CaseMapping))
+                .ToArray();
+            MonitorListFullReceived?.Invoke(this, rejected);
+        }
+
         StateChanged?.Invoke(this);
+    }
+
+    private void ObserveNicknameResult(IrcMessage message, string previousNickname)
+    {
+        if ((message.Command is "NICK" or "043") &&
+            !string.Equals(previousNickname, CurrentNickname, StringComparison.Ordinal))
+        {
+            NicknameChanged?.Invoke(this, CurrentNickname, message.Command == "043");
+        }
+
+        if (ConnectionState != IrcConnectionState.Online) return;
+
+        var rejectedNickname = message.Command switch
+        {
+            "432" or "433" or "435" or "436"
+                when message.Parameters.Count >= 3 => message.Parameters[1],
+            "437"
+                when message.Parameters.Count >= 3 &&
+                    !Features.IsChannel(message.Parameters[1]) => message.Parameters[1],
+            "438" when message.Parameters.Count >= 3 => message.Parameters[^2],
+            _ => null
+        };
+        if (rejectedNickname is not null)
+        {
+            NicknameRejected?.Invoke(this, rejectedNickname);
+            return;
+        }
+
+        // Some nickname errors identify a channel or restriction instead
+        // of including the requested nickname.
+        if ((message.Command is "431" or "447") ||
+            (message.Command == "437" &&
+                Features.DaemonFamily == IrcDaemonFamily.Unreal &&
+                message.Parameters.Count >= 3 &&
+                Features.IsChannel(message.Parameters[1])) ||
+            (message.Command == "484" &&
+                Features.DaemonFamily == IrcDaemonFamily.IrcNet) ||
+            ((message.Command is "263" or "461") &&
+                message.Parameters.Count >= 3 &&
+                message.Parameters[1].Equals("NICK", StringComparison.OrdinalIgnoreCase)))
+        {
+            NicknameRejected?.Invoke(this, null);
+        }
     }
 
     private async ValueTask RespondToCtcpAsync(IrcMessage message)

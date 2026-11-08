@@ -1,5 +1,6 @@
 using Clircs.Protocol;
 using Clircs.State;
+using System.Globalization;
 
 namespace Clircs.Sessions;
 
@@ -22,6 +23,13 @@ public sealed class ServerFeatures
     public string ChannelTypes { get; private set; } = DefaultChannelTypes;
 
     public int ModesPerCommand { get; private set; } = DefaultModesPerCommand;
+
+    public int? NicknameLengthLimit =>
+        TryGetIsupportValue("NICKLEN", out var value) &&
+        int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var length) &&
+        length > 0
+            ? length
+            : null;
 
     public string? NetworkName { get; private set; }
 

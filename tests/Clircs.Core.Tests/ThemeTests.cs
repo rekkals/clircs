@@ -2218,7 +2218,7 @@ internal static class ThemeTests
                 [
                     new PresentationField("Network", "EFnet"),
                     new PresentationField("Nickname", "slakker"),
-                    PresentationField.Section("Profile Settings"),
+                    PresentationField.Section("Profile Settings", blankLineBefore: true),
                     new PresentationField("Name", "EFnet"),
                     new PresentationField("Autojoin", "#one, #two")
                 ],
@@ -2242,8 +2242,13 @@ internal static class ThemeTests
             {
                 Assert.True(originalRows.Any(row =>
                     row.Contains("Network   EFnet", StringComparison.Ordinal)));
-                Assert.True(originalRows.Any(row =>
-                    row.EndsWith("Profile Settings", StringComparison.Ordinal)));
+                var heading = Array.FindIndex(originalRows, row =>
+                    row.EndsWith("Profile Settings", StringComparison.Ordinal));
+                Assert.True(heading >= 2);
+                Assert.True(originalRows[heading - 1].TrimEnd().EndsWith(
+                    TerminalTheme.BuiltIns["clircs"].InfoSide.TrimEnd(),
+                    StringComparison.Ordinal));
+                Assert.True(originalRows[heading - 2].Contains("slakker", StringComparison.Ordinal));
             }
 
             if (block.AutoFieldColumns)
