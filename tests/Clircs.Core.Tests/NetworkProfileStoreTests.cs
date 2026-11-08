@@ -48,25 +48,30 @@ internal static class NetworkProfileStoreTests
             [],
             new IrcIdentity(["OtherNick"], "other", "Other User"));
 
-        var rows = ClientApplication.NetworkProfileRows([configured, unconfigured]);
+        var rows = ClientApplication.NetworkProfileRows(
+            [configured, unconfigured],
+            profileId => profileId == configured.Id);
 
         Assert.Equal(3, rows.Count);
-        Assert.True(rows.All(row => row.Count == 4));
+        Assert.True(rows.All(row => row.Count == 5));
 
         Assert.Equal("EFnet", rows[0][0]);
         Assert.Equal("1", rows[0][1]);
         Assert.Equal("irc1.example.test:6697 (TLS)", rows[0][2]);
         Assert.Equal("off", rows[0][3]);
+        Assert.Equal("yes", rows[0][4]);
 
         Assert.Equal(string.Empty, rows[1][0]);
         Assert.Equal("2", rows[1][1]);
         Assert.Equal("irc2.example.test:6667", rows[1][2]);
         Assert.Equal(string.Empty, rows[1][3]);
+        Assert.Equal(string.Empty, rows[1][4]);
 
         Assert.Equal("FutureNet", rows[2][0]);
         Assert.Equal(string.Empty, rows[2][1]);
         Assert.Equal("[no server configured]", rows[2][2]);
         Assert.Equal("off", rows[2][3]);
+        Assert.Equal("no", rows[2][4]);
     }
 
     private static void AddUserUsageIsConcise()

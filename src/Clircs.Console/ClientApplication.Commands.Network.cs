@@ -189,11 +189,13 @@ internal sealed partial class ClientApplication
                 {
                     return ValueTask.FromResult(CommandResult.Success("No saved network profiles."));
                 }
-                var profileRows = NetworkProfileRows(profiles);
+                var profileRows = NetworkProfileRows(
+                    profiles,
+                    _networkCredentials.HasServerPassword);
                 return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                     "Network Profiles",
                     Table: new PresentationTable(
-                        ["Name", "No.", "Server", "SASL"],
+                        ["Name", "No.", "Server", "SASL", "Saved password"],
                         profileRows))));
             case "status":
                 if (input.Arguments.Count > 2)
@@ -516,7 +518,8 @@ internal sealed partial class ClientApplication
     }
 
     internal static IReadOnlyList<IReadOnlyList<string>> NetworkProfileRows(
-        IEnumerable<NetworkProfile> profiles)
+        IEnumerable<NetworkProfile> profiles,
+        Func<NetworkProfileId, bool> hasServerPassword)
     {
         var rows = new List<IReadOnlyList<string>>();
         foreach (var profile in profiles)
@@ -533,7 +536,8 @@ internal sealed partial class ClientApplication
                 profile.DisplayName,
                 profile.IsConfigured ? "1" : string.Empty,
                 servers[0],
-                sasl
+                sasl,
+                hasServerPassword(profile.Id) ? "yes" : "no"
             ]);
 
             rows.AddRange(servers.Skip(1).Select((server, index) => (IReadOnlyList<string>)
@@ -541,6 +545,7 @@ internal sealed partial class ClientApplication
                 string.Empty,
                 (index + 2).ToString(CultureInfo.InvariantCulture),
                 server,
+                string.Empty,
                 string.Empty
             ]));
         }
@@ -796,8 +801,8 @@ internal sealed partial class ClientApplication
             {
                 return CommandResult.Success(
                     _networkCredentials.RemoveServerPassword(profile.Id)
-                        ? $"Saved connection password cleared for {profile.DisplayName}"
-                        : $"No saved connection password for {profile.DisplayName}");
+                        ? $"Saved password cleared for {profile.DisplayName}"
+                        : $"No saved password for {profile.DisplayName}");
             }
 
             var password = _presenter.ReadSecret(
@@ -814,7 +819,7 @@ internal sealed partial class ClientApplication
 
             _networkCredentials.SetServerPassword(profile.Id, password);
             return CommandResult.Success(
-                $"Connection password saved for {profile.DisplayName}");
+                $"Password saved for {profile.DisplayName}");
         }
         catch (Exception exception) when (
             exception is ArgumentException or InvalidOperationException or
@@ -1007,7 +1012,7 @@ internal sealed partial class ClientApplication
         catch (InvalidDataException exception)
         {
             throw new InvalidOperationException(
-                $"Saved connection password for {profile.DisplayName} could not be decrypted; " +
+                $"Saved password for {profile.DisplayName} could not be decrypted; " +
                 "use /network password <profile> set to replace it or clear to remove it",
                 exception);
         }
