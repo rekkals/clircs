@@ -360,11 +360,11 @@ internal sealed partial class ClientApplication
         var setting = requested.ToLowerInvariant();
         var detail = setting switch
         {
-            "nickname" => ("<nickname>", "your current default", "Primary nickname for new direct connections.", "/set nickname rekkals"),
-            "altnick" => ("<nickname>", "primary nickname plus _", "Fallback nickname used if the primary nickname is unavailable.", "/set altnick rekkals_"),
-            "username" => ("<username>", "your Windows user name", "Username sent during IRC registration.", "/set username rekkals"),
-            "realname" => ("<name>", "default settings enthusiast", "Real name text sent during IRC registration.", "/set realname Example User"),
-            "awaymsg" => ("<message>", "away", "Message used by /away when no message is supplied.", "/set awaymsg out to lunch"),
+            "nickname" => ("<nickname>", "your current default", "Primary nickname used when connecting.", "/set nickname slakker"),
+            "altnick" => ("<nickname>", "primary nickname plus _", "Fallback nickname used if the primary nickname is unavailable.", "/set altnick slakker_"),
+            "username" => ("<username>", "your Windows user name", "Username sent during IRC registration.", "/set username slakker"),
+            "realname" => ("<name>", "default settings enthusiast", "Real name text sent during IRC registration.", "/set realname Definitely Not My Name"),
+            "awaymsg" => ("<message>", "away", "Message used by /away when no message is supplied.", "/set awaymsg doing IRL stuff"),
             "kickmsg" => ("<message|random>", "random", "Default kick reason; random selects a quote when no reason is supplied.", "/set kickmsg lewser"),
             "quitmsg" => ("<message|default|random>", "default", "Default quit reason; default uses the current clircs version and description, random selects a quote.", "/set quitmsg default"),
             "topicmsg" => ("<message|random>", "random", "Default topic used by /rt; random selects a quote.", "/set topicmsg random"),
@@ -389,8 +389,14 @@ internal sealed partial class ClientApplication
             "dcc.ports" => ("<random|port|first-last>", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
             "dcc.downloads" => ("<folder>", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
             "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", "/set xdcc.auto on"),
-            "hostmasks" or "hostmasks.join" or "hostmasks.part" or "hostmasks.quit" =>
-                ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", $"/set {setting} host"),
+            "hostmasks" =>
+                ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", "/set hostmasks host"),
+            "hostmasks.join" =>
+                ("<userhost|host|off>", "userhost", "Controls hostmask detail on join messages.", "/set hostmasks.join host"),
+            "hostmasks.part" =>
+                ("<userhost|host|off>", "userhost", "Controls hostmask detail on part messages.", "/set hostmasks.part host"),
+            "hostmasks.quit" =>
+                ("<userhost|host|off>", "userhost", "Controls hostmask detail on quit messages.", "/set hostmasks.quit host"),
             "notice.output" =>
                 ("<active|status|window>", "active", "Selects the window used for notices from users.", "/set notice.output window"),
             "snotice.output" =>
@@ -403,9 +409,20 @@ internal sealed partial class ClientApplication
                 ("<active|status|window>", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output window"),
             "list.output" =>
                 ("<active|status|window>", "window", "Selects the window used for channel-list results.", "/set list.output window"),
-            _ when setting.EndsWith(".output", StringComparison.Ordinal) &&
-                _outputRouting.Supports(setting[..^".output".Length]) =>
-                ("<active|status|window>", setting == "links.output" ? "status" : "active", "Selects the window used for this output.", $"/set {setting} active"),
+            "who.output" =>
+                ("<active|status|window>", "active", "Selects the window used for WHO results.", "/set who.output window"),
+            "whois.output" =>
+                ("<active|status|window>", "active", "Selects the window used for WHOIS results.", "/set whois.output window"),
+            "whowas.output" =>
+                ("<active|status|window>", "active", "Selects the window used for WHOWAS results.", "/set whowas.output window"),
+            "ctcp.output" =>
+                ("<active|status|window>", "active", "Selects the window used for CTCP requests and replies.", "/set ctcp.output window"),
+            "invite.output" =>
+                ("<active|status|window>", "active", "Selects the window used for channel invitations and confirmations.", "/set invite.output window"),
+            "links.output" =>
+                ("<active|status|window>", "status", "Selects the window used for server-link listings.", "/set links.output window"),
+            "dns.output" =>
+                ("<active|status|window>", "active", "Selects the window used for DNS lookup results.", "/set dns.output window"),
             _ => default
         };
         if (detail == default) return null;
