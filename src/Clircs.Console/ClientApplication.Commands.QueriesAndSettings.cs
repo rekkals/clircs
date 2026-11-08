@@ -489,6 +489,7 @@ internal sealed partial class ClientApplication
             case "who.output":
             case "whois.output":
             case "whowas.output":
+            case "names.output":
             case "ctcp.output":
             case "notice.output":
             case "snotice.output":

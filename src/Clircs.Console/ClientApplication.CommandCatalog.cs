@@ -268,7 +268,7 @@ internal sealed partial class ClientApplication
             new("Network", "usermodes, network.reconnect, kill.reconnect, reconnect.limit"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads, xdcc.auto"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
-            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, snotice.output, notify.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
+            new("Routing", "who.output, whois.output, whowas.output, names.output, ctcp.output, notice.output, snotice.output, notify.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
         ],
         "cprot" =>
         [
@@ -415,6 +415,8 @@ internal sealed partial class ClientApplication
                 ("<active|status|window>", "active", "Selects the window used for WHOIS results.", "/set whois.output window"),
             "whowas.output" =>
                 ("<active|status|window>", "active", "Selects the window used for WHOWAS results.", "/set whowas.output window"),
+            "names.output" =>
+                ("<active|status|window>", "active", "Selects the window used for /names results.", "/set names.output window"),
             "ctcp.output" =>
                 ("<active|status|window>", "active", "Selects the window used for CTCP requests and replies.", "/set ctcp.output window"),
             "invite.output" =>

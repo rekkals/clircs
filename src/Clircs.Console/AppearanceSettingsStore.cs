@@ -175,6 +175,7 @@ internal sealed class AppearanceSettingsStore
             ["who"] = "active",
             ["whois"] = "active",
             ["whowas"] = "active",
+            ["names"] = "active",
             ["ctcp"] = "active",
             ["notice"] = "active",
             ["snotice"] = "status",
