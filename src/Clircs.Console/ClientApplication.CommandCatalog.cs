@@ -268,7 +268,7 @@ internal sealed partial class ClientApplication
             new("Network", "usermodes, network.reconnect, kill.reconnect, reconnect.limit"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads, xdcc.auto"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
-            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, snotice.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
+            new("Routing", "who.output, whois.output, whowas.output, ctcp.output, notice.output, snotice.output, notify.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
         ],
         "cprot" =>
         [
@@ -395,6 +395,8 @@ internal sealed partial class ClientApplication
                 ("<active|status|window>", "active", "Selects the window used for notices from users.", "/set notice.output window"),
             "snotice.output" =>
                 ("<active|status|window>", "status", "Selects the window used for server notices.", "/set snotice.output window"),
+            "notify.output" =>
+                ("<active|status|window>", "status", "Selects the window used for notify online/offline announcements.", "/set notify.output window"),
             "wallops.output" =>
                 ("<active|status|window>", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
             "callerid.output" =>

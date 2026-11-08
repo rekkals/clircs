@@ -492,6 +492,7 @@ internal sealed partial class ClientApplication
             case "ctcp.output":
             case "notice.output":
             case "snotice.output":
+            case "notify.output":
             case "wallops.output":
             case "invite.output":
             case "links.output":

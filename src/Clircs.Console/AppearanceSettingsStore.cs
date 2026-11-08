@@ -178,6 +178,7 @@ internal sealed class AppearanceSettingsStore
             ["ctcp"] = "active",
             ["notice"] = "active",
             ["snotice"] = "status",
+            ["notify"] = "status",
             ["invite"] = "active",
             ["links"] = "status",
             ["list"] = "window",

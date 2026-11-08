@@ -767,9 +767,9 @@ internal sealed partial class ClientApplication
         var comparer = IrcNameComparerFor(session);
         var changes = runtime.Notify.ApplyIson(profile.NotifyNicknames, reportedOnline, comparer);
         foreach (var nickname in changes.Online)
-            PublishStatus(session, SessionEventKind.Notice, $"Notify: {nickname} is online");
+            PublishNotify(session, nickname, online: true);
         foreach (var nickname in changes.Offline)
-            PublishStatus(session, SessionEventKind.Notice, $"Notify: {nickname} is offline");
+            PublishNotify(session, nickname, online: false);
 
         var getnick = runtime.Getnick.Snapshot();
         if (changes.GetnickGeneration is { } generation &&
@@ -792,8 +792,7 @@ internal sealed partial class ClientApplication
         var changed = runtime.Notify.ApplyMonitor(profile?.NotifyNicknames ?? [], online, nicknames);
 
         foreach (var nickname in changed)
-            PublishStatus(session, SessionEventKind.Notice,
-                $"Notify: {nickname} is {(online ? "online" : "offline")}");
+            PublishNotify(session, nickname, online);
 
         if (!online)
         {
@@ -1447,6 +1446,23 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure(exception.Message);
         }
     }
+
+    private void PublishNotify(
+        IrcNetworkSession session,
+        string nickname,
+        bool online) =>
+        OnSessionEvent(new SessionEvent(
+            session.State.Id,
+            session.State.StatusBuffer.Id,
+            SessionEventKind.Notice,
+            TerminalTextSanitizer.Sanitize(FormatLocalCommandResult(
+                $"Notify: {nickname} is {(online ? "online" : "offline")}")),
+            DateTimeOffset.Now,
+            new Dictionary<string, string?>
+            {
+                ["outputFamily"] = "notify",
+                ["routeConfigured"] = "true"
+            }));
 
     private void PublishStatus(IrcNetworkSession session, SessionEventKind kind, string text) =>
         OnSessionEvent(new SessionEvent(

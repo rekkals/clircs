@@ -18,6 +18,7 @@ internal sealed class OutputRoutingCoordinator
             ["ctcp"] = OutputDestination.Active,
             ["notice"] = OutputDestination.Active,
             ["snotice"] = OutputDestination.Status,
+            ["notify"] = OutputDestination.Status,
             ["wallops"] = OutputDestination.Active,
             ["invite"] = OutputDestination.Active,
             ["links"] = OutputDestination.Status,
@@ -28,7 +29,7 @@ internal sealed class OutputRoutingCoordinator
 
     public static readonly IReadOnlyList<string> SettingOrder =
     [
-        "who", "whois", "whowas", "ctcp", "notice", "snotice", "wallops", "invite", "links", "list", "dns", "callerid"
+        "who", "whois", "whowas", "ctcp", "notice", "snotice", "notify", "wallops", "invite", "links", "list", "dns", "callerid"
     ];
 
     private readonly object _gate = new();
