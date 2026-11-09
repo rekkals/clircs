@@ -252,7 +252,8 @@ internal sealed partial class ClientApplication
             }
         }
 
-        if (context.Event.Fields?.GetValueOrDefault("event") != "irc.wire")
+        if (!context.IsHighlightEcho &&
+            context.Event.Fields?.GetValueOrDefault("event") != "irc.wire")
         {
             _scriptManager.Publish(context.Event);
         }
