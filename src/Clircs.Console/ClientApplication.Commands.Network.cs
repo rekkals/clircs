@@ -1782,19 +1782,14 @@ internal sealed partial class ClientApplication
 
         var operation = input.Arguments[0].ToLowerInvariant();
         IReadOnlyList<string> nicknames;
-        if (operation is "add" or "+" or "remove" or "delete" or "-") nicknames = input.Arguments.Skip(1).ToArray();
-        else if (input.Arguments.Count == 1 && input.Arguments[0].Length > 1 && input.Arguments[0][0] is '+' or '-')
-        {
-            operation = input.Arguments[0][0] == '+' ? "add" : "remove";
-            nicknames = [input.Arguments[0][1..]];
-        }
-        else return CommandResult.Failure("Usage: /notify [list|add <nick...>|remove <nick...>|+nick|-nick]");
+        if (operation is "add" or "remove") nicknames = input.Arguments.Skip(1).ToArray();
+        else return CommandResult.Failure("Usage: /notify [list|add <nick...>|remove <nick...>]");
 
         if (nicknames.Count == 0 || nicknames.Any(nick => !IsValidNotifyNickname(session, nick)))
             return CommandResult.Failure("Notify entries must be individual nicknames without spaces, commas, or channel prefixes.");
 
         var updated = profile.NotifyNicknames.ToList();
-        if (operation is "add" or "+")
+        if (operation is "add")
         {
             foreach (var nickname in nicknames)
                 if (!updated.Contains(nickname, StringComparer.OrdinalIgnoreCase)) updated.Add(nickname);
