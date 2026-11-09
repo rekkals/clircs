@@ -39,7 +39,11 @@ internal sealed record AppearanceSettings(
     bool StatusTotals = true,
     bool XdccAuto = false,
     bool Startup = true,
-    int ReconnectLimit = 100);
+    int ReconnectLimit = 100,
+    bool OnJoinUsers = true,
+    bool OnJoinTopic = true,
+    bool OnJoinCreated = true,
+    bool OnJoinSync = true);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -111,7 +115,11 @@ internal sealed class AppearanceSettingsStore
                 stored.StatusTotals,
                 stored.XdccAuto,
                 stored.Startup,
-                stored.ReconnectLimit);
+                stored.ReconnectLimit,
+                stored.OnJoinUsers,
+                stored.OnJoinTopic,
+                stored.OnJoinCreated,
+                stored.OnJoinSync);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -138,6 +146,10 @@ internal sealed class AppearanceSettingsStore
             DefaultQuitMessage = settings.DefaultQuitMessage,
             DefaultTopicMessage = settings.DefaultTopicMessage,
             AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin,
+            OnJoinUsers = settings.OnJoinUsers,
+            OnJoinTopic = settings.OnJoinTopic,
+            OnJoinCreated = settings.OnJoinCreated,
+            OnJoinSync = settings.OnJoinSync,
             HighlightNickname = settings.HighlightNickname,
             LagMeter = settings.LagMeter,
             StatusTls = settings.StatusTls,
@@ -201,6 +213,10 @@ internal sealed class AppearanceSettingsStore
         public string? DefaultQuitMessage { get; set; }
         public string? DefaultTopicMessage { get; set; }
         public bool AnnounceUserInfoOnJoin { get; set; }
+        public bool OnJoinUsers { get; set; } = true;
+        public bool OnJoinTopic { get; set; } = true;
+        public bool OnJoinCreated { get; set; } = true;
+        public bool OnJoinSync { get; set; } = true;
         public bool HighlightNickname { get; set; } = true;
         public bool LagMeter { get; set; } = true;
         public bool StatusTls { get; set; } = true;

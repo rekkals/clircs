@@ -2,6 +2,16 @@ using Clircs.Protocol;
 
 namespace Clircs.State;
 
+[Flags]
+internal enum ChannelJoinInformation
+{
+    None = 0,
+    Users = 1,
+    Topic = 2,
+    TopicSetter = 4,
+    Created = 8
+}
+
 public sealed class ChannelState
 {
     private readonly object _gate = new();
@@ -19,6 +29,8 @@ public sealed class ChannelState
     }
 
     public string Name { get; }
+
+    internal ChannelJoinInformation PendingJoinInformation { get; set; }
 
     public bool NamesSynchronized { get; internal set; }
 

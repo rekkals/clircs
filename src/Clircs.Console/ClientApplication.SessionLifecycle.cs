@@ -1419,6 +1419,7 @@ internal sealed partial class ClientApplication
             new Dictionary<string, string?>
             {
                 ["channel"] = channel.Name,
+                ["onJoin"] = "sync",
                 ["seconds"] = elapsed.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)
             }));
     }

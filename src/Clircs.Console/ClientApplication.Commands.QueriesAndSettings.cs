@@ -224,6 +224,10 @@ internal sealed partial class ClientApplication
                 new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
                 new("joininfo", _preferences.AnnounceUserInfoOnJoin ? "on" : "off"),
+                new("onjoin.users", _preferences.OnJoinUsers ? "on" : "off"),
+                new("onjoin.topic", _preferences.OnJoinTopic ? "on" : "off"),
+                new("onjoin.created", _preferences.OnJoinCreated ? "on" : "off"),
+                new("onjoin.sync", _preferences.OnJoinSync ? "on" : "off"),
                 new("hostmasks.join", FormatHostmaskVisibility(_preferences.JoinHostmasks)),
                 new("hostmasks.part", FormatHostmaskVisibility(_preferences.PartHostmasks)),
                 new("hostmasks.quit", FormatHostmaskVisibility(_preferences.QuitHostmasks)),
@@ -263,6 +267,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count == 1 &&
             (setting.StartsWith("status.", StringComparison.Ordinal) ||
+             setting.StartsWith("onjoin.", StringComparison.Ordinal) ||
              setting is "xdcc.auto" or "startup" or "reconnect.limit") &&
             CurrentSettingValue(setting) is { } currentValue)
         {
@@ -402,6 +407,31 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure("clonedetect must be on or off."));
                 }
                 _preferences.CloneDetection = cloneDetection;
+                break;
+            case "onjoin.users":
+            case "onjoin.topic":
+            case "onjoin.created":
+            case "onjoin.sync":
+                if (!TryParseOnOff(value, out var onJoinEnabled))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        $"{setting} must be on or off."));
+                }
+                switch (setting)
+                {
+                    case "onjoin.users":
+                        _preferences.OnJoinUsers = onJoinEnabled;
+                        break;
+                    case "onjoin.topic":
+                        _preferences.OnJoinTopic = onJoinEnabled;
+                        break;
+                    case "onjoin.created":
+                        _preferences.OnJoinCreated = onJoinEnabled;
+                        break;
+                    case "onjoin.sync":
+                        _preferences.OnJoinSync = onJoinEnabled;
+                        break;
+                }
                 break;
             case "joininfo":
                 if (!TryParseOnOff(value, out var announceInfo))

@@ -228,6 +228,8 @@ Notify lists are network-specific and use `MONITOR` when available. Use `/notify
 
 ## Channel Management and Protection
 
+Use the `onjoin.users`, `onjoin.topic`, `onjoin.created`, and `onjoin.sync` settings to choose what appears when you join a channel. Disabled items are also omitted from logs.
+
 The userlist stores network user records, masks, flags, comments, and channel policy. Use `/help adduser`, `/help users`, `/help uwhois`, `/help cprot`, and `/help pprot` for all the syntax and settings.
 
 Channel protection watches channel events and can monitor, kick, or kickban. Personal protection watches events directed at you and temporarily ignores offenders when enforcement is enabled.

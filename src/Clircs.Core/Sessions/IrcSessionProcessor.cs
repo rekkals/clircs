@@ -1198,7 +1198,89 @@ public sealed class IrcSessionProcessor
                 break;
         }
 
+        AnnotateJoinInformation(message, events);
         return events;
+    }
+
+    private void AnnotateJoinInformation(
+        IrcMessage message,
+        List<SessionEvent> events)
+    {
+        if (message.Command == "JOIN")
+        {
+            if (message.Parameters.Count > 0 &&
+                IsCurrentNickname(NickFromPrefix(message.Prefix)) &&
+                _state.TryGetChannel(message.Parameters[0], out var joinedChannel))
+            {
+                joinedChannel!.PendingJoinInformation =
+                    ChannelJoinInformation.Users |
+                    ChannelJoinInformation.Topic |
+                    ChannelJoinInformation.Created;
+            }
+            return;
+        }
+
+        var information = message.Command switch
+        {
+            "331" or "332" => ChannelJoinInformation.Topic,
+            "333" => ChannelJoinInformation.TopicSetter,
+            "329" => ChannelJoinInformation.Created,
+            "366" => ChannelJoinInformation.Users,
+            _ => ChannelJoinInformation.None
+        };
+        if ((information == ChannelJoinInformation.None && message.Command != "324") ||
+            message.Parameters.Count < 2 ||
+            !_state.TryGetChannel(message.Parameters[1], out var foundChannel))
+        {
+            return;
+        }
+
+        var channel = foundChannel!;
+        var comparer = NameComparer();
+        for (var index = 0; index < events.Count; index++)
+        {
+            var sessionEvent = events[index];
+            if (sessionEvent.Fields is not { } fields ||
+                !comparer.Equals(fields.GetValueOrDefault("channel"), channel.Name))
+            {
+                continue;
+            }
+
+            var manual = fields.GetValueOrDefault("outputRequestId") is not null;
+            if (message.Command == "324")
+            {
+                // Keep a manual MODE query's later creation reply outside join filtering.
+                if (manual)
+                    channel.PendingJoinInformation &= ~ChannelJoinInformation.Created;
+                continue;
+            }
+
+            var onJoin = !manual &&
+                (channel.PendingJoinInformation & information) != 0;
+            channel.PendingJoinInformation &= ~information;
+
+            if (message.Command is "331" or "332")
+            {
+                channel.PendingJoinInformation &= ~ChannelJoinInformation.TopicSetter;
+                if (message.Command == "332" && onJoin)
+                    channel.PendingJoinInformation |= ChannelJoinInformation.TopicSetter;
+            }
+
+            if (!onJoin) continue;
+
+            events[index] = sessionEvent with
+            {
+                Fields = new Dictionary<string, string?>(fields, StringComparer.Ordinal)
+                {
+                    ["onJoin"] = information switch
+                    {
+                        ChannelJoinInformation.Users => "users",
+                        ChannelJoinInformation.Created => "created",
+                        _ => "topic"
+                    }
+                }
+            };
+        }
     }
 
     private void ApplySelfNicknameChange(

@@ -165,9 +165,20 @@ internal sealed partial class ClientApplication
         return true;
     }
 
+    private bool ShouldPresentJoinInformation(SessionEvent sessionEvent) =>
+        sessionEvent.Fields?.GetValueOrDefault("onJoin") switch
+        {
+            "users" => _preferences.OnJoinUsers,
+            "topic" => _preferences.OnJoinTopic,
+            "created" => _preferences.OnJoinCreated,
+            "sync" => _preferences.OnJoinSync,
+            _ => true
+        };
+
     private bool StoreSessionEvent(SessionEventDispatchContext context)
     {
         var sessionEvent = context.Event;
+        context.SuppressNativePresentation = !ShouldPresentJoinInformation(sessionEvent);
         var eventSessionBeforeStore = FindSession(sessionEvent.NetworkSessionId);
         var eventBufferNameBeforeStore =
             eventSessionBeforeStore?.State.TryGetBuffer(sessionEvent.BufferId, out var bufferBeforeStore) == true
@@ -175,11 +186,22 @@ internal sealed partial class ClientApplication
                 : "status";
         lock (_windowTransactionGate)
         {
-            context.Stored = FindSession(sessionEvent.NetworkSessionId)?.State.TryGetBuffer(sessionEvent.BufferId, out _) == true
-                ? StoreWindowEventUnsafe(sessionEvent, eventBufferNameBeforeStore, context.IsReplay, trackUnread: true)
-                : new StoredWindowEvent(false, false, false, false);
+            if (FindSession(sessionEvent.NetworkSessionId)?.State
+                    .TryGetBuffer(sessionEvent.BufferId, out _) != true)
+            {
+                return false;
+            }
+
+            if (!context.SuppressNativePresentation)
+            {
+                context.Stored = StoreWindowEventUnsafe(
+                    sessionEvent,
+                    eventBufferNameBeforeStore,
+                    context.IsReplay,
+                    trackUnread: true);
+            }
         }
-        if (!context.Stored.Stored)
+        if (!context.SuppressNativePresentation && !context.Stored.Stored)
         {
             return false;
         }
@@ -207,23 +229,26 @@ internal sealed partial class ClientApplication
 
     private bool DeliverSessionEvent(SessionEventDispatchContext context)
     {
-        if (LogSessionEvent(context.Event, context.EventSession, context.EventBuffer) ==
-            ResourceQueueWriteResult.CapacityExceeded)
+        if (!context.SuppressNativePresentation)
         {
-            OpenInboundResourceCircuit(
-                context.Event.NetworkSessionId,
-                $"the pending log backlog exceeded {EventLogWriter.MaximumPendingEntries:N0} entries");
-        }
-        if (context.Stored.IsActive && !context.Stored.IsScrolled)
-        {
-            if (context.Stored.Replaced)
+            if (LogSessionEvent(context.Event, context.EventSession, context.EventBuffer) ==
+                ResourceQueueWriteResult.CapacityExceeded)
             {
-                RedrawActiveBuffer();
-                context.RedrewForReplacement = true;
+                OpenInboundResourceCircuit(
+                    context.Event.NetworkSessionId,
+                    $"the pending log backlog exceeded {EventLogWriter.MaximumPendingEntries:N0} entries");
             }
-            else
+            if (context.Stored.IsActive && !context.Stored.IsScrolled)
             {
-                PresentWindowEvent(context.Event, context.BufferName, context.Stored.DateChange);
+                if (context.Stored.Replaced)
+                {
+                    RedrawActiveBuffer();
+                    context.RedrewForReplacement = true;
+                }
+                else
+                {
+                    PresentWindowEvent(context.Event, context.BufferName, context.Stored.DateChange);
+                }
             }
         }
 
@@ -270,6 +295,7 @@ internal sealed partial class ClientApplication
         public bool IsSelfMessage { get; set; }
         public bool ReturnedFromAway { get; set; }
         public bool EchoHighlight { get; set; }
+        public bool SuppressNativePresentation { get; set; }
         public StoredWindowEvent Stored { get; set; }
         public IrcNetworkSession? EventSession { get; set; }
         public BufferState? EventBuffer { get; set; }

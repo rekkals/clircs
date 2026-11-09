@@ -480,7 +480,11 @@ internal sealed partial class ClientApplication
         _preferences.StatusTotals,
         _preferences.XdccAuto,
         _preferences.Startup,
-        _preferences.ReconnectLimit);
+        _preferences.ReconnectLimit,
+        _preferences.OnJoinUsers,
+        _preferences.OnJoinTopic,
+        _preferences.OnJoinCreated,
+        _preferences.OnJoinSync);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -506,6 +510,10 @@ internal sealed partial class ClientApplication
         _preferences.DefaultQuitMessage = settings.DefaultQuitMessage;
         _preferences.DefaultTopicMessage = settings.DefaultTopicMessage;
         _preferences.AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin;
+        _preferences.OnJoinUsers = settings.OnJoinUsers;
+        _preferences.OnJoinTopic = settings.OnJoinTopic;
+        _preferences.OnJoinCreated = settings.OnJoinCreated;
+        _preferences.OnJoinSync = settings.OnJoinSync;
         _preferences.HighlightNickname = settings.HighlightNickname;
         _preferences.LagMeter = settings.LagMeter;
         _preferences.StatusTls = settings.StatusTls;

@@ -24,6 +24,10 @@ internal sealed class ClientPreferences
     public HostmaskVisibility QuitHostmasks { get; set; } = HostmaskVisibility.UserHost;
     public bool AutoRejoinOnKick { get; set; }
     public bool AnnounceUserInfoOnJoin { get; set; }
+    public bool OnJoinUsers { get; set; } = true;
+    public bool OnJoinTopic { get; set; } = true;
+    public bool OnJoinCreated { get; set; } = true;
+    public bool OnJoinSync { get; set; } = true;
     public string? DefaultKickMessage { get; set; }
     public string? DefaultQuitMessage { get; set; }
     public string? DefaultTopicMessage { get; set; }

@@ -55,6 +55,7 @@ internal static class SessionTests
         suite.Add("manual TOPIC replies are correlated without creating joined-channel state", TopicSetterRoutesToChannel);
         suite.Add("numeric 331 clears stale topic state and routes to the channel", NoTopicClearsChannelState);
         suite.Add("numeric 329 renders channel creation time in the channel", ChannelCreationRoutesToChannel);
+        suite.Add("automatic join information is distinguished from later output", AutomaticJoinInformationIsMarked);
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
         suite.Add("STATS p replies produce a formatted operator table", StatsOperatorsProduceInformationBox);
         suite.Add("STATS u preserves server uptime text and suppresses its terminator", StatsUptimePreservesServerText);
@@ -1106,6 +1107,19 @@ internal static class SessionTests
         Assert.False(state.TryGetChannel("#other", out _));
         Assert.False(state.TryGetBuffer("#other", out _));
         Assert.True(processor.TryBeginModeRequest("#other", out _));
+
+        processor.Process(IrcMessageParser.Parse(
+            ":me!self@localhost JOIN #clirc"));
+        Assert.True(processor.TryBeginModeRequest("#clirc", out _));
+        processor.Process(IrcMessageParser.Parse(
+            ":server 324 me #clirc +nt"));
+        processor.Process(IrcMessageParser.Parse(
+            ":server NOTICE me :Intervening traffic"));
+        var lateCreated = processor.Process(IrcMessageParser.Parse(
+            ":server 329 me #clirc 1700000000"));
+        Assert.Equal(1, lateCreated.Count);
+        Assert.True(lateCreated[0].Fields!.GetValueOrDefault("outputRequestId") is null);
+        Assert.False(lateCreated[0].Fields!.ContainsKey("onJoin"));
     }
 
     private static void UniqueChannelOperatorIsFormatted()
@@ -1301,6 +1315,8 @@ internal static class SessionTests
 
         Assert.False(state.TryGetChannel("#clirc", out _));
         Assert.False(state.TryGetBuffer("#clirc", out _));
+        processor.Process(IrcMessageParser.Parse(
+            ":me!self@localhost JOIN #clirc"));
         Assert.True(processor.TryBeginTopicRequest("#clirc", out _));
 
         processor.Process(IrcMessageParser.Parse(
@@ -1313,6 +1329,7 @@ internal static class SessionTests
         Assert.Equal(1, lateSetterEvents.Count);
         Assert.True(lateSetterEvents[0].Fields!["outputFamily"] is null);
         Assert.True(lateSetterEvents[0].Fields!["outputRequestId"] is null);
+        Assert.False(lateSetterEvents[0].Fields!.ContainsKey("onJoin"));
     }
 
     private static void NoTopicClearsChannelState()
@@ -1346,6 +1363,39 @@ internal static class SessionTests
         Assert.True(channel.Topic is null);
         Assert.True(channel.TopicSetBy is null);
         Assert.True(channel.TopicSetAt is null);
+    }
+
+    private static void AutomaticJoinInformationIsMarked()
+    {
+        var (_, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(
+            ":me!self@localhost JOIN #clirc"));
+        var topic = processor.Process(IrcMessageParser.Parse(
+            ":server 332 me #clirc :Initial topic"))[0];
+        processor.Process(IrcMessageParser.Parse(
+            ":server NOTICE me :Intervening traffic"));
+        var setter = processor.Process(IrcMessageParser.Parse(
+            ":server 333 me #clirc Alice!user@host 1700000000"))[0];
+        processor.Process(IrcMessageParser.Parse(
+            ":server 353 me = #clirc :@me Alice"));
+        var users = processor.Process(IrcMessageParser.Parse(
+            ":server 366 me #clirc :End of NAMES"))[0];
+        processor.Process(IrcMessageParser.Parse(
+            ":server 324 me #clirc +nt"));
+        var created = processor.Process(IrcMessageParser.Parse(
+            ":server 329 me #clirc 1700000000"))[0];
+
+        Assert.Equal("topic", topic.Fields!.GetValueOrDefault("onJoin")!);
+        Assert.Equal("topic", setter.Fields!.GetValueOrDefault("onJoin")!);
+        Assert.Equal("users", users.Fields!.GetValueOrDefault("onJoin")!);
+        Assert.Equal("created", created.Fields!.GetValueOrDefault("onJoin")!);
+
+        var changed = processor.Process(IrcMessageParser.Parse(
+            ":Alice!user@host TOPIC #clirc :A later change"))[0];
+        Assert.False(changed.Fields!.ContainsKey("onJoin"));
+        var laterCreated = processor.Process(IrcMessageParser.Parse(
+            ":server 329 me #clirc 1700000001"))[0];
+        Assert.False(laterCreated.Fields!.ContainsKey("onJoin"));
     }
 
     private static void ChannelCreationRoutesToChannel()
@@ -2449,6 +2499,7 @@ internal static class SessionTests
         Assert.Equal(
             requestId.ToString("D"),
             events[0].Fields!["outputRequestId"]!);
+        Assert.False(events[0].Fields!.ContainsKey("onJoin"));
     }
 
     private static void MembershipEventsMaintainState()
