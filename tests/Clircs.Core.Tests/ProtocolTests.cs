@@ -23,6 +23,7 @@ internal static class ProtocolTests
         suite.Add("framer discards an oversized payload and recovers", FramerDiscardsOversizedPayloadAndRecovers);
         suite.Add("framer discards split oversized input exactly once", FramerDiscardsSplitOversizedInput);
         suite.Add("builder emits a bounded CRLF line", BuilderEmitsWireLine);
+        suite.Add("raw builder counts tags in the UTF-8 payload limit", RawBuilderCountsTagsInPayloadLimit);
         suite.Add("relay text budgets include server-added prefixes and content framing", RelayTextBudgetAccountsForServerPrefix);
         suite.Add("builder rejects excess parameters", BuilderRejectsExcessParameters);
         suite.Add("encoding falls back to Windows-1252", EncodingFallsBack);
@@ -213,6 +214,19 @@ internal static class ProtocolTests
     {
         var line = IrcLineBuilder.Build("privmsg", "#clirc", "hello there");
         Assert.Equal("PRIVMSG #clirc :hello there\r\n", Encoding.UTF8.GetString(line));
+    }
+
+    private static void RawBuilderCountsTagsInPayloadLimit()
+    {
+        const string prefix = "@+example.com/test=é";
+        const string command = " TAGMSG #clircs";
+        var padding = new string('x', IrcLineFramer.MaximumPayloadBytes -
+            Encoding.UTF8.GetByteCount(prefix + command));
+        var raw = prefix + padding + command;
+
+        Assert.Equal(IrcLineFramer.MaximumPayloadBytes + 2,
+            IrcLineBuilder.BuildRaw(raw).Length);
+        Assert.Throws<IrcProtocolException>(() => IrcLineBuilder.BuildRaw(raw + "x"));
     }
 
     private static void RelayTextBudgetAccountsForServerPrefix()

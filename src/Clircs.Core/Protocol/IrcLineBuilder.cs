@@ -8,6 +8,34 @@ public static class IrcLineBuilder
     public static byte[] BuildWithTrailingParameter(string command, params string[] parameters) =>
         BuildCore(command, parameters, forceTrailingParameter: true);
 
+    public static byte[] BuildRaw(string rawLine)
+    {
+        var parsed = IrcMessageParser.Parse(rawLine);
+        if (parsed.Prefix is not null)
+        {
+            throw new IrcProtocolException("Client raw commands cannot contain an IRC prefix.");
+        }
+
+        var line = Build(parsed.Command, parsed.Parameters.ToArray());
+        if (!parsed.HasTags)
+        {
+            return line;
+        }
+
+        // Use the original prefix so tag escapes are preserved exactly.
+        var tagPrefix = IrcTextEncoding.Encode(rawLine[..(rawLine.IndexOf(' ') + 1)]);
+        if (tagPrefix.Length + line.Length - 2 > IrcLineFramer.MaximumPayloadBytes)
+        {
+            throw new IrcProtocolException(
+                $"The encoded IRC line exceeds {IrcLineFramer.MaximumPayloadBytes} payload bytes.");
+        }
+
+        var taggedLine = new byte[tagPrefix.Length + line.Length];
+        tagPrefix.CopyTo(taggedLine, 0);
+        line.CopyTo(taggedLine, tagPrefix.Length);
+        return taggedLine;
+    }
+
     private static byte[] BuildCore(
         string command,
         string[] parameters,

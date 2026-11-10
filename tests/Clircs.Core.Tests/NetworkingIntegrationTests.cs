@@ -338,6 +338,7 @@ internal static class NetworkingIntegrationTests
 
     private static async ValueTask RawWireLinesAreObservableAsync()
     {
+        const string taggedRaw = @"@+typing=active;+example.com/note=two\swords\:ok TAGMSG #clircs";
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -374,8 +375,9 @@ internal static class NetworkingIntegrationTests
             await writer.WriteLineAsync(":server 730 TestNick :Alice!user@example".AsMemory(), timeout.Token);
             await writer.WriteLineAsync("@label=wire-test :alice!user@example NOTICE TestNick :raw test".AsMemory(), timeout.Token);
             var sent = await ReadClientCommandAsync(reader, writer, timeout.Token);
+            var tagged = await ReadClientCommandAsync(reader, writer, timeout.Token);
             var quit = await ReadClientCommandAsync(reader, writer, timeout.Token);
-            return (sent, quit);
+            return (sent, tagged, quit);
         }, timeout.Token);
 
         var options = new IrcConnectionOptions(
@@ -392,6 +394,7 @@ internal static class NetworkingIntegrationTests
 
         await session.ConnectAsync(timeout.Token);
         await session.SendAsync("PRIVMSG", ["alice", "\u0001PING 123\u0001"], cancellationToken: timeout.Token);
+        await session.SendRawAsync(taggedRaw, timeout.Token);
         await session.DisconnectAsync("done", timeout.Token);
         var serverLines = await serverTask;
         listener.Stop();
@@ -405,6 +408,9 @@ internal static class NetworkingIntegrationTests
         Assert.True(monitorOnline.SequenceEqual(new[] { "Alice" }));
         Assert.Equal("PRIVMSG alice :\u0001PING 123\u0001", serverLines.sent!);
         Assert.Equal("QUIT done", serverLines.quit!);
+        Assert.Equal(taggedRaw, serverLines.tagged!);
+        Assert.True(wireLines.Any(line =>
+            line.Direction == IrcWireDirection.Sent && line.Line == taggedRaw));
     }
 
     private static async ValueTask OutgoingChatSplitsToRelaySafeLinesAsync()

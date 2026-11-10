@@ -161,13 +161,11 @@ public sealed class IrcClientConnection : IAsyncDisposable
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
         CancellationToken cancellationToken = default)
     {
-        var parsed = IrcMessageParser.Parse(rawLine);
-        if (parsed.Prefix is not null)
-        {
-            throw new IrcProtocolException("Client raw commands cannot contain an IRC prefix.");
-        }
-
-        await SendAsync(parsed.Command, parsed.Parameters, priority, cancellationToken).ConfigureAwait(false);
+        var line = IrcLineBuilder.BuildRaw(rawLine);
+        var outbound = _outbound ?? throw new InvalidOperationException("Not connected to a server.");
+        await outbound.EnqueueAsync(
+            line, priority, cancellationToken).ConfigureAwait(false);
+        RaiseWireLine(IrcWireDirection.Sent, IrcTextEncoding.Decode(line.AsSpan(0, line.Length - 2)));
     }
 
     public async ValueTask DisconnectAsync(string reason = "Leaving", CancellationToken cancellationToken = default)
