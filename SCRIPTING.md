@@ -427,7 +427,7 @@ clircs.run("/notice Nick hello");
 clircs.run("/quote VERSION"); // Requires raw.
 ```
 
-Normal allowlisted commands require no additional permission. `/raw` and `/quote` require `raw`. Only slash commands are accepted. The command is queued asynchronously using the network and window context active for the script callback that requested it.
+Normal allowlisted commands require no additional permission. `/raw` and `/quote` require `raw`. Only slash commands are accepted. Commands are queued asynchronously using the requesting callback's network and window context. Requests without an originating network or window are rejected.
 
 Despite the name, `clircs.run()` runs a clircs command. It is not a Windows shell command and cannot launch an executable.
 
@@ -439,6 +439,8 @@ clircs.clearTimeout(timerId);
 ```
 
 Requires `timers`. Timers are one-shot and accept delays from 10 milliseconds through 24 hours. A script may have at most 256 active timers. All of its timers are canceled when it unloads or faults.
+
+Timers retain the network and window context in which they were created, including nested timers. If a required destination closes, the command fails visibly.
 
 ### Private Storage
 

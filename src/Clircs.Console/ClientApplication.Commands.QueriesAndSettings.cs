@@ -958,6 +958,12 @@ internal sealed partial class ClientApplication
                 return;
             }
 
+            if (context.NetworkSessionId is null && context.BufferId is null)
+            {
+                PrintScriptOutput(scriptId, "Command request has no originating network or window");
+                return;
+            }
+
             var result = await _commandExecution.ExecuteAsync(context, command, _lifetime.Token);
             if (result.Presentation is not null || !string.IsNullOrWhiteSpace(result.Message))
             {

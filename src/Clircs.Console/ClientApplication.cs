@@ -529,7 +529,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         }
         if (buffer is null)
         {
-            if (local) return;
+            if (local && result.Succeeded) return;
             if (result.Presentation is not null) _presenter.Presentation(result.Presentation);
             else if (warning) _presenter.Warning(message);
             else if (result.Succeeded) _presenter.LocalResult(message);
@@ -571,7 +571,15 @@ internal sealed partial class ClientApplication : IAsyncDisposable
                     assignNumber: buffer.Id != _localStatusBuffer.Id)
                 : new StoredWindowEvent(false, false, false, false);
         }
-        if (!stored.Stored) return;
+        if (!stored.Stored)
+        {
+            if (!result.Succeeded)
+            {
+                if (result.Presentation is not null) _presenter.Presentation(result.Presentation);
+                else _presenter.Result(message, success: false);
+            }
+            return;
+        }
         if (stored.IsActive && !stored.IsScrolled)
         {
             if (stored.Replaced) RedrawActiveBuffer();

@@ -645,6 +645,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
             throw new InvalidOperationException("Timer delay must be between 10 milliseconds and 24 hours.");
         }
 
+        var context = _currentContext;
         var timerId = Interlocked.Increment(ref _nextTimerId);
         Timer? timer = null;
         timer = new Timer(_ =>
@@ -653,7 +654,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
             {
                 try
                 {
-                    await InvokeTimerAsync(timerId, handler).ConfigureAwait(false);
+                    await InvokeTimerAsync(timerId, handler, context).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -1059,7 +1060,10 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
         }
     }
 
-    private async Task InvokeTimerAsync(int timerId, JsValue handler)
+    private async Task InvokeTimerAsync(
+        int timerId,
+        JsValue handler,
+        CommandContext context)
     {
         await _execution.WaitAsync().ConfigureAwait(false);
         try
@@ -1073,6 +1077,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
                 return;
             }
 
+            _currentContext = context;
             ResetConstraints();
             _engine.Invoke(handler);
             _consecutiveFailures = 0;
@@ -1083,6 +1088,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
         }
         finally
         {
+            _currentContext = new CommandContext(null, null);
             _execution.Release();
         }
     }

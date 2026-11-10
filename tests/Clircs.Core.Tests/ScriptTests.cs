@@ -1183,7 +1183,12 @@ internal static class ScriptTests
             clircs.registerCommand("hello", ["hi"], "Say hello.", context => {
               const count = Number(clircs.storage.get("count", "0")) + 1;
               clircs.storage.set("count", String(count));
-              clircs.setTimeout(() => clircs.print("timer-fired"), 20);
+              clircs.setTimeout(() => {
+                clircs.setTimeout(() => {
+                  clircs.run("/whois TimerNick");
+                  clircs.print("timer-fired");
+                }, 20);
+              }, 20);
               clircs.run("/version");
               return `hello ${context.args.join(" ")} (${count})`;
             });
@@ -1196,12 +1201,19 @@ internal static class ScriptTests
             var loaded = await manager.LoadAsync("greeter");
             Assert.Equal("loaded", loaded.Status);
             Assert.True(host.Commands.TryGetValue("hello", out var command));
-            var result = await command!.Handler(new CommandContext(null, null), ScriptInput("world"), CancellationToken.None);
+            var context = new CommandContext(NetworkSessionId.New(), BufferId.New());
+            var result = await command!.Handler(context, ScriptInput("world"), CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.Equal("hello world (1)", result.Message!);
             await host.WaitForOutputAsync(text => text == "timer-fired", TimeSpan.FromSeconds(2));
             Assert.True(host.CommandRequests.TryDequeue(out var request));
             Assert.Equal("/version", request!.CommandLine);
+            Assert.Equal(context, request.Context);
+
+            Assert.True(host.CommandRequests.TryDequeue(out var delayed));
+            Assert.Equal("/whois TimerNick", delayed.CommandLine);
+            Assert.Equal(context, delayed.Context);
+            Assert.True(host.CommandRequests.IsEmpty);
 
             var networkId = NetworkSessionId.New();
             manager.Publish(new SessionEvent(
