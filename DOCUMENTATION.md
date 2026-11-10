@@ -43,7 +43,7 @@ dotnet run --project src/Clircs.Console/Clircs.Console.csproj -c Release --no-bu
 
 ## Data and Configuration
 
-User data is stored under the clircs directory in the current Windows roaming application-data folder. Use `/config` to display the exact folder.
+User data is stored under the clircs directory in the current Windows roaming application-data folder. Use `/config` to display the exact folder. Only one clircs instance can use a data directory at a time.
 
 Use `/set` to inspect or change client settings. Use `/help set` to see a list of settings and `/help set <setting>` for an explanation of that setting.
 
@@ -51,7 +51,7 @@ Use `/network` to inspect live network sessions and saved profiles. Network-spec
 
 Use `/backup create` to save user data, including logs. `/backup list` shows saved backups, and `/backup path` shows their location.
 
-Use `/backup restore <file>` to restore a backup, supplying a filename from `/backup list` or a quoted full path. Close other clircs instances using the same data directory first. After confirmation, clircs replaces current user data with the backup and exits. Files added since the backup are removed, existing backups are kept, and nothing is merged. Restart clircs to complete the process.
+Use `/backup restore <file>` to restore a backup, supplying a filename from `/backup list` or a quoted full path. After confirmation, clircs replaces current user data with the backup and exits. Files added since the backup are removed, existing backups are kept, and nothing is merged. Restart clircs to complete the process.
 
 ## Connecting
 

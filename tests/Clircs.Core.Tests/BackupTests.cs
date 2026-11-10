@@ -56,8 +56,8 @@ internal static class BackupTests
         suite.Add("restore preserves recovery data when rollback also fails", RecoversAfterFailedRollback);
         suite.Add("restore keeps committed data when cleanup fails", KeepsCommittedRestoreAfterCleanupFailure);
         suite.Add("restore requires matching exclusive access and no pending recovery", RejectsInvalidRestoreApplication);
-        suite.Add("startup allows shared access when no recovery is pending", StartupAllowsSharedAccessWithoutRecovery);
-        suite.Add("startup completes recovery before returning shared access", StartupRecoversBeforeReturningSharedLease);
+        suite.Add("startup creates the data directory and holds exclusive access", StartupHoldsExclusiveLease);
+        suite.Add("startup completes recovery before returning exclusive access", StartupRecoversBeforeReturningExclusiveLease);
         suite.Add("failed startup preserves recovery data and releases its leases", FailedStartupReleasesDataLeases);
         suite.Add("restore paths accept backup filenames or full paths", ResolvesRestoreArchivePaths);
         suite.Add("restore confirmation requires an explicit affirmative answer", RestoreConfirmationRequiresExplicitAcceptance);
@@ -1543,36 +1543,35 @@ internal static class BackupTests
             .SequenceEqual(journalBytes));
     }
 
-    private static void StartupAllowsSharedAccessWithoutRecovery()
+    private static void StartupHoldsExclusiveLease()
     {
         using var temporary = new TemporaryDirectory();
-        var settings = Path.Combine(temporary.Path, "appearance.json");
-        File.WriteAllText(settings, "current settings");
+        var dataDirectory = Path.Combine(temporary.Path, "data");
+        var settings = Path.Combine(dataDirectory, "appearance.json");
 
         using (var first = ClientDataDirectory.AcquireForStartup(
-            temporary.Path, out var firstRecovery))
-        using (var second = ClientDataDirectory.AcquireForStartup(
-            temporary.Path, out var secondRecovery))
+            dataDirectory, out var firstRecovery))
         {
             Assert.True(firstRecovery is null);
-            Assert.True(secondRecovery is null);
-            Assert.False(first.IsExclusive);
-            Assert.False(second.IsExclusive);
-            Assert.Equal(temporary.Path, first.DataDirectory);
-            Assert.Equal("current settings", File.ReadAllText(settings));
+            Assert.True(first.IsExclusive);
+            Assert.Equal(dataDirectory, first.DataDirectory);
+            File.WriteAllText(settings, "current settings");
 
             Assert.Throws<IOException>(() =>
             {
-                using var unexpected = DataDirectoryLease.AcquireExclusive(
-                    temporary.Path);
+                using var unexpected = ClientDataDirectory.AcquireForStartup(
+                    dataDirectory, out _);
             });
         }
 
-        using var exclusive = DataDirectoryLease.AcquireExclusive(temporary.Path);
-        Assert.True(exclusive.IsExclusive);
+        using var reopened = ClientDataDirectory.AcquireForStartup(
+            dataDirectory, out var reopenedRecovery);
+        Assert.True(reopenedRecovery is null);
+        Assert.True(reopened.IsExclusive);
+        Assert.Equal("current settings", File.ReadAllText(settings));
     }
 
-    private static void StartupRecoversBeforeReturningSharedLease()
+    private static void StartupRecoversBeforeReturningExclusiveLease()
     {
         BackupRestorePhase[] phases =
         [
@@ -1611,7 +1610,7 @@ internal static class BackupTests
             using var startup = ClientDataDirectory.AcquireForStartup(
                 fixture.DataDirectory, out var recoveredPhase);
 
-            Assert.False(startup.IsExclusive);
+            Assert.True(startup.IsExclusive);
             Assert.Equal(
                 phase == BackupRestorePhase.Installing
                     ? BackupRestorePhase.RolledBack
@@ -1632,10 +1631,6 @@ internal static class BackupTests
             }
 
             fixture.AssertCompleted();
-
-            using var companion = DataDirectoryLease.AcquireShared(
-                fixture.DataDirectory);
-            Assert.False(companion.IsExclusive);
 
             Assert.Throws<IOException>(() =>
             {

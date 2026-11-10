@@ -680,8 +680,7 @@ internal sealed partial class ClientApplication
                 context);
             DisplayCommandResult(
                 CommandResult.Success(
-                    "Existing backups will be kept. Close other clircs instances " +
-                    "using this data directory before continuing."),
+                    "Existing backups will be kept."),
                 context);
             DisplayCommandResult(
                 CommandResult.Success(

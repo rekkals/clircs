@@ -62,7 +62,7 @@ internal sealed class DataDirectoryLease : IDisposable
             (!Directory.Exists(root) || Path.GetDirectoryName(root) is null))
         {
             throw new IOException(
-                "Restore requires an existing data directory below the filesystem root.");
+                "Exclusive access requires an existing data directory below the filesystem root.");
         }
 
         var backups = Path.Combine(root, "backups");
@@ -75,11 +75,20 @@ internal sealed class DataDirectoryLease : IDisposable
                 "The backups directory must not be a link.");
         }
 
-        var file = new FileStream(
-            Path.Combine(backups, ".clircs-use.lock"),
-            FileMode.OpenOrCreate,
-            isExclusive ? FileAccess.ReadWrite : FileAccess.Read,
-            isExclusive ? FileShare.None : FileShare.Read);
+        FileStream file;
+        try
+        {
+            file = new FileStream(
+                Path.Combine(backups, ".clircs-use.lock"),
+                FileMode.OpenOrCreate,
+                isExclusive ? FileAccess.ReadWrite : FileAccess.Read,
+                isExclusive ? FileShare.None : FileShare.Read);
+        }
+        catch (IOException exception) when ((exception.HResult & 0xFFFF) is 32 or 33)
+        {
+            throw new IOException(
+                $"The clircs data directory is already in use: {root}", exception);
+        }
 
         return new DataDirectoryLease(root, isExclusive, file);
     }

@@ -16,33 +16,18 @@ internal static class ClientDataDirectory
         string dataDirectory,
         out BackupRestorePhase? recoveredPhase)
     {
-        var journal = new BackupRestoreJournal(dataDirectory);
-        recoveredPhase = null;
-
-        while (true)
+        Directory.CreateDirectory(dataDirectory);
+        var lease = DataDirectoryLease.AcquireExclusive(dataDirectory);
+        try
         {
-            var shared = DataDirectoryLease.AcquireShared(dataDirectory);
-
-            try
-            {
-                if (journal.Load() is null)
-                {
-                    return shared;
-                }
-            }
-            catch
-            {
-                shared.Dispose();
-                throw;
-            }
-
-            shared.Dispose();
-
-            using (var exclusive = DataDirectoryLease.AcquireExclusive(dataDirectory))
-            {
-                var transaction = new BackupRestoreTransaction(dataDirectory);
-                recoveredPhase = transaction.Recover(exclusive) ?? recoveredPhase;
-            }
+            var transaction = new BackupRestoreTransaction(dataDirectory);
+            recoveredPhase = transaction.Recover(lease);
+            return lease;
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
         }
     }
 }

@@ -29,14 +29,14 @@ catch (Exception exception) when (
     return;
 }
 
+using var dataDirectoryLease = lease;
 PreparedBackupRestore? pendingRestore = null;
 
 try
 {
-    using (lease)
+    await using (var application = new ClientApplication(
+        dataDirectory, recoveredRestore))
     {
-        await using var application = new ClientApplication(
-            dataDirectory, recoveredRestore);
         await application.RunAsync();
         pendingRestore = application.TakePendingRestore();
     }
@@ -46,37 +46,17 @@ try
         return;
     }
 
-    DataDirectoryLease exclusive;
-
     try
     {
-        exclusive = DataDirectoryLease.AcquireExclusive(dataDirectory);
+        var transaction = new BackupRestoreTransaction(dataDirectory);
+        transaction.Apply(pendingRestore, dataDirectoryLease);
+        Console.WriteLine("Backup restored. Start clircs again to use it.");
     }
     catch (Exception exception) when (
-        exception is IOException or UnauthorizedAccessException)
+        exception is IOException or UnauthorizedAccessException or InvalidDataException)
     {
-        Console.Error.WriteLine(
-            "Unable to start restore. Close other clircs instances using " +
-            "this data directory and try again.");
         Console.Error.WriteLine(exception.Message);
         Environment.ExitCode = 1;
-        return;
-    }
-
-    using (exclusive)
-    {
-        try
-        {
-            var transaction = new BackupRestoreTransaction(dataDirectory);
-            transaction.Apply(pendingRestore, exclusive);
-            Console.WriteLine("Backup restored. Start clircs again to use it.");
-        }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            Console.Error.WriteLine(exception.Message);
-            Environment.ExitCode = 1;
-        }
     }
 }
 finally
