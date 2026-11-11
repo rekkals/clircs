@@ -24,6 +24,8 @@ internal sealed class LiveNetworkSession(
 
     public SessionWorkTracker Work { get; } = new(applicationToken);
 
+    public Task PendingOutputRouteCleanup { get; set; } = Task.CompletedTask;
+
     public NotifyCoordinator Notify { get; } = new(new IrcNameComparer(session.State.CaseMapping));
 
     public GetnickCoordinator Getnick { get; } = new(new IrcNameComparer(session.State.CaseMapping));

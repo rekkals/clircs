@@ -32,6 +32,8 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     private readonly Func<NetworkSessionId, string, string?, string?, IrcCaseMapping, bool>? _ignoreMatcher;
     private readonly IrcSessionProcessor _processor;
     private readonly object _healthMonitorGate = new();
+    private readonly object _reconnectGate = new();
+    private (Task Completion, CancellationToken Token)? _activeReconnect;
     private int _disposed;
     private SessionDisconnectInfo? _pendingDisconnect;
     private Dictionary<string, string?> _channelsToRestore = new(new IrcNameComparer(IrcCaseMapping.Rfc1459));
@@ -216,20 +218,69 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public async ValueTask ReconnectAsync(
         IrcConnectionOptions? options = null,
         CancellationToken cancellationToken = default,
-        bool tolerateTaggedCapabilityMessages = false)
+        bool tolerateTaggedCapabilityMessages = false,
+        Func<Task>? waitForDisconnectCleanup = null)
     {
-        if (_connection.State is not (IrcConnectionState.Disconnected or IrcConnectionState.Failed))
+        TaskCompletionSource reconnectFinished;
+        while (true)
         {
-            await DisconnectAsync("Reconnecting", cancellationToken).ConfigureAwait(false);
+            Task canceledReconnect;
+            lock (_reconnectGate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_activeReconnect is not { } active)
+                {
+                    reconnectFinished = new TaskCompletionSource(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    _activeReconnect = (reconnectFinished.Task, cancellationToken);
+                    break;
+                }
+
+                if (!active.Token.IsCancellationRequested)
+                {
+                    throw new InvalidOperationException("A reconnect is already in progress.");
+                }
+
+                canceledReconnect = active.Completion;
+            }
+
+            await canceledReconnect.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        Options = (options ?? Options).Validate();
-        State.ResetForReconnect(Options.Endpoint.UseTls);
-        _processor.ResetForReconnect(Options.Identity.Nicknames[0]);
-        ReindexChannelsToRestore();
-        _pendingJoinKeys.Clear();
-        await ConnectAsync(
-            cancellationToken,
-            tolerateTaggedCapabilityMessages).ConfigureAwait(false);
+
+        try
+        {
+            var previousFinish = _connection.WaitForFinishAsync();
+            if (_connection.State is not (IrcConnectionState.Disconnected or IrcConnectionState.Failed))
+            {
+                await DisconnectAsync("Reconnecting", cancellationToken).ConfigureAwait(false);
+            }
+            if (!previousFinish.IsCompleted)
+            {
+                await previousFinish.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            if (waitForDisconnectCleanup is not null)
+            {
+                await waitForDisconnectCleanup().WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            Options = (options ?? Options).Validate();
+            State.ResetForReconnect(Options.Endpoint.UseTls);
+            _processor.ResetForReconnect(Options.Identity.Nicknames[0]);
+            ReindexChannelsToRestore();
+            _pendingJoinKeys.Clear();
+            await ConnectAsync(
+                cancellationToken,
+                tolerateTaggedCapabilityMessages).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_reconnectGate)
+            {
+                _activeReconnect = null;
+                reconnectFinished.SetResult();
+            }
+        }
     }
 
     public void PrepareJoin(string channel, string? key = null)
@@ -1010,6 +1061,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     {
         StopHealthMonitor();
         _echoTracker.Clear();
+        _processor.ResetPendingQueries();
         _healthPingToken = null;
         _healthPingSentAt = null;
         CaptureJoinedChannels();

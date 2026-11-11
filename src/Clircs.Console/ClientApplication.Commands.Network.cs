@@ -1154,7 +1154,8 @@ internal sealed partial class ClientApplication
         timeout.CancelAfter(ConnectionAttemptTimeout);
         try
         {
-            await session.ReconnectAsync(
+            await ReconnectSessionAsync(
+                session,
                 options,
                 timeout.Token,
                 tolerateTaggedCapabilityMessages);

@@ -367,6 +367,7 @@ internal sealed partial class ClientApplication
             runtime.Notify.Stop();
             runtime.Getnick.Reset();
             runtime.Joins.Reset();
+            runtime.PendingOutputRouteCleanup = ClearConnectionOutputRoutesAsync(session.State.Id);
         }
 
         if (info.AnnounceToBuffers)
@@ -407,6 +408,24 @@ internal sealed partial class ClientApplication
 
         ScheduleReconnect(session, info.Kind);
     }
+
+    private async Task ClearConnectionOutputRoutesAsync(NetworkSessionId sessionId)
+    {
+        await _inboundSessionEvents.DrainAsync();
+        _outputRouting.ClearConnection(sessionId);
+    }
+
+    private ValueTask ReconnectSessionAsync(
+        IrcNetworkSession session,
+        IrcConnectionOptions options,
+        CancellationToken cancellationToken,
+        bool tolerateTaggedCapabilityMessages = false) =>
+        session.ReconnectAsync(
+            options,
+            cancellationToken,
+            tolerateTaggedCapabilityMessages,
+            waitForDisconnectCleanup: () =>
+                RuntimeFor(session)?.PendingOutputRouteCleanup ?? Task.CompletedTask);
 
     internal static (string Detail, string Result) CapabilityFailureMessages(
         IrcCapabilityException failure) =>
@@ -471,7 +490,7 @@ internal sealed partial class ClientApplication
                     timeout.CancelAfter(ConnectionAttemptTimeout);
                     try
                     {
-                        await session.ReconnectAsync(route, timeout.Token);
+                        await ReconnectSessionAsync(session, route, timeout.Token);
                     }
                     catch (OperationCanceledException) when (!attemptToken.IsCancellationRequested)
                     {

@@ -637,6 +637,8 @@ internal static class NetworkingIntegrationTests
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var dropFirstConnection = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var serverTask = Task.Run(async () =>
         {
             using (var first = await listener.AcceptTcpClientAsync(timeout.Token))
@@ -652,7 +654,7 @@ internal static class NetworkingIntegrationTests
                 await writer.WriteLineAsync(":server 001 TestNick :Welcome".AsMemory(), timeout.Token);
                 await writer.WriteLineAsync(":TestNick!user@host JOIN #kept".AsMemory(), timeout.Token);
                 await writer.WriteLineAsync(":server 376 TestNick :End of MOTD".AsMemory(), timeout.Token);
-                await Task.Delay(100, timeout.Token);
+                await dropFirstConnection.Task.WaitAsync(timeout.Token);
             }
 
             using var second = await listener.AcceptTcpClientAsync(timeout.Token);
@@ -681,10 +683,15 @@ internal static class NetworkingIntegrationTests
             await Task.Delay(10, timeout.Token);
         }
         session.State.TryGetBuffer("#kept", out var originalBuffer);
+        Assert.True(session.TryBeginNamesRequest("#kept", out _));
+        dropFirstConnection.TrySetResult();
         var info = await disconnected.Task.WaitAsync(timeout.Token);
         Assert.Equal(SessionDisconnectKind.Accidental, info.Kind);
         Assert.True(info.AnnounceToBuffers);
         Assert.True(session.ChannelsToRestore.ContainsKey("#kept"));
+
+        Assert.True(session.TryBeginNamesRequest("#kept", out var requestId));
+        session.CancelChannelQueryRequest(requestId);
 
         await session.ReconnectAsync(cancellationToken: timeout.Token);
         Assert.True(session.State.TryGetBuffer("#kept", out var preservedBuffer));
@@ -815,9 +822,20 @@ internal static class NetworkingIntegrationTests
         var initialConnect = session.ConnectAsync(timeout.Token).AsTask();
         await firstAccepted.Task.WaitAsync(timeout.Token);
         var disconnect = session.DisconnectAsync("first attempt cancelled", timeout.Token).AsTask();
-        var reconnect = session.ReconnectAsync(cancellationToken: timeout.Token).AsTask();
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reconnect = session.ReconnectAsync(
+            cancellationToken: timeout.Token,
+            waitForDisconnectCleanup: () => releaseCleanup.Task).AsTask();
+        var duplicate = session.ReconnectAsync(
+            cancellationToken: timeout.Token,
+            waitForDisconnectCleanup: () => throw new IOException("Duplicate reconnect reached cleanup.")).AsTask();
+        releaseCleanup.SetResult();
+
         await Assert.ThrowsAsync<IOException>(() => initialConnect);
         await Task.WhenAll(disconnect, reconnect);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => duplicate);
+        Assert.Equal("A reconnect is already in progress.", error.Message);
         Assert.Equal(IrcConnectionState.Online, session.ConnectionState);
         await session.DisconnectAsync("done", timeout.Token);
         Assert.Equal("QUIT done", (await serverTask)!);

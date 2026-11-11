@@ -726,6 +726,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
             return;
         }
 
+        var finishCompletion = _finishCompletion;
         try
         {
             _connectionLifetime?.Cancel();
@@ -763,18 +764,18 @@ public sealed class IrcClientConnection : IAsyncDisposable
             _transport = null;
             _connectionLifetime?.Dispose();
             _connectionLifetime = null;
-            _finishCompletion?.TrySetResult(true);
             ConnectionClosed?.Invoke(error);
+            finishCompletion?.TrySetResult(true);
         }
         catch (Exception exception)
         {
             _state = IrcConnectionState.Failed;
-            _finishCompletion?.TrySetException(exception);
+            finishCompletion?.TrySetException(exception);
             throw;
         }
     }
 
-    private Task WaitForFinishAsync() => _finishCompletion?.Task ?? Task.CompletedTask;
+    internal Task WaitForFinishAsync() => _finishCompletion?.Task ?? Task.CompletedTask;
 
     private enum CapabilityNegotiationStage
     {

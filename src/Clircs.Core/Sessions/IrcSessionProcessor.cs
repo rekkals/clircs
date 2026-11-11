@@ -40,6 +40,11 @@ public sealed class IrcSessionProcessor
         ArgumentException.ThrowIfNullOrWhiteSpace(nickname);
         CurrentNickname = nickname;
         Features.Reset();
+        ResetPendingQueries();
+    }
+
+    internal void ResetPendingQueries()
+    {
         _identityQueries.Reset();
         _networkQueries.Reset();
         _channelLists.Reset();

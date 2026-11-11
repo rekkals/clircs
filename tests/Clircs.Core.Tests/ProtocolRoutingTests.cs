@@ -108,6 +108,19 @@ internal static class ProtocolRoutingTests
     {
         var routes = new OutputRoutingCoordinator();
         var session = NetworkSessionId.New();
+        var dnsDestination = BufferId.New();
+        var dns = new SessionEvent(
+            session, BufferId.New(), SessionEventKind.Server, "DNS", DateTimeOffset.Now,
+            new Dictionary<string, string?> { ["outputFamily"] = "dns" });
+
+        Assert.True(routes.TrySetExclusiveFamily(session, "list", BufferId.New()));
+        routes.SetFamily(session, "dns", dnsDestination);
+
+        routes.ClearConnection(session);
+
+        Assert.True(routes.TrySetExclusiveFamily(session, "list", BufferId.New()));
+        Assert.True(routes.TryResolve(dns, out var destination));
+        Assert.Equal(dnsDestination, destination);
         var request = Guid.NewGuid();
         routes.SetRequest(session, request, BufferId.New());
         routes.SetFamily(session, "links", BufferId.New());
@@ -117,6 +130,7 @@ internal static class ProtocolRoutingTests
         var links = new SessionEvent(session, BufferId.New(), SessionEventKind.Server, "LINKS", DateTimeOffset.Now,
             new Dictionary<string, string?> { ["outputFamily"] = "links", ["outputEnd"] = "true" });
         Assert.False(routes.TryResolve(links, out _));
+        Assert.False(routes.TryResolve(dns, out _));
     }
 
     private static void OutputPolicyAndRoutesShareOwner()

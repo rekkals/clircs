@@ -161,11 +161,19 @@ internal sealed class OutputRoutingCoordinator
         }
     }
 
-    public void ClearSession(NetworkSessionId sessionId)
+    public void ClearConnection(NetworkSessionId sessionId) =>
+        ClearRoutes(sessionId, includeDns: false);
+
+    public void ClearSession(NetworkSessionId sessionId) =>
+        ClearRoutes(sessionId, includeDns: true);
+
+    private void ClearRoutes(NetworkSessionId sessionId, bool includeDns)
     {
         lock (_gate)
         {
-            foreach (var key in _familyRoutes.Keys.Where(key => key.SessionId == sessionId).ToArray())
+            foreach (var key in _familyRoutes.Keys
+                         .Where(key => key.SessionId == sessionId && (includeDns || key.Family != "dns"))
+                         .ToArray())
                 _familyRoutes.Remove(key);
             foreach (var key in _requestRoutes.Keys.Where(key => key.SessionId == sessionId).ToArray())
                 _requestRoutes.Remove(key);
