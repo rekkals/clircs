@@ -1984,9 +1984,7 @@ internal static class ThemeTests
                 SessionEventSubtype.Kick)));
 
         Assert.Equal(SessionEventKind.Part, states.UnreadKinds(buffer).Single());
-        Assert.Equal(
-            SessionEventKind.Part,
-            states.ChromeState(null).Activity.Single().Kinds.Single());
+        Assert.True(activity.SequenceEqual(states.ChromeState(null).Activity.Single().Kinds));
     }
 
     private static void ClearActivityPreservesWindowState()

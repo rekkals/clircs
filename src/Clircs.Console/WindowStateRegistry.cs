@@ -268,9 +268,14 @@ internal sealed class WindowStateRegistry
 
             var suppressActivity = sessionEvent.Fields?.GetValueOrDefault("suppressActivity") == "true";
             if (trackUnread && !isActive && !isReplay && !suppressActivity)
+            {
+                var subtype = SessionEventPresentation.From(sessionEvent).Subtype;
                 state.Unread.Add(new WindowActivityKind(
                     sessionEvent.Kind,
-                    SessionEventPresentation.From(sessionEvent).Subtype));
+                    subtype,
+                    IsSelfKick: subtype == SessionEventSubtype.Kick &&
+                        sessionEvent.Fields?.GetValueOrDefault("self") == "true"));
+            }
 
             return new WindowEventStoreResult(
                 true,
@@ -459,7 +464,7 @@ internal sealed class WindowStateRegistry
                 .Select(entry => new WindowActivity(
                     entry.Key,
                     entry.Value.Number!.Value,
-                    [.. entry.Value.Unread.Select(activity => activity.Kind).Distinct()]))
+                    [.. entry.Value.Unread]))
                 .ToArray();
             return new WindowChromeState(offset, activity);
         }
@@ -576,9 +581,14 @@ internal sealed class WindowStateRegistry
 
     internal readonly record struct WindowActivityKind(
         SessionEventKind Kind,
-        SessionEventSubtype Subtype);
+        SessionEventSubtype Subtype,
+        bool IsSelfKick = false);
 
-    internal sealed record WindowActivity(BufferId BufferId, int Number, SessionEventKind[] Kinds);
+    internal sealed record WindowActivity(
+        BufferId BufferId,
+        int Number,
+        WindowActivityKind[] Kinds);
+
     internal sealed record WindowChromeState(int ScrollOffset, WindowActivity[] Activity);
     internal sealed record WindowViewportSnapshot(
         SessionEvent[] History,

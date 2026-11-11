@@ -135,7 +135,10 @@ internal sealed record TerminalTheme(
         }.ToDictionary(theme => theme.Name, StringComparer.OrdinalIgnoreCase);
 }
 
-internal sealed record StatusActivity(int Number, SessionEventKind Kind);
+internal sealed record StatusActivity(
+    int Number,
+    SessionEventKind Kind,
+    bool IsSelfKick = false);
 
 internal sealed record StatusWarning(
     int Start,

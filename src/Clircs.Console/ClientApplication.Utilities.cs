@@ -216,13 +216,15 @@ internal sealed partial class ClientApplication
 
     private string ActivitySuffix(BufferId id)
         => string.Join(',', _windowStates.UnreadActivities(id)
-            .OrderByDescending(activity => ActivityPriority(activity.Kind))
+            .OrderByDescending(ActivityPriority)
             .Select(ActivityName)
             .Distinct(StringComparer.Ordinal));
 
-    private static int ActivityPriority(SessionEventKind kind) => kind switch
-    {
+    private static int ActivityPriority(WindowStateRegistry.WindowActivityKind activity) =>
+        activity.Kind switch
+        {
         SessionEventKind.Error => 100,
+        SessionEventKind.Part when activity.IsSelfKick => 96,
         SessionEventKind.Highlight => 95,
         SessionEventKind.Message => 90,
         SessionEventKind.Action => 80,

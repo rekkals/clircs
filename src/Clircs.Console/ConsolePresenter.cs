@@ -2083,9 +2083,10 @@ internal sealed class ConsolePresenter
                     segments.Add((",", theme.StatusForeground));
                 }
 
+                var entry = status.Activity[index];
                 segments.Add((
-                    status.Activity[index].Number.ToString(),
-                    ReadableActivityColor(theme, status.Activity[index].Kind)));
+                    entry.Number.ToString(),
+                    ReadableActivityColor(theme, entry.Kind, entry.IsSelfKick)));
             }
 
             if (activityLayout.HiddenCount > 0)
@@ -2190,8 +2191,11 @@ internal sealed class ConsolePresenter
                 ? theme.Error
                 : theme.Warning);
 
-    internal static ConsoleColor ReadableActivityColor(TerminalTheme theme, SessionEventKind kind) =>
-        ReadableStatusColor(theme, theme.EventColor(kind));
+    internal static ConsoleColor ReadableActivityColor(
+        TerminalTheme theme,
+        SessionEventKind kind,
+        bool isSelfKick = false) =>
+        ReadableStatusColor(theme, isSelfKick ? theme.Kick : theme.EventColor(kind));
 
     internal static ConsoleColor ReadableStatusColor(TerminalTheme theme, ConsoleColor color)
     {

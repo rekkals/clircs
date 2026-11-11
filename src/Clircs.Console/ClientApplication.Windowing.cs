@@ -576,9 +576,11 @@ internal sealed partial class ClientApplication
             fields.Add($"scroll:{chromeState.ScrollOffset}");
         }
         var activity = chromeState.Activity
-            .Select(entry => new StatusActivity(
-                entry.Number,
-                entry.Kinds.OrderByDescending(ActivityPriority).First()))
+            .Select(entry =>
+            {
+                var highest = entry.Kinds.OrderByDescending(ActivityPriority).First();
+                return new StatusActivity(entry.Number, highest.Kind, highest.IsSelfKick);
+            })
             .OrderBy(entry => entry.Number)
             .ToArray();
         return new StatusBarModel(fields, activity, warning);

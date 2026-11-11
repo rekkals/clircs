@@ -99,7 +99,7 @@ internal static class WindowSynchronizationTests
         var activity = windows.ChromeState(active).Activity.Single();
         Assert.Equal(unread, activity.BufferId);
         Assert.Equal(3, activity.Number);
-        Assert.Equal(SessionEventKind.Highlight, activity.Kinds.Single());
+        Assert.Equal(SessionEventKind.Highlight, activity.Kinds.Single().Kind);
     }
 
     private static void ReplacementPreservesConnectionPosition()
