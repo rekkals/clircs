@@ -473,7 +473,6 @@ internal sealed partial class ClientApplication
             return;
         }
 
-        MarkCyclePending(session, channel);
         StartSessionWork(
             session,
             "automatic channel rejoin",
@@ -491,7 +490,6 @@ internal sealed partial class ClientApplication
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
-            ClearCyclePending(session.State.Id, channel);
             PublishStatus(session, SessionEventKind.Error, $"Automatic rejoin failed for {channel}: {exception.Message}");
         }
     }
