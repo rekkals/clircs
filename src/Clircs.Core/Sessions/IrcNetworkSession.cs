@@ -148,9 +148,6 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     public bool IsSynchronizing => _connection.State == IrcConnectionState.Online && !_synchronizationCompleted;
 
-    public Guid BeginWhoRequest(IReadOnlyList<string> arguments, bool automatic = false) =>
-        _processor.BeginWhoRequest(arguments, automatic);
-
     public void CancelWhoRequest(Guid requestId) => _processor.CancelWhoRequest(requestId);
 
     public Guid BeginWhoisRequest(string nickname, bool includeIdle, bool automatic = false) =>
@@ -304,6 +301,28 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _connection.SendAsync(
             command, parameters, priority, cancellationToken,
             cancelBeforeSend: cancelBeforeSend);
+
+    public async ValueTask SendWhoAsync(
+        Guid requestId,
+        IReadOnlyList<string> arguments,
+        IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
+        CancellationToken cancellationToken = default,
+        bool automatic = false)
+    {
+        var whoArguments = arguments.ToArray();
+        try
+        {
+            await _connection.SendAsync(
+                "WHO", whoArguments, priority, cancellationToken,
+                beforeWrite: () => _processor.BeginWhoRequest(requestId, whoArguments, automatic),
+                cancelBeforeSend: true).ConfigureAwait(false);
+        }
+        catch
+        {
+            _processor.CancelWhoRequest(requestId);
+            throw;
+        }
+    }
 
     public ValueTask SendRawAsync(string rawLine, CancellationToken cancellationToken = default) =>
         _connection.SendRawAsync(rawLine, IrcOutboundPriority.Interactive, cancellationToken);

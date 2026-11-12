@@ -8,6 +8,7 @@ internal sealed class IdentityQueryResponseProcessor
     private readonly NetworkSessionState _state;
     private readonly ServerFeatures _features;
     private readonly SessionEventBuilder _events;
+    private readonly object _whoGate = new();
     private readonly Queue<WhoRequest> _whoRequests = [];
     private readonly List<WhoResultRow> _untrackedWhoResults = [];
     private readonly Dictionary<Guid, WhoisRequest> _whoisRequests = [];
@@ -28,7 +29,7 @@ internal sealed class IdentityQueryResponseProcessor
         _whowasResults = new Dictionary<string, List<WhowasResult>>(NameComparer());
     }
 
-    public Guid BeginWho(IReadOnlyList<string> arguments, bool automatic)
+    public Guid BeginWho(IReadOnlyList<string> arguments, bool automatic, Guid? requestId = null)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         var target = arguments.Count == 0 ? "*" : arguments[0];
@@ -38,17 +39,20 @@ internal sealed class IdentityQueryResponseProcessor
             : target.Equals("0", StringComparison.Ordinal) || target.IndexOfAny(['*', '?']) >= 0
                 ? WhoRequestKind.Broad
                 : WhoRequestKind.Single;
-        var request = new WhoRequest(Guid.NewGuid(), input, target, kind, automatic);
-        _whoRequests.Enqueue(request);
+        var request = new WhoRequest(requestId ?? Guid.NewGuid(), input, target, kind, automatic);
+        lock (_whoGate) _whoRequests.Enqueue(request);
         return request.Id;
     }
 
     public void CancelWho(Guid requestId)
     {
-        if (_whoRequests.Count == 0) return;
-        var retained = _whoRequests.Where(request => request.Id != requestId).ToArray();
-        _whoRequests.Clear();
-        foreach (var request in retained) _whoRequests.Enqueue(request);
+        lock (_whoGate)
+        {
+            if (_whoRequests.Count == 0) return;
+            var retained = _whoRequests.Where(request => request.Id != requestId).ToArray();
+            _whoRequests.Clear();
+            foreach (var request in retained) _whoRequests.Enqueue(request);
+        }
     }
 
     public Guid BeginWhois(string nickname, bool includeIdle, bool automatic)
@@ -77,8 +81,12 @@ internal sealed class IdentityQueryResponseProcessor
 
     public void Reset()
     {
-        _whoRequests.Clear();
-        _untrackedWhoResults.Clear();
+        lock (_whoGate)
+        {
+            _whoRequests.Clear();
+            _untrackedWhoResults.Clear();
+        }
+
         _whoisRequests.Clear();
         _whoisRequestsByNick = new Dictionary<string, Queue<Guid>>(NameComparer());
         _whoisResults = new Dictionary<string, WhoisResult>(NameComparer());
@@ -184,15 +192,20 @@ internal sealed class IdentityQueryResponseProcessor
             whoChannel!.WhoSynchronized = true;
         }
         var responseTarget = message.Parameters.Count >= 2 ? message.Parameters[1] : "*";
-        var request = _whoRequests.Count > 0
-            ? _whoRequests.Dequeue()
-            : new WhoRequest(Guid.Empty, responseTarget, responseTarget,
-                _features.IsChannel(responseTarget) ? WhoRequestKind.Channel :
-                responseTarget.Equals("0", StringComparison.Ordinal) || responseTarget.IndexOfAny(['*', '?']) >= 0
-                    ? WhoRequestKind.Broad : WhoRequestKind.Single,
-                Automatic: false);
-        var rows = request.Id == Guid.Empty ? _untrackedWhoResults.ToArray() : request.Rows.ToArray();
-        _untrackedWhoResults.Clear();
+        WhoRequest? request;
+        WhoResultRow[] rows;
+        lock (_whoGate)
+        {
+            _whoRequests.TryDequeue(out request);
+            rows = request is null ? _untrackedWhoResults.ToArray() : request.Rows.ToArray();
+            _untrackedWhoResults.Clear();
+        }
+
+        request ??= new WhoRequest(Guid.Empty, responseTarget, responseTarget,
+            _features.IsChannel(responseTarget) ? WhoRequestKind.Channel :
+            responseTarget.Equals("0", StringComparison.Ordinal) || responseTarget.IndexOfAny(['*', '?']) >= 0
+                ? WhoRequestKind.Broad : WhoRequestKind.Single,
+            Automatic: false);
         var here = rows.Count(row => row.Status.StartsWith("here", StringComparison.Ordinal));
         var away = rows.Length - here;
         PresentationBlock presentation;
@@ -238,8 +251,11 @@ internal sealed class IdentityQueryResponseProcessor
         var row = new WhoResultRow(
             message.Parameters[5], status, privilege, target,
             $"{message.Parameters[2]}@{message.Parameters[3]}", message.Parameters[4], realName);
-        if (_whoRequests.Count > 0) _whoRequests.Peek().Rows.Add(row);
-        else _untrackedWhoResults.Add(row);
+        lock (_whoGate)
+        {
+            if (_whoRequests.Count > 0) _whoRequests.Peek().Rows.Add(row);
+            else _untrackedWhoResults.Add(row);
+        }
     }
 
     private void ApplyWho(IrcMessage message)

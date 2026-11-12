@@ -61,6 +61,9 @@ public sealed class IrcSessionProcessor
         return _identityQueries.BeginWho(arguments, automatic);
     }
 
+    internal void BeginWhoRequest(Guid requestId, IReadOnlyList<string> arguments, bool automatic) =>
+        _identityQueries.BeginWho(arguments, automatic, requestId);
+
     public void CancelWhoRequest(Guid requestId)
     {
         _identityQueries.CancelWho(requestId);

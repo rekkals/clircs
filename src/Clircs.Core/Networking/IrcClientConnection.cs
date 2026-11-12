@@ -130,11 +130,25 @@ public sealed class IrcClientConnection : IAsyncDisposable
         }
     }
 
-    public async ValueTask SendAsync(
+    public ValueTask SendAsync(
         string command,
         IReadOnlyList<string> parameters,
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
         CancellationToken cancellationToken = default,
+        bool forceTrailingParameter = false,
+        bool cancelBeforeSend = false) =>
+        SendAsync(
+            command, parameters, priority, cancellationToken,
+            beforeWrite: null,
+            forceTrailingParameter: forceTrailingParameter,
+            cancelBeforeSend: cancelBeforeSend);
+
+    internal async ValueTask SendAsync(
+        string command,
+        IReadOnlyList<string> parameters,
+        IrcOutboundPriority priority,
+        CancellationToken cancellationToken,
+        Action? beforeWrite,
         bool forceTrailingParameter = false,
         bool cancelBeforeSend = false)
     {
@@ -144,7 +158,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
             ? IrcLineBuilder.BuildWithTrailingParameter(command, parameters.ToArray())
             : IrcLineBuilder.Build(command, parameters.ToArray());
         await outbound.EnqueueAsync(
-            line, priority, cancellationToken, cancelBeforeSend).ConfigureAwait(false);
+            line, priority, cancellationToken, cancelBeforeSend, beforeWrite).ConfigureAwait(false);
         RaiseWireLine(IrcWireDirection.Sent, IrcTextEncoding.Decode(line.AsSpan(0, line.Length - 2)));
     }
 

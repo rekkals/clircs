@@ -1156,16 +1156,15 @@ internal sealed partial class ClientApplication
         if (session is null) return failure;
         if (arguments.Count == 0) return CommandResult.Failure("Usage: /who <mask-or-channel>");
 
-        var requestId = session.BeginWhoRequest(arguments);
+        var requestId = Guid.NewGuid();
         TrackOutputRequest(session, "who", requestId);
         try
         {
-            await session.SendAsync("WHO", arguments, cancellationToken: cancellationToken);
+            await session.SendWhoAsync(requestId, arguments, cancellationToken: cancellationToken);
             return CommandResult.Success();
         }
         catch
         {
-            session.CancelWhoRequest(requestId);
             CancelOutputRequest(session, "who", requestId);
             throw;
         }

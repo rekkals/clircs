@@ -979,19 +979,22 @@ internal sealed partial class ClientApplication
 
     private async Task RequestChannelWhoAsync(IrcNetworkSession session, ChannelState channel)
     {
-        Guid requestId = default;
+        var cancellationToken = SessionWorkToken(session);
         try
         {
             _channelSynchronization.BeginAutomaticWho(session.State.Id, channel.Name);
-            requestId = session.BeginWhoRequest([channel.Name], automatic: true);
-            await session.SendAsync("WHO", [channel.Name], IrcOutboundPriority.Automation, SessionWorkToken(session));
+            await session.SendWhoAsync(
+                Guid.NewGuid(),
+                [channel.Name],
+                IrcOutboundPriority.Automation,
+                cancellationToken,
+                automatic: true);
         }
-        catch (OperationCanceledException) when (SessionWorkToken(session).IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
-            if (requestId != default) session.CancelWhoRequest(requestId);
             _channelSynchronization.CompleteAutomaticWho(session.State.Id, channel.Name);
             PublishStatus(session, SessionEventKind.Error, $"WHO synchronization failed for {channel.Name}: {exception.Message}");
         }
@@ -1006,10 +1009,15 @@ internal sealed partial class ClientApplication
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _channelSynchronization.BeginCloneScan(key, completion);
 
-        var requestId = session.BeginWhoRequest([channel.Name], automatic: true);
+        var requestId = Guid.NewGuid();
         try
         {
-            await session.SendAsync("WHO", [channel.Name], IrcOutboundPriority.Interactive, cancellationToken);
+            await session.SendWhoAsync(
+                requestId,
+                [channel.Name],
+                IrcOutboundPriority.Interactive,
+                cancellationToken,
+                automatic: true);
             await completion.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
         }
         catch

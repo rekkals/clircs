@@ -55,13 +55,15 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         ReadOnlyMemory<byte> bytes,
         IrcOutboundPriority priority,
         CancellationToken cancellationToken,
-        bool cancelBeforeSend = false)
+        bool cancelBeforeSend = false,
+        Action? beforeWrite = null)
     {
         if (cancelBeforeSend) cancellationToken.ThrowIfCancellationRequested();
 
         var item = new OutboundItem(bytes.ToArray())
         {
-            BeforeSendCancellation = cancelBeforeSend ? cancellationToken : default
+            BeforeSendCancellation = cancelBeforeSend ? cancellationToken : default,
+            BeforeWrite = beforeWrite
         };
         lock (_lifecycleGate)
         {
@@ -153,6 +155,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
 
                     // Once writing starts, finish the line even if its request is canceled.
                     writeStarted = true;
+                    item.BeforeWrite?.Invoke();
                     await _transport.WriteAsync(item.Bytes, _stopping.Token).ConfigureAwait(false);
                     item.Completion.TrySetResult();
                 }
@@ -247,5 +250,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         public IrcOutboundPriority Priority { get; init; }
 
         public CancellationToken BeforeSendCancellation { get; init; }
+
+        public Action? BeforeWrite { get; init; }
     }
 }

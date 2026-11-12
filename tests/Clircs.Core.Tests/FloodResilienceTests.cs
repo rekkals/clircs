@@ -16,6 +16,7 @@ internal static class FloodResilienceTests
         suite.Add("interactive IRC output is not paced", InteractiveOutputIsNotPacedAsync);
         suite.Add("IRC output queue rejects excess pending work", OutboundQueueIsBoundedAsync);
         suite.Add("canceled queued IRC output is discarded without interrupting an active write", CanceledQueuedOutputIsNotSentAsync);
+        suite.Add("WHO replies follow outbound write order", WhoRepliesFollowWriteOrderAsync);
         suite.Add("automatic CTCP replies have sender and network limits", AutomaticCtcpRepliesAreLimited);
         suite.Add("scrollback reports and enforces its emergency resource boundary", EmergencyScrollbackLimitIsExplicit);
         suite.Add("old window scrollback remains available until the ordinary limit", OldWindowScrollbackIsRetainedUntilOrdinaryLimit);
@@ -95,6 +96,39 @@ internal static class FloodResilienceTests
         await scheduler.EnqueueAsync(
             "PING :after\r\n"u8.ToArray(), IrcOutboundPriority.Automation, timeout.Token);
         Assert.True(transport.WrittenLines.SequenceEqual(["PING :active\r\n", "PING :after\r\n"]));
+    }
+
+    private static async ValueTask WhoRepliesFollowWriteOrderAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var token = timeout.Token;
+        var transport = new BlockingTransport();
+        await using var scheduler = new IrcOutboundScheduler(transport);
+        var state = new NetworkSessionState(NetworkSessionId.New(), "test", IrcCaseMapping.Rfc1459);
+        var processor = new IrcSessionProcessor(state, "me");
+
+        var active = scheduler.EnqueueAsync(
+            "PING hold\r\n"u8.ToArray(), IrcOutboundPriority.Critical, token).AsTask();
+        await transport.WriteStarted.Task.WaitAsync(token);
+
+        var automaticId = Guid.NewGuid();
+        var manualId = Guid.NewGuid();
+        var automatic = scheduler.EnqueueAsync(
+            "WHO #clirc\r\n"u8.ToArray(), IrcOutboundPriority.Automation, token,
+            beforeWrite: () => processor.BeginWhoRequest(automaticId, ["#clirc"], automatic: true)).AsTask();
+        var manual = scheduler.EnqueueAsync(
+            "WHO #clirc o\r\n"u8.ToArray(), IrcOutboundPriority.Interactive, token,
+            beforeWrite: () => processor.BeginWhoRequest(manualId, ["#clirc", "o"], automatic: false)).AsTask();
+        transport.Release.TrySetResult();
+        await Task.WhenAll(active, automatic, manual).WaitAsync(token);
+
+        Assert.True(transport.WrittenLines.SequenceEqual(
+            ["PING hold\r\n", "WHO #clirc o\r\n", "WHO #clirc\r\n"]));
+        var end = IrcMessageParser.Parse(":server 315 me #clirc :End of WHO");
+        var manualReply = processor.Process(end).Single();
+        var automaticReply = processor.Process(end).Single();
+        Assert.Equal(manualId.ToString("D"), manualReply.Fields!["outputRequestId"]!);
+        Assert.Equal(automaticId.ToString("D"), automaticReply.Fields!["outputRequestId"]!);
     }
 
     private static void AutomaticCtcpRepliesAreLimited()
