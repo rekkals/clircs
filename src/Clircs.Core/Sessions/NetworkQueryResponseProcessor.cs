@@ -258,7 +258,7 @@ internal sealed class NetworkQueryResponseProcessor(
                         row.Nick, row.Address, row.Role, row.Idle
                     }).ToArray(),
                     KeepAllColumns: true,
-                    MaximumWidths: [24, PresentationTable.UnboundedWidth, 8, 14]),
+                    MaximumWidths: [24, PresentationTable.UnboundedWidth, 8, PresentationTable.UnboundedWidth]),
                 Summary: summary));
     }
 
