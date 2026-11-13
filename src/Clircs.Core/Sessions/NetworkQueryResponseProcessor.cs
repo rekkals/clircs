@@ -6,15 +6,19 @@ internal sealed class NetworkQueryResponseProcessor(
     ServerFeatures features,
     SessionEventBuilder events)
 {
+    private const int MaximumListRows = 25_000;
+    private const int MaximumListTextBytes = 8 * 1024 * 1024;
     private readonly List<LinkResultRow> _linkResults = [];
     private readonly List<ListResultRow> _listResults = [];
+    private int _listTextBytes;
+    private bool _listTruncated;
     private readonly List<StatsOperatorRow> _statsOperatorResults = [];
     private string? _statsOperatorSummary;
 
     public void Reset()
     {
         _linkResults.Clear();
-        _listResults.Clear();
+        ResetList();
         _statsOperatorResults.Clear();
         _statsOperatorSummary = null;
     }
@@ -34,7 +38,7 @@ internal sealed class NetworkQueryResponseProcessor(
                 result = CompleteLinks(now);
                 break;
             case "321":
-                _listResults.Clear();
+                ResetList();
                 break;
             case "322":
                 CollectListRow(message);
@@ -108,22 +112,52 @@ internal sealed class NetworkQueryResponseProcessor(
                 Summary: rows.Length == 0 ? "No server links were returned." : $"{rows.Length} server(s)"));
     }
 
+    private void ResetList()
+    {
+        _listResults.Clear();
+        _listTextBytes = 0;
+        _listTruncated = false;
+    }
+
     private void CollectListRow(IrcMessage message)
     {
-        if (message.Parameters.Count < 4) return;
+        if (_listTruncated || message.Parameters.Count < 4) return;
+
+        var channel = message.Parameters[1];
+        var topic = message.Parameters[3];
+        var textBytes = (channel.Length + topic.Length) * sizeof(char);
+        if (_listResults.Count >= MaximumListRows ||
+            textBytes > MaximumListTextBytes - _listTextBytes)
+        {
+            _listTruncated = true;
+            return;
+        }
+
         _listResults.Add(new ListResultRow(
-            message.Parameters[1],
+            channel,
             int.TryParse(message.Parameters[2], out var users) ? users : 0,
-            message.Parameters[3]));
+            topic));
+        _listTextBytes += textBytes;
     }
 
     private SessionEvent CompleteList(DateTimeOffset now)
     {
         var rows = _listResults.ToArray();
-        _listResults.Clear();
+        var truncated = _listTruncated;
+        ResetList();
+
+        var summary = $"{rows.Length} channel(s)";
+        if (truncated)
+        {
+            summary = $"Showing {rows.Length:N0} channels (partial result)";
+        }
+        else if (rows.Length == 0)
+        {
+            summary = "No channels matched.";
+        }
         return events.Status(
             SessionEventKind.Server,
-            $"LIST: {rows.Length} channel(s)",
+            $"LIST: {(truncated ? summary : $"{rows.Length} channel(s)")}",
             now,
             SessionEventBuilder.Fields(
                 ("outputFamily", "list"), ("numeric", "323"),
@@ -138,7 +172,7 @@ internal sealed class NetworkQueryResponseProcessor(
                     }).ToArray(),
                     KeepAllColumns: true,
                     MaximumWidths: [30, 8, 80]),
-                Summary: rows.Length == 0 ? "No channels matched." : $"{rows.Length} channel(s)"));
+                Summary: summary));
     }
 
     private static bool IsStatsReply(IrcMessage message, string selector) =>

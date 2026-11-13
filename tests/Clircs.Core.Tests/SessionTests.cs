@@ -107,6 +107,7 @@ internal static class SessionTests
         suite.Add("numeric 502 becomes a readable user-mode error", UserModeFailureIsFormatted);
         suite.Add("account login and hidden host numerics are formatted and synchronized", AccountAndHiddenHostAreFormatted);
         suite.Add("LIST replies produce a formatted routed channel table", ListProducesChannelTable);
+        suite.Add("LIST caps retained results and resets after completion", ListCapsAndResets);
         suite.Add("bouncer metadata separates client and upstream TLS", BouncerMetadataSeparatesTlsHops);
         suite.Add("Irssi Proxy is detected from its registration signature", IrssiProxyIsDetected);
         suite.Add("soju is detected from its 004 server software", SojuIsDetected);
@@ -405,6 +406,40 @@ internal static class SessionTests
         Assert.Equal("793", completed[0].Presentation!.Table!.Rows[0][1]);
         Assert.Equal("2 channel(s)", completed[0].Presentation!.Summary!);
         Assert.False(completed[0].Text.Contains("323", StringComparison.Ordinal));
+    }
+
+    private static void ListCapsAndResets()
+    {
+        var (_, processor) = CreateProcessor();
+        var end = IrcMessageParser.Parse(":server 323 me :End of /LIST");
+        var overflow = IrcMessageParser.Parse(":server 322 me #overflow 1 :Extra");
+        var small = IrcMessageParser.Parse(":server 322 me #small 1 :Small result");
+
+        var cases = new[]
+        {
+        (Topic: "short", ExpectedRows: 25_000),
+        (Topic: new string('x', 251), ExpectedRows: 16_384)
+    };
+
+        foreach (var (topic, expectedRows) in cases)
+        {
+            var row = IrcMessageParser.Parse($":server 322 me #test 1 :{topic}");
+            for (var index = 0; index < expectedRows; index++)
+            {
+                processor.Process(row);
+            }
+
+            Assert.Equal(0, processor.Process(overflow).Count);
+            var partial = processor.Process(end).Single().Presentation!;
+            Assert.Equal(expectedRows, partial.Table!.Rows.Count);
+            Assert.Equal("#test", partial.Table.Rows[^1][0]);
+            Assert.True(partial.Summary!.Contains("partial result", StringComparison.Ordinal));
+
+            processor.Process(small);
+            var next = processor.Process(end).Single().Presentation!;
+            Assert.Equal("#small", next.Table!.Rows.Single()[0]);
+            Assert.Equal("1 channel(s)", next.Summary!);
+        }
     }
 
     private static void UserModeFailureIsFormatted()
