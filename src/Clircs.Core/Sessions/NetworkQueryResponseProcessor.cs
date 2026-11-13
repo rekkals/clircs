@@ -8,19 +8,25 @@ internal sealed class NetworkQueryResponseProcessor(
 {
     private const int MaximumListRows = 25_000;
     private const int MaximumListTextBytes = 8 * 1024 * 1024;
+    private const int MaximumLinkRows = 1_024;
+    private const int MaximumStatsOperatorRows = 1_024;
     private readonly List<LinkResultRow> _linkResults = [];
     private readonly List<ListResultRow> _listResults = [];
     private int _listTextBytes;
     private bool _listTruncated;
+    private bool _linksTruncated;
+    private bool _statsOperatorsTruncated;
     private readonly List<StatsOperatorRow> _statsOperatorResults = [];
     private string? _statsOperatorSummary;
 
     public void Reset()
     {
         _linkResults.Clear();
+        _linksTruncated = false;
         ResetList();
         _statsOperatorResults.Clear();
         _statsOperatorSummary = null;
+        _statsOperatorsTruncated = false;
     }
 
     public bool TryProcess(
@@ -69,6 +75,11 @@ internal sealed class NetworkQueryResponseProcessor(
     private void CollectLink(IrcMessage message)
     {
         if (message.Parameters.Count < 4) return;
+        if (_linkResults.Count >= MaximumLinkRows)
+        {
+            _linksTruncated = true;
+            return;
+        }
         var details = message.Parameters[3];
         var separator = details.IndexOf(' ');
         var hopsText = separator < 0 ? details : details[..separator];
@@ -94,10 +105,15 @@ internal sealed class NetworkQueryResponseProcessor(
             .ThenBy(entry => entry.index)
             .Select(entry => entry.row)
             .ToArray();
+        var summary = _linksTruncated
+            ? $"Showing {rows.Length:N0} servers (partial result)"
+            : $"{rows.Length} server(s)";
+
         _linkResults.Clear();
+        _linksTruncated = false;
         return events.Status(
             SessionEventKind.Server,
-            $"LINKS: {rows.Length} server(s)",
+            $"LINKS: {summary}",
             now,
             SessionEventBuilder.Fields(
                 ("outputFamily", "links"), ("numeric", "365"), ("outputEnd", "true")),
@@ -109,7 +125,7 @@ internal sealed class NetworkQueryResponseProcessor(
                     {
                         $"{new string(' ', row.Hops * 2)}{row.Server} ({row.Hops})", row.Description
                     }).ToArray()),
-                Summary: rows.Length == 0 ? "No server links were returned." : $"{rows.Length} server(s)"));
+                Summary: rows.Length == 0 ? "No server links were returned." : summary));
     }
 
     private void ResetList()
@@ -194,29 +210,35 @@ internal sealed class NetworkQueryResponseProcessor(
         if (message.Parameters.Count < 3) return;
 
         var text = message.Parameters[^1];
-        if (TryParseStatsOperator(text, out var row))
-        {
-            _statsOperatorResults.Add(row);
-        }
-        else if (text.EndsWith(" OPER(s)", StringComparison.OrdinalIgnoreCase))
+        if (text.EndsWith(" OPER(s)", StringComparison.OrdinalIgnoreCase))
         {
             _statsOperatorSummary = text;
+            return;
         }
-        else
+
+        if (_statsOperatorResults.Count >= MaximumStatsOperatorRows)
         {
-            // Preserve unfamiliar server output instead of getting rid of it.
-            _statsOperatorResults.Add(new StatsOperatorRow(string.Empty, text, string.Empty, string.Empty));
+            _statsOperatorsTruncated = true;
+            return;
         }
+
+        // Preserve unfamiliar server output as a table row.
+        _statsOperatorResults.Add(TryParseStatsOperator(text, out var row)
+            ? row
+            : new StatsOperatorRow(string.Empty, text, string.Empty, string.Empty));
     }
 
     private SessionEvent CompleteStatsOperators(DateTimeOffset now)
     {
         var rows = _statsOperatorResults.ToArray();
-        var summary = _statsOperatorSummary ??
-            (rows.Length == 0 ? "No visible IRC operators." : $"{rows.Length} operator(s)");
+        var summary = _statsOperatorsTruncated
+            ? $"Showing {rows.Length:N0} operators (partial result)"
+            : _statsOperatorSummary ??
+                (rows.Length == 0 ? "No visible IRC operators." : $"{rows.Length} operator(s)");
 
         _statsOperatorResults.Clear();
         _statsOperatorSummary = null;
+        _statsOperatorsTruncated = false;
 
         return events.Status(
             SessionEventKind.Server,

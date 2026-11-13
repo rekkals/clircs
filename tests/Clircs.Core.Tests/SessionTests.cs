@@ -58,6 +58,7 @@ internal static class SessionTests
         suite.Add("automatic join information is distinguished from later output", AutomaticJoinInformationIsMarked);
         suite.Add("LINKS replies produce a formatted table without raw numerics", LinksProducesInformationBox);
         suite.Add("STATS p replies produce a formatted operator table", StatsOperatorsProduceInformationBox);
+        suite.Add("LINKS and STATS p cap retained rows and reset after completion", LinksAndStatsOperatorsCapAndReset);
         suite.Add("STATS u preserves server uptime text and suppresses its terminator", StatsUptimePreservesServerText);
         suite.Add("MOTD replies render without numeric prefixes", MotdNumericsAreHidden);
         suite.Add("WHOIS WHO and CTCP replies carry semantic routing fields", ResultRepliesAreTagged);
@@ -1501,6 +1502,41 @@ internal static class SessionTests
         Assert.Equal("2 OPER(s)", events[0].Presentation!.Summary!);
         Assert.False(events[0].Text.Contains("219", StringComparison.Ordinal));
         Assert.False(events[0].Text.Contains("249", StringComparison.Ordinal));
+    }
+
+    private static void LinksAndStatsOperatorsCapAndReset()
+    {
+        var cases = new[]
+        {
+        (":server 364 me irc.example.test hub.example.test :1 Example server",
+            ":server 364 me overflow.example.test hub.example.test :1 Extra server",
+            ":server 365 me * :End of LINKS", "  irc.example.test (1)", "1 server(s)"),
+        (":server 249 me p :[O] snugglo (snugglo@the.nemesis) Idle: 60",
+            ":server 249 me p :Extra operator row",
+            ":server 219 me p :End of /STATS report", "snugglo", "1 operator(s)")
+    };
+
+        foreach (var (rowText, extraText, endText, retainedName, nextSummary) in cases)
+        {
+            var (_, processor) = CreateProcessor();
+            var row = IrcMessageParser.Parse(rowText);
+            var end = IrcMessageParser.Parse(endText);
+            for (var index = 0; index < 1_024; index++)
+            {
+                processor.Process(row);
+            }
+
+            Assert.Equal(0, processor.Process(IrcMessageParser.Parse(extraText)).Count);
+            var partial = processor.Process(end).Single().Presentation!;
+            Assert.Equal(1_024, partial.Table!.Rows.Count);
+            Assert.Equal(retainedName, partial.Table.Rows[^1][0]);
+            Assert.True(partial.Summary!.Contains("partial result", StringComparison.Ordinal));
+
+            processor.Process(row);
+            var next = processor.Process(end).Single().Presentation!;
+            Assert.Equal(retainedName, next.Table!.Rows.Single()[0]);
+            Assert.Equal(nextSummary, next.Summary!);
+        }
     }
 
     private static void StatsUptimePreservesServerText()
