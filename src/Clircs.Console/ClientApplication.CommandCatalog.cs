@@ -94,7 +94,8 @@ internal sealed partial class ClientApplication
         Register("ignore", [], "List or add entries ignored on the active network.", IgnoreAsync);
         Register("unignore", [], "Remove an exact ignore entry from the active network.", UnignoreAsync);
         Register("notify", [], "Manage the active network's notify list.", NotifyAsync);
-        Register("accept", [], "Manage the server-side accept list.", AcceptAsync);
+        Register("accept", [], "List or add entries on the server-side accept list.", AcceptAsync);
+        Register("unaccept", [], "Remove entries from the server-side accept list.", AcceptAsync);
         Register("cprot", [], "Configure channel protection.", ChannelProtectionAsync);
         Register("pprot", [], "Configure personal protection.", PersonalProtectionAsync);
         Register("clones", [], "Find channel users sharing the same visible host.", ClonesAsync);

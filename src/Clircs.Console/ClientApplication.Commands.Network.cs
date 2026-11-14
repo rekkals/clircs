@@ -1836,25 +1836,37 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
+        var remove = input.Name.Equals("unaccept", StringComparison.OrdinalIgnoreCase);
+        var usage = $"Usage: {HelpUsageOverrides[input.Name]}";
+        if (remove && input.Arguments.Count == 0)
+            return CommandResult.Failure(usage);
+
         var session = RequireSession(out var failure);
         if (session is null) return failure;
         if (session.ConnectionState != IrcConnectionState.Online)
             return CommandResult.Failure("Not connected to a server");
 
-        if (input.Arguments.Count == 0)
+        var entries = input.Arguments
+            .SelectMany(argument => argument.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .ToArray();
+
+        if (!remove && (input.Arguments.Count == 0 || entries is ["*"]))
         {
             await session.SendAsync("ACCEPT", ["*"], IrcOutboundPriority.Interactive, cancellationToken);
             return CommandResult.Success();
         }
 
-        var entries = input.Arguments
-            .SelectMany(argument => argument.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            .ToArray();
-        if (entries.Length == 0 || entries.Any(entry =>
-                !IsValidNotifyNickname(session, entry[0] == '-' ? entry[1..] : entry)))
-            return CommandResult.Failure("Usage: /accept [[-]nick,...]");
+        if (entries.Any(entry => entry[0] == '-'))
+            return CommandResult.Failure(remove ? usage : "Use /unaccept <nick,...> to remove entries.");
 
-        await session.SendAsync("ACCEPT", [string.Join(',', entries)], IrcOutboundPriority.Interactive, cancellationToken);
+        if (entries.Length == 0 || entries.Any(entry =>
+                entry[0] == '*' || entry.Any(char.IsWhiteSpace) || !IsValidNotifyNickname(session, entry)))
+            return CommandResult.Failure(usage);
+
+        var nicknames = remove
+            ? string.Join(',', entries.Select(entry => $"-{entry}"))
+            : string.Join(',', entries);
+        await session.SendAsync("ACCEPT", [nicknames], IrcOutboundPriority.Interactive, cancellationToken);
         return CommandResult.Success();
     }
 

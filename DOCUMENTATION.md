@@ -224,6 +224,8 @@ Recognized `/*serv` commands that require a password prompt do so without echoin
 
 Notify lists are network-specific and use `MONITOR` when available. Use `/notify add <nickname>`, `/notify remove <nickname>`, and `/notify list`. Servers without `MONITOR` get the old school `ISON` polling.
 
+On servers with caller ID, use `/accept` to list allowed nicknames, `/accept <nick,...>` to add them, and `/unaccept <nick,...>` to remove them.
+
 `WHO`, `WHOIS`, `WHOWAS`, `NAMES`, `CTCP`, `WALLOPS`, user notices, server notices, notify announcements, invites, links, channel lists, DNS, and caller-ID notifications have window routing settings. The destination values are `active`, `status`, and `window`. `active` uses that connection's active window; `window` uses a dedicated window for that output on each connection. You'll find all the `*.output` settings in `/set`.
 
 ## Channel Management and Protection
