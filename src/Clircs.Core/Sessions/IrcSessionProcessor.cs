@@ -1540,10 +1540,19 @@ public sealed class IrcSessionProcessor
         var target = Features.NormalizeMessageTarget(message.Parameters[0]);
         var noticeIsChannel = Features.IsChannel(target);
         var noticeIsServer = IsServerNoticeSource(message.Prefix);
-        var buffer = noticeIsChannel
-            ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
-            : _state.StatusBuffer;
         var selfMessage = !noticeIsServer && IsCurrentNickname(sender);
+
+        var buffer = _state.StatusBuffer;
+        if (noticeIsChannel && !selfMessage)
+        {
+            buffer = _state.GetOrCreateBuffer(BufferKind.Channel, target);
+        }
+        else if (noticeIsChannel &&
+                 _state.TryGetBuffer(target, out var existingChannel) &&
+                 existingChannel is { Kind: BufferKind.Channel })
+        {
+            buffer = existingChannel;
+        }
         var text = message.Parameters[1];
         if (!noticeIsServer &&
             text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
