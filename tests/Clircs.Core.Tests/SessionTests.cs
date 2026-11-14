@@ -1185,6 +1185,29 @@ internal static class SessionTests
         Assert.Equal(1, lateCreated.Count);
         Assert.True(lateCreated[0].Fields!.GetValueOrDefault("outputRequestId") is null);
         Assert.False(lateCreated[0].Fields!.ContainsKey("onJoin"));
+
+        processor.Process(IrcMessageParser.Parse(
+            ":server 005 me CHANTYPES=#&!+ :are supported"));
+
+        foreach (var (numeric, target, reason) in new[]
+        {
+            ("403", "+missing", "No such channel"),
+            ("477", "+room", "Channel doesn't support modes")
+        })
+        {
+            Assert.True(processor.TryBeginModeRequest(target, out var modeRequestId));
+
+            var error = processor.Process(IrcMessageParser.Parse(
+                $":server {numeric} me {target} :{reason}")).Single();
+
+            Assert.Equal(SessionEventKind.Error, error.Kind);
+            var fields = error.Fields!;
+            Assert.Equal("mode", fields["outputFamily"]!);
+            Assert.Equal(modeRequestId.ToString("D"), fields["outputRequestId"]!);
+            Assert.Equal("true", fields["outputEnd"]!);
+            Assert.False(fields.ContainsKey("joinError"));
+            Assert.True(processor.TryBeginModeRequest(target, out _));
+        }
     }
 
     private static void UniqueChannelOperatorIsFormatted()

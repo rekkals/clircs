@@ -1153,6 +1153,22 @@ public sealed class IrcSessionProcessor
                     "476" => "invalid channel name or mask",
                     _ => Last(message).TrimEnd('.')
                 };
+                if ((message.Command is "403" or "477") &&
+                    deniedChannel.StartsWith('+') &&
+                    _channelQueries.Complete(deniedChannel, ChannelQueryKind.Mode) is { } deniedModeRequestId)
+                {
+                    events.Add(Status(
+                        SessionEventKind.Error,
+                        $"Cannot query modes for {deniedChannel}: {denialReason}",
+                        now,
+                        Fields(
+                            ("numeric", message.Command),
+                            ("channel", deniedChannel),
+                            ("outputFamily", "mode"),
+                            ("outputRequestId", deniedModeRequestId.ToString("D")),
+                            ("outputEnd", "true"))));
+                    break;
+                }
                 events.Add(Status(
                     SessionEventKind.Error,
                     $"Cannot join {deniedChannel}: {denialReason}",

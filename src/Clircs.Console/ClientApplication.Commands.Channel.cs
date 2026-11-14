@@ -296,7 +296,11 @@ internal sealed partial class ClientApplication
         {
             parameters = [activeChannel];
         }
-        else if (input.Arguments.Count > 0 && input.Arguments[0].Length > 0 && input.Arguments[0][0] is '+' or '-' && activeChannel is not null)
+        else if (activeChannel is not null &&
+                 input.Arguments.Count > 0 &&
+                 input.Arguments[0].Length > 0 &&
+                 (input.Arguments[0][0] is '+' or '-') &&
+                 !session.Features.IsChannel(input.Arguments[0]))
         {
             parameters = [activeChannel, .. input.Arguments];
         }
