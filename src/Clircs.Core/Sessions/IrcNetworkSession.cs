@@ -974,6 +974,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         var argument = separator < 0 ? string.Empty : request[(separator + 1)..];
         var reply = command switch
         {
+            "CLIENTINFO" => "CLIENTINFO ACTION CLIENTINFO DCC PING TIME VERSION",
             "PING" => argument.Length == 0 ? "PING" : $"PING {argument}",
             "VERSION" => VersionReply(),
             "TIME" => $"TIME {DateTimeOffset.Now:F}",
