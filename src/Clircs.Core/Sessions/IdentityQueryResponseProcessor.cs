@@ -8,6 +8,8 @@ internal sealed class IdentityQueryResponseProcessor
     private const int MaximumWhoRows = 4_096;
     private const int MaximumWhowasRows = 1_024;
     private const int MaximumPendingWhowasNicknames = 16;
+    private const int MaximumWhoisExtraFields = 64;
+    private const int MaximumPendingWhoisResults = 16;
     private readonly NetworkSessionState _state;
     private readonly ServerFeatures _features;
     private readonly SessionEventBuilder _events;
@@ -162,14 +164,12 @@ internal sealed class IdentityQueryResponseProcessor
     {
         if (!message.Command.All(char.IsDigit) || message.Parameters.Count < 3) return false;
         var nick = message.Parameters[1];
-        if (PeekWhoisRequest(nick) is null) return false;
-        if (!_whoisResults.TryGetValue(nick, out var result))
-        {
-            result = new WhoisResult(nick) { IncludeIdle = PeekWhoisRequest(nick)?.IncludeIdle ?? false };
-            _whoisResults.Add(nick, result);
-        }
-        result.Extra.Add(new PresentationField(
-            $"Info ({message.Command})", CleanWhoisText(string.Join(' ', message.Parameters.Skip(2)))));
+        var request = PeekWhoisRequest(nick);
+        if (request is null) return false;
+
+        var result = GetOrCreateWhoisResult(nick, request);
+        result.AddExtra($"Info ({message.Command})",
+            CleanWhoisText(string.Join(' ', message.Parameters.Skip(2))));
         return true;
     }
 
@@ -323,35 +323,44 @@ internal sealed class IdentityQueryResponseProcessor
             MaximumWidths: [24, 12, PresentationTable.UnboundedWidth, 20, 28, PresentationTable.UnboundedWidth]);
     }
 
+    private WhoisResult GetOrCreateWhoisResult(string nick, WhoisRequest? request)
+    {
+        if (!_whoisResults.TryGetValue(nick, out var result))
+        {
+            result = new WhoisResult(nick) { IncludeIdle = request?.IncludeIdle ?? false };
+            _whoisResults.Add(nick, result);
+        }
+
+        return result;
+    }
+
     private SessionEvent? ProcessWhois(IrcMessage message, DateTimeOffset now)
     {
         if (message.Parameters.Count < 2) return null;
         var nick = message.Parameters[1];
-        if (message.Command == "312" && PeekWhoisRequest(nick) is null)
+        var request = PeekWhoisRequest(nick);
+        if (message.Command == "312" && request is null &&
+            _whowasResults.TryGetValue(nick, out var history))
         {
-            if (_whowasResults.TryGetValue(nick, out var history))
+            if (history.Truncated) return null;
+
+            var current = history.Rows[^1];
+            history.Rows[^1] = current with
             {
-                if (history.Truncated) return null;
-
-                var current = history.Rows[^1];
-                history.Rows[^1] = current with
-                {
-                    Server = message.Parameters.Count >= 3 ? message.Parameters[2] : null,
-                    Seen = message.Parameters.Count >= 4 ? message.Parameters[3] : null
-                };
-                return null;
-            }
-
+                Server = message.Parameters.Count >= 3 ? message.Parameters[2] : null,
+                Seen = message.Parameters.Count >= 4 ? message.Parameters[3] : null
+            };
+            return null;
         }
-        if (message.Command == "318" && !_whoisResults.ContainsKey(nick) && PeekWhoisRequest(nick) is null)
+
+        if (request is null &&
+            (message.Command == "318" || _whoisResults.Count >= MaximumPendingWhoisResults) &&
+            !_whoisResults.ContainsKey(nick))
         {
             return null;
         }
-        if (!_whoisResults.TryGetValue(nick, out var result))
-        {
-            result = new WhoisResult(nick) { IncludeIdle = PeekWhoisRequest(nick)?.IncludeIdle ?? false };
-            _whoisResults.Add(nick, result);
-        }
+
+        var result = GetOrCreateWhoisResult(nick, request);
 
         switch (message.Command)
         {
@@ -382,27 +391,27 @@ internal sealed class IdentityQueryResponseProcessor
                 result.ActualHost = NormalizeActualConnection(message.Parameters.Skip(2));
                 break;
             case "276" when message.Parameters.Count >= 3:
-                result.Extra.Add(new PresentationField("Certificate", CleanWhoisText(message.Parameters[^1])));
+                result.AddExtra("Certificate", CleanWhoisText(message.Parameters[^1]));
                 break;
             case "379" when message.Parameters.Count >= 3:
                 var (modes, authFlags) = NormalizeWhoisModes(message.Parameters.Skip(2));
-                if (modes is not null) result.Extra.Add(new PresentationField("Modes", modes));
-                if (authFlags is not null) result.Extra.Add(new PresentationField("Auth flags", authFlags));
+                if (modes is not null) result.AddExtra("Modes", modes);
+                if (authFlags is not null) result.AddExtra("Auth flags", authFlags);
                 break;
             case "344" when message.Parameters.Count >= 3:
-                result.Extra.Add(new PresentationField("Country", CleanWhoisText(message.Parameters[^1])));
+                result.AddExtra("Country", CleanWhoisText(message.Parameters[^1]));
                 break;
             case "569" when message.Parameters.Count >= 3:
-                result.Extra.Add(new PresentationField("ASN", CleanWhoisText(message.Parameters[^1])));
+                result.AddExtra("ASN", CleanWhoisText(message.Parameters[^1]));
                 break;
             case "350" when message.Parameters.Count >= 3:
-                result.Extra.Add(new PresentationField("Gateway", CleanWhoisText(message.Parameters[^1])));
+                result.AddExtra("Gateway", CleanWhoisText(message.Parameters[^1]));
                 break;
             case "651" when message.Parameters.Count >= 3:
-                result.Extra.Add(new PresentationField("Private channels", CleanWhoisText(message.Parameters[^1])));
+                result.AddExtra("Private channels", CleanWhoisText(message.Parameters[^1]));
                 break;
             case "308" or "309" or "310" or "320" or "337" or "339" when message.Parameters.Count >= 3:
-                result.Extra.Add(new PresentationField("Info", CleanWhoisText(message.Parameters[^1])));
+                result.AddExtra("Info", CleanWhoisText(message.Parameters[^1]));
                 break;
             case "317" when message.Parameters.Count >= 4:
                 if (long.TryParse(message.Parameters[2], out var idle)) result.IdleSeconds = idle;
@@ -443,15 +452,18 @@ internal sealed class IdentityQueryResponseProcessor
         if (result.ActualHost is not null && !result.ActualHost.Equals(result.Host, StringComparison.OrdinalIgnoreCase))
             Add("Actual host", result.ActualHost);
         foreach (var extra in result.Extra) Add(extra.Label, extra.Value);
+        var summary = result.ExtrasTruncated
+            ? $"Showing {result.Extra.Count} extra fields (partial result)"
+            : null;
         return _events.Status(
             SessionEventKind.Server,
-            $"WHOIS {result.Nick}",
+            summary is null ? $"WHOIS {result.Nick}" : $"WHOIS {result.Nick}: {summary}",
             now,
             SessionEventBuilder.Fields(
                 ("outputFamily", "whois"), ("outputTarget", result.Nick),
                 ("outputRequestId", request?.Id.ToString("D")),
                 ("numeric", "318"), ("outputEnd", "true")),
-            new PresentationBlock("WHOIS:", fields, TitleHighlight: result.Nick));
+            new PresentationBlock("WHOIS:", fields, Summary: summary, TitleHighlight: result.Nick));
 
         void Add(string label, string? value)
         {
@@ -706,6 +718,22 @@ internal sealed class IdentityQueryResponseProcessor
         public bool Secure { get; set; }
         public bool IncludeIdle { get; set; }
         public string? ActualHost { get; set; }
-        public List<PresentationField> Extra { get; } = [];
+        private readonly List<PresentationField> _extra = [];
+
+        public IReadOnlyList<PresentationField> Extra => _extra;
+        public bool ExtrasTruncated { get; private set; }
+
+        public void AddExtra(string label, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+
+            if (_extra.Count >= MaximumWhoisExtraFields)
+            {
+                ExtrasTruncated = true;
+                return;
+            }
+
+            _extra.Add(new PresentationField(label, value));
+        }
     }
 }

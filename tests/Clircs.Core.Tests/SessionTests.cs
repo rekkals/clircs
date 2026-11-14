@@ -69,6 +69,7 @@ internal static class SessionTests
         suite.Add("WHOIS idle host and TLS fields are concise", WhoisFieldsAreConcise);
         suite.Add("overlapping WHOIS replies retain their request identities", OverlappingWhoisRequestsRetainIdentity);
         suite.Add("unknown WHOIS numerics retain all significant parameters", UnknownWhoisNumericsAreLossless);
+        suite.Add("WHOIS caps extras and untracked results while allowing tracked requests", WhoisCapsAndResets);
         suite.Add("known numerics take precedence over WHOIS extension collection", KnownNumericPrecedesWhoisExtension);
         suite.Add("query response state is discarded on reconnect", QueryResponseStateResetsOnReconnect);
         suite.Add("connection health probes after 90 seconds and waits 120 seconds", ConnectionHealthUsesConservativeDeadlines);
@@ -1731,6 +1732,54 @@ internal static class SessionTests
         Assert.Equal(
             "account-name has special status",
             completed[0].Presentation!.Fields!.Single(field => field.Label == "Info (799)").Value);
+    }
+
+    private static void WhoisCapsAndResets()
+    {
+        var (_, processor) = CreateProcessor();
+        for (var index = 0; index < 16; index++)
+        {
+            processor.Process(IrcMessageParser.Parse(
+                $":server 312 me nick{index} pending.example :Pending server"));
+        }
+
+        var rawServer = IrcMessageParser.Parse(":server 312 me Alice raw.example :Raw server");
+        var end = IrcMessageParser.Parse(":server 318 me Alice :End of WHOIS");
+        processor.Process(rawServer);
+        Assert.Equal(0, processor.Process(end).Count);
+
+        var requestId = processor.BeginWhoisRequest("Alice", includeIdle: false);
+        processor.Process(IrcMessageParser.Parse(":server 799 me Alice :Custom detail"));
+        var info = IrcMessageParser.Parse(":server 320 me Alice :Recognized detail");
+        for (var index = 0; index < 63; index++)
+        {
+            processor.Process(info);
+        }
+
+        processor.Process(info);
+        Assert.Equal(0, processor.Process(
+            IrcMessageParser.Parse(":server 799 me Alice :Dropped detail")).Count);
+        processor.Process(IrcMessageParser.Parse(":server 312 me Alice tracked.example :Tracked server"));
+
+        var completed = processor.Process(end).Single();
+        Assert.Equal(requestId.ToString("D"), completed.Fields!["outputRequestId"]!);
+        var partial = completed.Presentation!;
+        var fields = partial.Fields!;
+        Assert.Equal(63, fields.Count(field => field.Label == "Info"));
+        Assert.Equal("Custom detail", fields.Single(field => field.Label == "Info (799)").Value);
+        Assert.Equal("tracked.example [Tracked server]", fields.Single(field => field.Label == "Server").Value);
+        Assert.True(partial.Summary!.Contains("partial result", StringComparison.Ordinal));
+
+        var pending = processor.Process(IrcMessageParser.Parse(
+            ":server 318 me nick0 :End of WHOIS")).Single().Presentation!;
+        Assert.Equal("pending.example [Pending server]", pending.Fields!.Single().Value);
+
+        processor.Process(rawServer);
+        var next = processor.Process(end).Single().Presentation!;
+        var server = next.Fields!.Single();
+        Assert.Equal("Server", server.Label);
+        Assert.Equal("raw.example [Raw server]", server.Value);
+        Assert.True(next.Summary is null);
     }
 
     private static void KnownNumericPrecedesWhoisExtension()
