@@ -84,7 +84,7 @@ internal sealed partial class ClientApplication
         Register("remuser", [], "Remove a user from the active network's user directory.", RemoveUserAsync);
         Register("addhost", [], "Add a hostmask to a user.", AddHostAsync);
         Register("remhost", [], "Remove a hostmask from a user.", RemoveHostAsync);
-        Register("chattr", [], "Change global or channel user flags.", ChangeAttributesAsync);
+        Register("chattr", [], "Change userlist flags.", ChangeAttributesAsync);
         Register("addchan", [], "Add a channel to the user policy entry.", AddUserChannelAsync);
         Register("remchan", [], "Remove a channel from the user policy entry.", RemoveUserChannelAsync);
         Register("chinfo", [], "Set a global or channel-specific JOIN infoline for a user.", ChangeUserInfoAsync);
@@ -221,6 +221,19 @@ internal sealed partial class ClientApplication
             new("Enable EXTERNAL", "/network sasl <profile> external <certificate.pfx> [required|optional]"),
             new("Disable SASL", "/network sasl <profile> off")
         ],
+        "chattr" =>
+[
+            new("Flags", "Use + to add and - to remove. Separate changes with commas."),
+            new("b", "Bot: excluded from /userwall"),
+            new("o", "Op: eligible for /umop"),
+            new("a", "Auto-op: requires the o flag"),
+            new("v", "Voice: eligible for /umv and auto-voice"),
+            new("f", "Friend: exempt from automatic deop, kick on join, and from " +
+                "protection rules configured to exempt friends"),
+            new("d", "Deop: automatically remove channel operator status"),
+            new("k", "Kick: kick on join"),
+            new("Example", "/chattr alice +oa,-v #clircs")
+],
         "ignore" =>
         [
             new("List", "/ignore"),
