@@ -48,6 +48,7 @@ internal static class SessionTests
         suite.Add("ISON replies remain internal instead of rendering raw 303", IsonRepliesAreSilent);
         suite.Add("MONITOR replies remain internal instead of rendering raw numerics", MonitorRepliesAreSilent);
         suite.Add("caller-ID permission and ACCEPT replies are formatted", CallerIdRepliesAreFormatted);
+        suite.Add("ACCEPT caps entries within a reply line and resets after completion", AcceptCapsAndResets);
         suite.Add("numeric 531 preserves its server-provided explanation", RestrictedMessageErrorPreservesServerText);
         suite.Add("incoming caller-ID blocks are formatted and routed", IncomingCallerIdBlockIsFormatted);
         suite.Add("channel permission errors are formatted without raw numerics", PermissionErrorsAreFormatted);
@@ -1240,6 +1241,32 @@ internal static class SessionTests
         Assert.Equal("true", full[0].Fields!["routeActive"]!);
         Assert.Equal("true", exists[0].Fields!["routeActive"]!);
         Assert.Equal("true", missing[0].Fields!["routeActive"]!);
+    }
+
+    private static void AcceptCapsAndResets()
+    {
+        var (_, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(":server 005 me ACCEPT=20 :supported"));
+        var entries = string.Join(' ', Enumerable.Repeat("Alice", 11));
+        var batch = IrcMessageParser.Parse($":server 281 me :{entries}");
+        var end = IrcMessageParser.Parse(":server 282 me :End of ACCEPT list");
+
+        for (var received = 0; received < 1_023; received += 11)
+        {
+            processor.Process(batch);
+        }
+
+        var overflow = IrcMessageParser.Parse(":server 281 me Bob Carol");
+        Assert.Equal(0, processor.Process(overflow).Count);
+
+        var partial = processor.Process(end).Single().Presentation!;
+        Assert.True(partial.Grid!.SequenceEqual(new[] { "Alice", "Bob" }));
+        Assert.Equal("Showing 2 entries (partial result)", partial.Summary!);
+
+        processor.Process(IrcMessageParser.Parse(":server 281 me :Dave"));
+        var next = processor.Process(end).Single().Presentation!;
+        Assert.Equal("Dave", next.Grid!.Single());
+        Assert.True(next.Summary is null);
     }
 
     private static void IncomingCallerIdBlockIsFormatted()

@@ -7,6 +7,7 @@ namespace Clircs.Sessions;
 
 public sealed class IrcSessionProcessor
 {
+    private const int MaximumAcceptEntries = 1_024;
     private readonly NetworkSessionState _state;
     private readonly SessionEventBuilder _eventBuilder;
     private readonly IdentityQueryResponseProcessor _identityQueries;
@@ -14,6 +15,7 @@ public sealed class IrcSessionProcessor
     private readonly ChannelListResponseProcessor _channelLists;
     private readonly ChannelQueryRequestTracker _channelQueries;
     private readonly List<string> _acceptResults = [];
+    private bool _acceptTruncated;
     private PendingCallerId? _pendingCallerId;
     private AutomaticVersionProbeState _automaticVersionProbeState;
     private bool _automaticUserModeQueryPending;
@@ -50,6 +52,7 @@ public sealed class IrcSessionProcessor
         _channelLists.Reset();
         _channelQueries.Reset();
         _acceptResults.Clear();
+        _acceptTruncated = false;
         _pendingCallerId = null;
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
         _automaticUserModeQueryPending = false;
@@ -925,25 +928,35 @@ public sealed class IrcSessionProcessor
                     Fields(("numeric", "734"))));
                 break;
             case "281" when Features.Supports("ACCEPT") || Features.Supports("CALLERID"):
-                if (message.Parameters.Count >= 2)
+                if (!_acceptTruncated && message.Parameters.Count >= 2)
                 {
-                    _acceptResults.AddRange(message.Parameters[^1]
-                        .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                    var entries = message.Parameters.Skip(1)
+                        .SelectMany(parameter => parameter.Split(
+                            ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        .ToArray();
+                    var remaining = MaximumAcceptEntries - _acceptResults.Count;
+                    _acceptResults.AddRange(entries.Take(remaining));
+                    _acceptTruncated = entries.Length > remaining;
                 }
                 break;
             case "282" when Features.Supports("ACCEPT") || Features.Supports("CALLERID"):
                 var acceptedNicknames = _acceptResults.Distinct(NameComparer())
                     .OrderBy(nickname => IrcCaseFold.Fold(nickname, _state.CaseMapping), StringComparer.Ordinal).ToArray();
+                var partialAcceptSummary = _acceptTruncated
+                    ? $"Showing {acceptedNicknames.Length:N0} entries (partial result)"
+                    : null;
                 _acceptResults.Clear();
+                _acceptTruncated = false;
                 events.Add(Status(
                     SessionEventKind.Server,
-                    $"ACCEPT: {acceptedNicknames.Length} nickname(s)",
+                    $"ACCEPT: {partialAcceptSummary ?? $"{acceptedNicknames.Length} nickname(s)"}",
                     now,
                     Fields(("numeric", "282")),
                     new PresentationBlock(
                         "ACCEPT",
                         Grid: acceptedNicknames,
-                        Summary: acceptedNicknames.Length == 0 ? "The ACCEPT list is empty" : null)));
+                        Summary: partialAcceptSummary ??
+                            (acceptedNicknames.Length == 0 ? "The ACCEPT list is empty" : null))));
                 break;
             case "404":
                 var blockedTarget = message.Parameters.Count >= 2 ? message.Parameters[1] : "that target";
