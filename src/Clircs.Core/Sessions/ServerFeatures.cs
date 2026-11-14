@@ -112,8 +112,18 @@ public sealed class ServerFeatures
             index++;
         }
 
+        // A status prefix can also be the first character of the channel name.
+        for (var candidate = Math.Min(index, target.Length - 1); candidate >= 0; candidate--)
+        {
+            if (ChannelTypes.Contains(target[candidate]))
+            {
+                channel = target[candidate..];
+                return true;
+            }
+        }
+
         channel = target[index..];
-        return IsChannel(channel);
+        return false;
     }
 
     public string NormalizeMessageTarget(string target) =>
@@ -268,8 +278,7 @@ public sealed class ServerFeatures
                 CaseMapping = mapping.Value;
                 return true;
             case "CHANTYPES":
-                if (string.IsNullOrEmpty(value)) return false;
-                ChannelTypes = value;
+                ChannelTypes = value ?? string.Empty;
                 return true;
             case "MODES":
                 if (!int.TryParse(value, out var modes) || modes <= 0) return false;

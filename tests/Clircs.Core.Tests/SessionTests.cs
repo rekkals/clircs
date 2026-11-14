@@ -507,12 +507,25 @@ internal static class SessionTests
         Assert.True(processor.Features.TryGetPrefixMode('@', out var opMode));
         Assert.Equal('o', opMode);
         Assert.False(processor.Features.TryGetPrefixMode('~', out _));
+
+        foreach (var token in new[] { "CHANTYPES=", "CHANTYPES" })
+        {
+            processor.Process(IrcMessageParser.Parse($":server 005 me {token} :are supported"));
+            Assert.True(processor.Features.Supports("CHANTYPES"));
+            Assert.Equal(string.Empty, processor.Features.ChannelTypes);
+            Assert.False(processor.Features.IsChannel("#clirc"));
+            Assert.False(processor.Features.IsChannel("&clirc"));
+
+            processor.Process(IrcMessageParser.Parse(":server 005 me -CHANTYPES :are supported"));
+            Assert.Equal("#&", processor.Features.ChannelTypes);
+        }
     }
 
     private static void StatusMessageRouting()
     {
         var (state, processor) = CreateProcessor();
-        processor.Process(IrcMessageParser.Parse(":server 005 me STATUSMSG=@+ :supported"));
+        processor.Process(IrcMessageParser.Parse(
+            ":server 005 me CHANTYPES=#& PREFIX=(aov)&@+ STATUSMSG=@&+ :are supported"));
 
         var message = processor.Process(
             IrcMessageParser.Parse(":alice!u@h PRIVMSG @#clirc :operators only"));
@@ -526,6 +539,16 @@ internal static class SessionTests
         Assert.False(state.TryGetBuffer("alice", out _));
         Assert.Equal("#clirc", message[0].Fields!["channel"]!);
         Assert.Equal("#clirc", notice[0].Fields!["channel"]!);
+
+        var localMessage = processor.Process(
+            IrcMessageParser.Parse(":alice!u@h PRIVMSG &clirc :local chat")).Single();
+        var localNotice = processor.Process(
+            IrcMessageParser.Parse(":alice!u@h NOTICE @&clirc :local operators only")).Single();
+
+        Assert.True(state.TryGetBuffer("&clirc", out var localChannel));
+        Assert.Equal(localChannel!.Id, localMessage.BufferId);
+        Assert.Equal(localChannel.Id, localNotice.BufferId);
+        Assert.Equal("&clirc", localNotice.Fields!["channel"]!);
     }
 
     private static void DaemonDetectionIsAdvisory()
