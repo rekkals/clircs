@@ -864,7 +864,10 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 var channel = message.Parameters[0];
                 _pendingJoinKeys.Remove(channel, out var key);
                 _channelsToRestore[channel] = key;
-                await SendAsync("MODE", [message.Parameters[0]], IrcOutboundPriority.Automation).ConfigureAwait(false);
+                if (!channel.StartsWith('+'))
+                {
+                    await SendAsync("MODE", [channel], IrcOutboundPriority.Automation).ConfigureAwait(false);
+                }
             }
         }
 
