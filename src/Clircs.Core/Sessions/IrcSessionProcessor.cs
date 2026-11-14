@@ -1388,10 +1388,17 @@ public sealed class IrcSessionProcessor
         var isChannel = Features.IsChannel(target);
         var selfMessage = IsCurrentNickname(sender);
 
-        if (text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
+        var hasOpeningDelimiter = text.Length >= 2 && text[0] == '\u0001';
+        var hasClosingDelimiter = hasOpeningDelimiter && text[^1] == '\u0001';
+        var ctcpEnd = hasClosingDelimiter ? text.Length - 1 : text.Length;
+        var ctcp = hasOpeningDelimiter ? text[1..ctcpEnd] : null;
+        var isAction = ctcp is not null &&
+            (ctcp.Equals("ACTION", StringComparison.OrdinalIgnoreCase) ||
+             ctcp.StartsWith("ACTION ", StringComparison.OrdinalIgnoreCase));
+
+        if (ctcp is not null && (hasClosingDelimiter || isAction))
         {
-            var ctcp = text[1..^1];
-            if (selfMessage && !ctcp.StartsWith("ACTION ", StringComparison.OrdinalIgnoreCase))
+            if (selfMessage && !isAction)
             {
                 return;
             }
@@ -1437,13 +1444,17 @@ public sealed class IrcSessionProcessor
                             ("private", isChannel ? null : "true"))));
                 }
             }
-            else if (ctcp.StartsWith("ACTION ", StringComparison.OrdinalIgnoreCase))
+            else if (isAction)
             {
-                var actionText = IrcTextFormatting.Parse(ctcp[7..]);
+                var actionText = IrcTextFormatting.Parse(
+                    ctcp.Length == 6 ? string.Empty : ctcp[7..]);
                 var actionBuffer = isChannel
                     ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
                     : AutomaticQueryBuffer(selfMessage ? target : sender);
-                events.Add(Event(actionBuffer, SessionEventKind.Action, $"* {sender} {actionText.PlainText}", now,
+                var displayedAction = actionText.PlainText.Length == 0
+                    ? $"* {sender}"
+                    : $"* {sender} {actionText.PlainText}";
+                events.Add(Event(actionBuffer, SessionEventKind.Action, displayedAction, now,
                     Fields(("nick", sender), ("self", selfMessage ? "true" : null),
                         ("username", ParsePrefix(message.Prefix).Username),
                         ("host", ParsePrefix(message.Prefix).Host), ("message", actionText.PlainText),

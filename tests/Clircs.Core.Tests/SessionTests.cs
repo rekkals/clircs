@@ -924,11 +924,21 @@ internal static class SessionTests
     private static void CtcpActionRouting()
     {
         var (_, processor) = CreateProcessor();
-        var events = processor.Process(IrcMessageParser.Parse(":alice!u@h PRIVMSG #clirc :\u0001ACTION waves\u0001"));
+        foreach (var (wireText, expectedText, expectedPayload) in new[]
+        {
+            ("\u0001ACTION waves\u0001", "* alice waves", "waves"),
+            ("\u0001ACTION\u0001", "* alice", ""),
+            ("\u0001ACTION", "* alice", ""),
+            ("\u0001ACTION waves", "* alice waves", "waves")
+        })
+        {
+            var action = processor.Process(IrcMessageParser.Parse(
+                $":alice!u@h PRIVMSG #clirc :{wireText}")).Single();
 
-        Assert.Equal(SessionEventKind.Action, events[0].Kind);
-        Assert.Equal("* alice waves", events[0].Text);
-        Assert.Equal("waves", events[0].Fields!["message"]!);
+            Assert.Equal(SessionEventKind.Action, action.Kind);
+            Assert.Equal(expectedText, action.Text);
+            Assert.Equal(expectedPayload, action.Fields!["message"]!);
+        }
     }
 
     private static void CtcpRequestsDoNotCreateQueries()
