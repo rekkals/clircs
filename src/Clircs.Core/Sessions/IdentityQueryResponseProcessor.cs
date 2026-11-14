@@ -6,6 +6,8 @@ namespace Clircs.Sessions;
 internal sealed class IdentityQueryResponseProcessor
 {
     private const int MaximumWhoRows = 4_096;
+    private const int MaximumWhowasRows = 1_024;
+    private const int MaximumPendingWhowasNicknames = 16;
     private readonly NetworkSessionState _state;
     private readonly ServerFeatures _features;
     private readonly SessionEventBuilder _events;
@@ -16,7 +18,7 @@ internal sealed class IdentityQueryResponseProcessor
     private readonly Dictionary<Guid, WhoisRequest> _whoisRequests = [];
     private Dictionary<string, Queue<Guid>> _whoisRequestsByNick;
     private Dictionary<string, WhoisResult> _whoisResults;
-    private Dictionary<string, List<WhowasResult>> _whowasResults;
+    private Dictionary<string, WhowasHistory> _whowasResults;
 
     public IdentityQueryResponseProcessor(
         NetworkSessionState state,
@@ -28,7 +30,7 @@ internal sealed class IdentityQueryResponseProcessor
         _events = events;
         _whoisRequestsByNick = new Dictionary<string, Queue<Guid>>(NameComparer());
         _whoisResults = new Dictionary<string, WhoisResult>(NameComparer());
-        _whowasResults = new Dictionary<string, List<WhowasResult>>(NameComparer());
+        _whowasResults = new Dictionary<string, WhowasHistory>(NameComparer());
     }
 
     public Guid BeginWho(IReadOnlyList<string> arguments, bool automatic, Guid? requestId = null)
@@ -93,7 +95,7 @@ internal sealed class IdentityQueryResponseProcessor
         _whoisRequests.Clear();
         _whoisRequestsByNick = new Dictionary<string, Queue<Guid>>(NameComparer());
         _whoisResults = new Dictionary<string, WhoisResult>(NameComparer());
-        _whowasResults = new Dictionary<string, List<WhowasResult>>(NameComparer());
+        _whowasResults = new Dictionary<string, WhowasHistory>(NameComparer());
     }
 
     public void ReindexNames()
@@ -325,16 +327,21 @@ internal sealed class IdentityQueryResponseProcessor
     {
         if (message.Parameters.Count < 2) return null;
         var nick = message.Parameters[1];
-        if (message.Command == "312" && PeekWhoisRequest(nick) is null &&
-            _whowasResults.TryGetValue(nick, out var whowas) && whowas.Count > 0)
+        if (message.Command == "312" && PeekWhoisRequest(nick) is null)
         {
-            var current = whowas[^1];
-            whowas[^1] = current with
+            if (_whowasResults.TryGetValue(nick, out var history))
             {
-                Server = message.Parameters.Count >= 3 ? message.Parameters[2] : null,
-                Seen = message.Parameters.Count >= 4 ? message.Parameters[3] : null
-            };
-            return null;
+                if (history.Truncated) return null;
+
+                var current = history.Rows[^1];
+                history.Rows[^1] = current with
+                {
+                    Server = message.Parameters.Count >= 3 ? message.Parameters[2] : null,
+                    Seen = message.Parameters.Count >= 4 ? message.Parameters[3] : null
+                };
+                return null;
+            }
+
         }
         if (message.Command == "318" && !_whoisResults.ContainsKey(nick) && PeekWhoisRequest(nick) is null)
         {
@@ -456,20 +463,29 @@ internal sealed class IdentityQueryResponseProcessor
     {
         if (message.Parameters.Count < 6) return;
         var nick = message.Parameters[1];
-        if (!_whowasResults.TryGetValue(nick, out var results))
+        if (!_whowasResults.TryGetValue(nick, out var history))
         {
-            results = [];
-            _whowasResults.Add(nick, results);
+            if (_whowasResults.Count >= MaximumPendingWhowasNicknames) return;
+
+            history = new WhowasHistory();
+            _whowasResults.Add(nick, history);
         }
-        results.Add(new WhowasResult(nick, $"{message.Parameters[2]}@{message.Parameters[3]}", message.Parameters[5]));
+
+        if (history.Rows.Count >= MaximumWhowasRows)
+        {
+            history.Truncated = true;
+            return;
+        }
+
+        history.Rows.Add(new WhowasResult(
+            nick, $"{message.Parameters[2]}@{message.Parameters[3]}", message.Parameters[5]));
     }
 
     private SessionEvent? CompleteWhowas(IrcMessage message, DateTimeOffset now)
     {
         if (message.Parameters.Count < 2) return null;
         var nick = message.Parameters[1];
-        _whowasResults.Remove(nick, out var results);
-        if (results is null || results.Count == 0)
+        if (!_whowasResults.Remove(nick, out var history))
         {
             return _events.Status(
                 SessionEventKind.Error,
@@ -479,6 +495,11 @@ internal sealed class IdentityQueryResponseProcessor
                     ("outputFamily", "whowas"), ("outputTarget", nick),
                     ("numeric", "369"), ("outputEnd", "true")));
         }
+
+        var results = history.Rows;
+        var partialSummary = history.Truncated
+            ? $"Showing {results.Count:N0} entries (partial result)"
+            : null;
 
         PresentationBlock presentation;
         if (results.Count == 1)
@@ -506,11 +527,12 @@ internal sealed class IdentityQueryResponseProcessor
                     }).ToArray(),
                     KeepAllColumns: true,
                     MaximumWidths: [24, 40, 32, 28, 28]),
+                Summary: partialSummary,
                 TitleHighlight: nick);
         }
         return _events.Status(
             SessionEventKind.Server,
-            $"WHOWAS {nick}",
+            partialSummary is null ? $"WHOWAS {nick}" : $"WHOWAS {nick}: {partialSummary}",
             now,
             SessionEventBuilder.Fields(
                 ("outputFamily", "whowas"), ("outputTarget", nick),
@@ -655,6 +677,12 @@ internal sealed class IdentityQueryResponseProcessor
         string UserHost, string Server, string RealName);
 
     private sealed record WhoisRequest(Guid Id, string Nickname, bool IncludeIdle, bool Automatic);
+
+    private sealed class WhowasHistory
+    {
+        public List<WhowasResult> Rows { get; } = [];
+        public bool Truncated { get; set; }
+    }
 
     private sealed record WhowasResult(
         string Nick, string Address, string RealName, string? Server = null, string? Seen = null);

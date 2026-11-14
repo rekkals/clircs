@@ -78,6 +78,7 @@ internal static class SessionTests
         suite.Add("channel forwarding and URLs are formatted without raw numerics", ForwardAndChannelUrlAreFormatted);
         suite.Add("WHOWAS replies produce a formatted result without raw numerics", WhowasIsFormatted);
         suite.Add("missing WHOWAS history produces one routed error without an information box", MissingWhowasIsFormatted);
+        suite.Add("WHOWAS caps pending history and preserves retained row details", WhowasCapsAndResets);
         suite.Add("716 and 717 combine into one routed caller-ID notice", CallerIdNumericsCombine);
         suite.Add("ordinary notices carry configurable notice routing", OrdinaryNoticesAreTagged);
         suite.Add("server notices retain formatting and carry separate routing", ServerNoticesAreTagged);
@@ -1877,6 +1878,48 @@ internal static class SessionTests
             Assert.Equal(destination, routed);
             Assert.False(routing.TryResolve(result, out _));
         }
+    }
+
+    private static void WhowasCapsAndResets()
+    {
+        var (_, processor) = CreateProcessor();
+        var row = IrcMessageParser.Parse(":server 314 me crwx user host * :Retained");
+        var end = IrcMessageParser.Parse(":server 369 me crwx :End of WHOWAS");
+        var extraNick = IrcMessageParser.Parse(":server 314 me extra user host * :Extra nickname");
+        var extraEnd = IrcMessageParser.Parse(":server 369 me extra :End of WHOWAS");
+
+        processor.Process(row);
+        for (var index = 1; index < 16; index++)
+        {
+            processor.Process(IrcMessageParser.Parse(
+                $":server 314 me nick{index} user host * :Pending"));
+        }
+
+        processor.Process(extraNick);
+        Assert.Equal(SessionEventKind.Error, processor.Process(extraEnd).Single().Kind);
+
+        for (var index = 1; index < 1_024; index++)
+        {
+            processor.Process(row);
+        }
+
+        processor.Process(IrcMessageParser.Parse(":server 312 me crwx retained.example :Retained timestamp"));
+        processor.Process(IrcMessageParser.Parse(":server 314 me crwx user host * :Dropped"));
+        processor.Process(IrcMessageParser.Parse(":server 312 me crwx dropped.example :Dropped timestamp"));
+
+        var partial = processor.Process(end).Single().Presentation!;
+        var rows = partial.Table!.Rows;
+        Assert.Equal(1_024, rows.Count);
+        Assert.Equal("retained.example", rows[^1][3]);
+        Assert.Equal("Retained timestamp", rows[^1][4]);
+        Assert.True(partial.Summary!.Contains("partial result", StringComparison.Ordinal));
+
+        processor.Process(extraNick);
+        Assert.Equal(SessionEventKind.Server, processor.Process(extraEnd).Single().Kind);
+        processor.Process(row);
+        var next = processor.Process(end).Single().Presentation!;
+        Assert.Equal("Retained", next.Fields!.Single(field => field.Label == "Name").Value);
+        Assert.True(next.Summary is null);
     }
 
     private static void OrdinaryNoticesAreTagged()
