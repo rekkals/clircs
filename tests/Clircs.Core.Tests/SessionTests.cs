@@ -1234,7 +1234,15 @@ internal static class SessionTests
 
         Assert.Equal(1, completed.Count);
         Assert.Equal("ACCEPT", completed[0].Presentation!.Title);
-        Assert.True(completed[0].Presentation!.Grid!.SequenceEqual(new[] { "Alice", "Bob" }));
+        var table = completed[0].Presentation!.Table!;
+        Assert.Equal("Entry", table.Columns.Single());
+        Assert.True(table.Rows.Select(row => row.Single()).SequenceEqual(new[] { "Alice", "Bob" }));
+        Assert.Equal("2 accept entries", completed[0].Presentation!.Summary!);
+
+        var empty = processor.Process(
+            IrcMessageParser.Parse(":server 282 me :End of ACCEPT list")).Single();
+        Assert.Equal("The ACCEPT list is empty", empty.Text);
+        Assert.True(empty.Presentation is null);
         Assert.Equal("The server ACCEPT list is full", full[0].Text);
         Assert.Equal("Alice is already on your ACCEPT list", exists[0].Text);
         Assert.Equal("Bob is not on your ACCEPT list", missing[0].Text);
@@ -1260,13 +1268,14 @@ internal static class SessionTests
         Assert.Equal(0, processor.Process(overflow).Count);
 
         var partial = processor.Process(end).Single().Presentation!;
-        Assert.True(partial.Grid!.SequenceEqual(new[] { "Alice", "Bob" }));
+        Assert.True(partial.Table!.Rows.Select(row => row.Single())
+            .SequenceEqual(new[] { "Alice", "Bob" }));
         Assert.Equal("Showing 2 entries (partial result)", partial.Summary!);
 
         processor.Process(IrcMessageParser.Parse(":server 281 me :Dave"));
         var next = processor.Process(end).Single().Presentation!;
-        Assert.Equal("Dave", next.Grid!.Single());
-        Assert.True(next.Summary is null);
+        Assert.Equal("Dave", next.Table!.Rows.Single().Single());
+        Assert.Equal("1 accept entry", next.Summary!);
     }
 
     private static void IncomingCallerIdBlockIsFormatted()

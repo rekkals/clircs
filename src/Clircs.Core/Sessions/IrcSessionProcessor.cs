@@ -947,6 +947,20 @@ public sealed class IrcSessionProcessor
                     : null;
                 _acceptResults.Clear();
                 _acceptTruncated = false;
+                if (acceptedNicknames.Length == 0)
+                {
+                    events.Add(Status(
+                        SessionEventKind.Server,
+                        "The ACCEPT list is empty",
+                        now,
+                        Fields(("numeric", "282"))));
+                    break;
+                }
+
+                var acceptRows = acceptedNicknames
+                    .Select(nickname => (IReadOnlyList<string>)new[] { nickname })
+                    .ToArray();
+                var acceptEntryLabel = acceptedNicknames.Length == 1 ? "entry" : "entries";
                 events.Add(Status(
                     SessionEventKind.Server,
                     $"ACCEPT: {partialAcceptSummary ?? $"{acceptedNicknames.Length} nickname(s)"}",
@@ -954,9 +968,10 @@ public sealed class IrcSessionProcessor
                     Fields(("numeric", "282")),
                     new PresentationBlock(
                         "ACCEPT",
-                        Grid: acceptedNicknames,
-                        Summary: partialAcceptSummary ??
-                            (acceptedNicknames.Length == 0 ? "The ACCEPT list is empty" : null))));
+                        Table: new PresentationTable(
+                            ["Entry"], acceptRows,
+                            MaximumWidths: [PresentationTable.UnboundedWidth]),
+                        Summary: partialAcceptSummary ?? $"{acceptedNicknames.Length:N0} accept {acceptEntryLabel}")));
                 break;
             case "404":
                 var blockedTarget = message.Parameters.Count >= 2 ? message.Parameters[1] : "that target";
