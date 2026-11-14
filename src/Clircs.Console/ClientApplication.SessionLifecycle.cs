@@ -343,10 +343,6 @@ internal sealed partial class ClientApplication
     private void OnSessionSynchronizationCompleted(IrcNetworkSession session)
     {
         _sessionTransientState.ResetAutojoin(session.State.Id);
-        if (_windowStates.IsActiveSession(session.State.Id))
-        {
-            RedrawActiveBuffer();
-        }
         StartSessionWork(
             session,
             "configured user modes",
