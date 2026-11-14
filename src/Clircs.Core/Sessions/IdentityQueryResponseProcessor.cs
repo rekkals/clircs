@@ -5,12 +5,14 @@ namespace Clircs.Sessions;
 
 internal sealed class IdentityQueryResponseProcessor
 {
+    private const int MaximumWhoRows = 4_096;
     private readonly NetworkSessionState _state;
     private readonly ServerFeatures _features;
     private readonly SessionEventBuilder _events;
     private readonly object _whoGate = new();
     private readonly Queue<WhoRequest> _whoRequests = [];
     private readonly List<WhoResultRow> _untrackedWhoResults = [];
+    private bool _untrackedWhoTruncated;
     private readonly Dictionary<Guid, WhoisRequest> _whoisRequests = [];
     private Dictionary<string, Queue<Guid>> _whoisRequestsByNick;
     private Dictionary<string, WhoisResult> _whoisResults;
@@ -85,6 +87,7 @@ internal sealed class IdentityQueryResponseProcessor
         {
             _whoRequests.Clear();
             _untrackedWhoResults.Clear();
+            _untrackedWhoTruncated = false;
         }
 
         _whoisRequests.Clear();
@@ -194,11 +197,14 @@ internal sealed class IdentityQueryResponseProcessor
         var responseTarget = message.Parameters.Count >= 2 ? message.Parameters[1] : "*";
         WhoRequest? request;
         WhoResultRow[] rows;
+        bool truncated;
         lock (_whoGate)
         {
             _whoRequests.TryDequeue(out request);
-            rows = request is null ? _untrackedWhoResults.ToArray() : request.Rows.ToArray();
+            rows = (request?.Rows ?? _untrackedWhoResults).ToArray();
+            truncated = request?.Truncated ?? _untrackedWhoTruncated;
             _untrackedWhoResults.Clear();
+            _untrackedWhoTruncated = false;
         }
 
         request ??= new WhoRequest(Guid.Empty, responseTarget, responseTarget,
@@ -206,6 +212,7 @@ internal sealed class IdentityQueryResponseProcessor
             responseTarget.Equals("0", StringComparison.Ordinal) || responseTarget.IndexOfAny(['*', '?']) >= 0
                 ? WhoRequestKind.Broad : WhoRequestKind.Single,
             Automatic: false);
+        var partialSummary = truncated ? $"Showing {rows.Length:N0} users (partial result)" : null;
         var here = rows.Count(row => row.Status.StartsWith("here", StringComparison.Ordinal));
         var away = rows.Length - here;
         PresentationBlock presentation;
@@ -216,7 +223,7 @@ internal sealed class IdentityQueryResponseProcessor
         else if (request.Kind == WhoRequestKind.Single)
         {
             presentation = new PresentationBlock(
-                "WHO:", Table: WhoTable(rows, includeChannel: true), TitleHighlight: request.Input);
+                "WHO:", Table: WhoTable(rows, includeChannel: true), Summary: partialSummary, TitleHighlight: request.Input);
         }
         else
         {
@@ -225,12 +232,13 @@ internal sealed class IdentityQueryResponseProcessor
             presentation = new PresentationBlock(
                 "WHO:",
                 Table: WhoTable(rows, includeChannel: request.Kind != WhoRequestKind.Channel),
-                Summary: $"{rows.Length} {noun}: {here} here, {away} away, {operators} IRC operators",
+                Summary: partialSummary ?? $"{rows.Length} {noun}: {here} here, {away} away, {operators} IRC operators",
                 TitleHighlight: request.Input);
         }
+        var resultText = partialSummary ?? $"{rows.Length} result(s)";
         results.Add(_events.Status(
             SessionEventKind.Server,
-            $"WHO {request.Input}: {rows.Length} result(s)",
+            $"WHO {request.Input}: {resultText}",
             now,
             SessionEventBuilder.Fields(
                 ("outputFamily", "who"), ("outputTarget", request.Target),
@@ -242,19 +250,26 @@ internal sealed class IdentityQueryResponseProcessor
 
     private void AddWhoResult(IrcMessage message)
     {
-        var target = message.Parameters[1];
-        var flags = message.Parameters[6];
-        var status = flags.Contains('G') ? "away" : "here";
-        if (flags.Contains('*')) status += "*";
-        var privilege = new string(flags.Where(symbol => _features.TryGetPrefixMode(symbol, out _)).ToArray());
-        var realName = ParseWhoRealName(message.Parameters[7]);
-        var row = new WhoResultRow(
-            message.Parameters[5], status, privilege, target,
-            $"{message.Parameters[2]}@{message.Parameters[3]}", message.Parameters[4], realName);
         lock (_whoGate)
         {
-            if (_whoRequests.Count > 0) _whoRequests.Peek().Rows.Add(row);
-            else _untrackedWhoResults.Add(row);
+            _whoRequests.TryPeek(out var request);
+            var rows = request?.Rows ?? _untrackedWhoResults;
+            if (rows.Count >= MaximumWhoRows)
+            {
+                if (request is null) _untrackedWhoTruncated = true;
+                else request.Truncated = true;
+                return;
+            }
+
+            var target = message.Parameters[1];
+            var flags = message.Parameters[6];
+            var status = flags.Contains('G') ? "away" : "here";
+            if (flags.Contains('*')) status += "*";
+            var privilege = new string(flags.Where(symbol => _features.TryGetPrefixMode(symbol, out _)).ToArray());
+            var realName = ParseWhoRealName(message.Parameters[7]);
+            rows.Add(new WhoResultRow(
+                message.Parameters[5], status, privilege, target,
+                $"{message.Parameters[2]}@{message.Parameters[3]}", message.Parameters[4], realName));
         }
     }
 
@@ -632,6 +647,7 @@ internal sealed class IdentityQueryResponseProcessor
         Guid Id, string Input, string Target, WhoRequestKind Kind, bool Automatic)
     {
         public List<WhoResultRow> Rows { get; } = [];
+        public bool Truncated { get; set; }
     }
 
     private sealed record WhoResultRow(

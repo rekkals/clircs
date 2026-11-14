@@ -65,6 +65,7 @@ internal static class SessionTests
         suite.Add("WHOIS away field contains only the away message", WhoisAwayFieldContainsMessage);
         suite.Add("nickname WHO uses the labeled table without totals", NicknameWhoUsesTable);
         suite.Add("WHO formatting follows the requested input kind", WhoFormattingFollowsInputKind);
+        suite.Add("WHO caps retained rows and resets while applying overflow rows to channel state", WhoCapsAndResets);
         suite.Add("WHOIS idle host and TLS fields are concise", WhoisFieldsAreConcise);
         suite.Add("overlapping WHOIS replies retain their request identities", OverlappingWhoisRequestsRetainIdentity);
         suite.Add("unknown WHOIS numerics retain all significant parameters", UnknownWhoisNumericsAreLossless);
@@ -1642,6 +1643,38 @@ internal static class SessionTests
         var empty = processor.Process(IrcMessageParser.Parse(":server 315 me Nobody :End of WHO"))[0].Presentation!;
         Assert.Equal("Nobody", empty.TitleHighlight!);
         Assert.Equal("No matching users.", empty.Summary!);
+    }
+
+    private static void WhoCapsAndResets()
+    {
+        var (state, processor) = CreateProcessor();
+        var channel = state.GetOrCreateChannel("#clirc");
+        channel.GetOrAddMember("Bob");
+        var row = IrcMessageParser.Parse(":server 352 me #clirc alice host server Alice H :0 Alice");
+        var overflow = IrcMessageParser.Parse(":server 352 me #clirc bob example.test server Bob H@ :0 Bob Person");
+        var end = IrcMessageParser.Parse(":server 315 me #clirc :End of WHO");
+
+        processor.BeginWhoRequest(["#clirc"]);
+        for (var index = 0; index < 4_096; index++)
+        {
+            processor.Process(row);
+        }
+
+        processor.Process(overflow);
+        var partial = processor.Process(end).Single().Presentation!;
+        Assert.Equal(4_096, partial.Table!.Rows.Count);
+        Assert.Equal("Alice", partial.Table.Rows[^1][0]);
+        Assert.True(partial.Summary!.Contains("partial result", StringComparison.Ordinal));
+        Assert.True(channel.TryGetMember("Bob", out var bob));
+        Assert.Equal("Bob!bob@example.test", bob!.FullMask!);
+        Assert.Equal("Bob Person", bob.RealName!);
+        Assert.True(bob.PrefixModes.Contains('o'));
+
+        processor.BeginWhoRequest(["#clirc"]);
+        processor.Process(overflow);
+        var next = processor.Process(end).Single().Presentation!;
+        Assert.Equal("@Bob", next.Table!.Rows.Single()[0]);
+        Assert.Equal("1 user: 1 here, 0 away, 0 IRC operators", next.Summary!);
     }
 
     private static void WhoisFieldsAreConcise()
