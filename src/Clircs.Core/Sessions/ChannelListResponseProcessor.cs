@@ -9,6 +9,8 @@ internal sealed class ChannelListResponseProcessor(
     ServerFeatures features,
     SessionEventBuilder events)
 {
+    private const int MaximumDisplayedMasks = 1_024;
+
     private static readonly IReadOnlyDictionary<string, char> EntryNumerics =
         new Dictionary<string, char>(StringComparer.Ordinal)
         {
@@ -137,7 +139,7 @@ internal sealed class ChannelListResponseProcessor(
         }
         channel.CompleteChannelListSynchronization(mode);
 
-        var entries = channel.ChannelList(mode).ToArray();
+        var entries = channel.ChannelList(mode);
         var buffer = state.TryGetBuffer(channelName, out var existingBuffer)
             ? existingBuffer!
             : state.StatusBuffer;
@@ -150,7 +152,7 @@ internal sealed class ChannelListResponseProcessor(
             ("outputRequestId", requestId?.ToString("D")),
             ("outputEnd", "true"));
 
-        if (entries.Length == 0)
+        if (entries.Count == 0)
         {
             return
             [
@@ -158,13 +160,15 @@ internal sealed class ChannelListResponseProcessor(
             ];
         }
 
-        var rows = entries.Select(entry => (IReadOnlyList<string>)
-        [
-            entry.Mask,
-            string.IsNullOrWhiteSpace(entry.SetBy) ? "unknown" : entry.SetBy,
-            entry.SetAt?.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "unknown"
-        ]).ToArray();
-        var noun = entries.Length == 1 ? description.SingularLower : description.PluralLower;
+        var rows = entries
+            .Take(MaximumDisplayedMasks)
+            .Select(entry => (IReadOnlyList<string>)
+            [
+                entry.Mask,
+                string.IsNullOrWhiteSpace(entry.SetBy) ? "unknown" : entry.SetBy,
+                entry.SetAt?.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "unknown"
+            ]).ToArray();
+        var noun = entries.Count == 1 ? description.SingularLower : description.PluralLower;
         var presentation = new PresentationBlock(
             description.Title,
             Table: new PresentationTable(
@@ -172,13 +176,15 @@ internal sealed class ChannelListResponseProcessor(
                 rows,
                 PreserveColumns: new HashSet<int> { 0 },
                 MaximumWidths: [PresentationTable.UnboundedWidth, 28, 19]),
-            Summary: $"{entries.Length} {noun}",
+            Summary: rows.Length < entries.Count
+                ? $"Showing {rows.Length:N0} of {entries.Count:N0} {noun} (partial result)"
+                : $"{entries.Count} {noun}",
             TitleHighlight: channelName);
 
         return
         [
             events.Create(buffer, SessionEventKind.Server,
-                $"{description.TitleText} {channelName}: {entries.Length} {noun}", now, fields, presentation)
+                $"{description.TitleText} {channelName}: {entries.Count} {noun}", now, fields, presentation)
         ];
     }
 

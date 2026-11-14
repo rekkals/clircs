@@ -103,6 +103,7 @@ internal static class SessionTests
         suite.Add("text segmentation rejects impossible byte budgets", TextSegmentationRejectsImpossibleBudgets);
         suite.Add("NAMES and WHO build synchronized channel member state", NamesAndWhoBuildMemberState);
         suite.Add("manual NAMES replies use a simple title and preserve channel state", NamesProducesInformationBox);
+        suite.Add("NAMES caps the display and retains all members", NamesDisplayCapPreservesMembers);
         suite.Add("JOIN PART QUIT KICK and NICK maintain channel membership", MembershipEventsMaintainState);
         suite.Add("self kicks use personal wording and semantic fields", SelfKickUsesPersonalWording);
         suite.Add("self KILL messages are formatted and classified", SelfKillIsFormatted);
@@ -121,6 +122,7 @@ internal static class SessionTests
         suite.Add("automatic VERSION probes silently collect server features", AutomaticVersionProbeCollectsFeaturesSilently);
         suite.Add("PREFIX CHANMODES and ban changes update channel policy state", ModesAndBansMaintainState);
         suite.Add("channel list numerics produce formatted b e I and q results", ChannelListsAreFormatted);
+        suite.Add("channel mode lists cap the display and retain all masks", ChannelListDisplayCapPreservesMasks);
         suite.Add("explicit channel list requests carry routing identities", ChannelListRequestsAreCorrelated);
         suite.Add("empty channel lists produce one concise result", EmptyChannelListsAreConcise);
     }
@@ -2734,6 +2736,29 @@ internal static class SessionTests
         Assert.False(events[0].Fields!.ContainsKey("onJoin"));
     }
 
+    private static void NamesDisplayCapPreservesMembers()
+    {
+        var (state, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(":me!self@localhost JOIN #clirc"));
+
+        var names = Enumerable.Range(0, 4_095).Select(index => $"nick{index:D4}");
+        foreach (var batch in names.Chunk(40))
+        {
+            processor.Process(IrcMessageParser.Parse($":server 353 me = #clirc :{string.Join(' ', batch)}"));
+        }
+
+        processor.Process(IrcMessageParser.Parse(":server 353 me = #clirc :me zzlast"));
+        var result = processor.Process(IrcMessageParser.Parse(
+            ":server 366 me #clirc :End of NAMES")).Single().Presentation!;
+
+        Assert.Equal(4_096, result.Grid!.Count);
+        Assert.False(result.Grid!.Contains("zzlast"));
+        Assert.Equal($"Showing {4_096:N0} of {4_097:N0} users (partial result)", result.Summary!);
+        Assert.True(state.TryGetChannel("#clirc", out var channel));
+        Assert.Equal(4_097, channel!.Members.Count);
+        Assert.True(channel!.TryGetMember("zzlast", out _));
+    }
+
     private static void MembershipEventsMaintainState()
     {
         var (state, processor) = CreateProcessor();
@@ -2822,6 +2847,32 @@ internal static class SessionTests
             Assert.Equal(1, state.GetOrCreateChannel("#clirc").ChannelList(item.Mode).Count);
             Assert.Equal("ChanOp", state.GetOrCreateChannel("#clirc").ChannelList(item.Mode).Single().SetBy!);
         }
+    }
+
+    private static void ChannelListDisplayCapPreservesMasks()
+    {
+        var (state, processor) = CreateProcessor();
+        processor.Process(IrcMessageParser.Parse(":me!self@localhost JOIN #clirc"));
+
+        for (var index = 0; index < 1_024; index++)
+        {
+            processor.Process(IrcMessageParser.Parse(
+                $":server 367 me #clirc *!*@host{index:D4}.example ChanOp 1784330926"));
+        }
+
+        const string lastMask = "*!*@overflow.example";
+        processor.Process(IrcMessageParser.Parse(
+            $":server 367 me #clirc {lastMask} ChanOp 1784330926"));
+        var result = processor.Process(IrcMessageParser.Parse(
+            ":server 368 me #clirc :End of Channel Ban List")).Single().Presentation!;
+
+        Assert.Equal(1_024, result.Table!.Rows.Count);
+        Assert.False(result.Table!.Rows.Any(row => row[0] == lastMask));
+        Assert.Equal($"Showing {1_024:N0} of {1_025:N0} bans (partial result)", result.Summary!);
+        Assert.True(state.TryGetChannel("#clirc", out var channel));
+        var bans = channel!.Bans;
+        Assert.Equal(1_025, bans.Count);
+        Assert.True(bans.Contains(lastMask));
     }
 
     private static void ChannelListRequestsAreCorrelated()

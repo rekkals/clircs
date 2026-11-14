@@ -8,6 +8,7 @@ namespace Clircs.Sessions;
 public sealed class IrcSessionProcessor
 {
     private const int MaximumAcceptEntries = 1_024;
+    private const int MaximumDisplayedNames = 4_096;
     private readonly NetworkSessionState _state;
     private readonly SessionEventBuilder _eventBuilder;
     private readonly IdentityQueryResponseProcessor _identityQueries;
@@ -1092,14 +1093,16 @@ public sealed class IrcSessionProcessor
                     }
 
                     channel.NamesSynchronized = true;
-                    var names = channel.Members
+                    var members = channel.Members;
+                    var names = members
                         .OrderBy(member => member.Nickname, StringComparer.OrdinalIgnoreCase)
+                        .Take(MaximumDisplayedNames)
                         .Select(member =>
                             $"{Features.HighestPrefix(member.PrefixModes)}{member.Nickname}")
                         .ToArray();
-                    var ops = channel.Members.Count(member =>
+                    var ops = members.Count(member =>
                         member.PrefixModes.Contains('o'));
-                    var voices = channel.Members.Count(member =>
+                    var voices = members.Count(member =>
                         member.PrefixModes.Contains('v') &&
                         !member.PrefixModes.Contains('o'));
                     var buffer = _state.TryGetBuffer(channelName, out var channelBuffer)
@@ -1119,8 +1122,11 @@ public sealed class IrcSessionProcessor
                             ("outputEnd", requestId is null ? null : "true")),
                         presentation: new PresentationBlock(
                             requestId is null
-                                ? $"Users ({channelName}): Total: {channel.Members.Count}, Ops: {ops}, Voice: {voices}, Normal: {channel.Members.Count - ops - voices}"
+                                ? $"Users ({channelName}): Total: {members.Count}, Ops: {ops}, Voice: {voices}, Normal: {members.Count - ops - voices}"
                                 : $"NAMES: {channelName}",
+                           Summary: names.Length < members.Count
+                                ? $"Showing {names.Length:N0} of {members.Count:N0} users (partial result)"
+                                : null,
                             Grid: names,
                             BracketGridCells: true,
                             TitleHighlight: channelName)));
