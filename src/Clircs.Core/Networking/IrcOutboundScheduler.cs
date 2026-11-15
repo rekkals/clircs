@@ -361,7 +361,14 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
             {
                 foreach (var item in queue)
                 {
-                    item.Completion.TrySetException(exception);
+                    if (item.ChatBufferId.HasValue)
+                    {
+                        item.Completion.TrySetCanceled();
+                    }
+                    else
+                    {
+                        item.Completion.TrySetException(exception);
+                    }
                 }
 
                 queue.Clear();
