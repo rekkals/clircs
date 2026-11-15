@@ -1712,6 +1712,8 @@ internal sealed class ConsolePresenter
                 case ConsoleKey.A: _inputCursor = 0; return;
                 case ConsoleKey.E: _inputCursor = _input.Length; return;
                 case ConsoleKey.W: DeletePreviousWordUnsafe(); return;
+                case ConsoleKey.LeftArrow: _inputCursor = FindPreviousWordStartUnsafe(); return;
+                case ConsoleKey.RightArrow: _inputCursor = FindNextWordStartUnsafe(); return;
             }
         }
 
@@ -1745,8 +1747,31 @@ internal sealed class ConsolePresenter
 
     private void DeletePreviousWordUnsafe()
     {
-        while (_inputCursor > 0 && char.IsWhiteSpace(_input[_inputCursor - 1])) _input.Remove(--_inputCursor, 1);
-        while (_inputCursor > 0 && !char.IsWhiteSpace(_input[_inputCursor - 1])) _input.Remove(--_inputCursor, 1);
+        var start = FindPreviousWordStartUnsafe();
+        _input.Remove(start, _inputCursor - start);
+        _inputCursor = start;
+    }
+
+    private int FindPreviousWordStartUnsafe()
+    {
+        var cursor = _inputCursor;
+        while (cursor > 0 && char.IsWhiteSpace(_input[cursor - 1]))
+            cursor--;
+        while (cursor > 0 && !char.IsWhiteSpace(_input[cursor - 1]))
+            cursor--;
+
+        return cursor;
+    }
+
+    private int FindNextWordStartUnsafe()
+    {
+        var cursor = _inputCursor;
+        while (cursor < _input.Length && !char.IsWhiteSpace(_input[cursor]))
+            cursor++;
+        while (cursor < _input.Length && char.IsWhiteSpace(_input[cursor]))
+            cursor++;
+
+        return cursor;
     }
 
     private void ClearInputUnsafe()
