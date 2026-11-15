@@ -215,43 +215,45 @@ internal sealed partial class ClientApplication
                 new("altnick", _preferences.AlternateNickname),
                 new("username", _preferences.Username),
                 new("realname", _preferences.RealName),
+                new("usermodes", _preferences.UserModes.Length == 0 ? "not set" : _preferences.UserModes),
+
                 new("awaymsg", _preferences.AwayMessage),
                 new("kickmsg", _preferences.DefaultKickMessage ?? "random"),
                 new("quitmsg", _preferences.DefaultQuitMessage ?? "default"),
                 new("topicmsg", _preferences.DefaultTopicMessage ?? "random"),
+
                 new("banmask", BanmaskFormatter.Name(_preferences.BanmaskStyle)),
                 new("showhosts", _preferences.ShowHosts ? "on" : "off"),
+                new("joininfo", _preferences.AnnounceUserInfoOnJoin ? "on" : "off"),
                 new("clonedetect", _preferences.CloneDetection ? "on" : "off"),
+                new("kickrejoin", _preferences.AutoRejoinOnKick ? "on" : "off"),
                 new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
-                new("joininfo", _preferences.AnnounceUserInfoOnJoin ? "on" : "off"),
+                new("startup", _preferences.Startup ? "on" : "off"),
+                new("flood.control", _preferences.FloodControl ? "on" : "off"),
+
+                new("network.reconnect", _preferences.NetworkReconnect ? "on" : "off"),
+                new("kill.reconnect", _preferences.KillReconnect ? "on" : "off"),
+                new("reconnect.limit", _preferences.ReconnectLimit.ToString(CultureInfo.InvariantCulture)),
+
                 new("onjoin.users", _preferences.OnJoinUsers ? "on" : "off"),
                 new("onjoin.topic", _preferences.OnJoinTopic ? "on" : "off"),
                 new("onjoin.created", _preferences.OnJoinCreated ? "on" : "off"),
                 new("onjoin.modes", _preferences.OnJoinModes ? "on" : "off"),
                 new("onjoin.sync", _preferences.OnJoinSync ? "on" : "off"),
-                new("kickrejoin", _preferences.AutoRejoinOnKick ? "on" : "off"),
-                new("startup", _preferences.Startup ? "on" : "off"),
+
                 new("status.lagmeter", _preferences.LagMeter ? "on" : "off"),
                 new("status.tls", _preferences.StatusTls ? "on" : "off"),
                 new("status.bouncer", _preferences.StatusBouncer ? "on" : "off"),
                 new("status.chanmodes", _preferences.StatusChannelModes ? "on" : "off"),
                 new("status.usermodes", _preferences.StatusUserModes ? "on" : "off"),
                 new("status.totals", _preferences.StatusTotals ? "on" : "off"),
+
                 new("dcc.address", _preferences.DccAddress),
                 new("dcc.ports", _preferences.DccPorts.ToString()),
                 new("dcc.downloads", _preferences.DccDownloads),
                 new("xdcc.auto", _preferences.XdccAuto ? "on" : "off")
             };
-            fields.Add(new PresentationField("network.reconnect", _preferences.NetworkReconnect ? "on" : "off"));
-            fields.Add(new PresentationField("kill.reconnect", _preferences.KillReconnect ? "on" : "off"));
-            fields.Add(new PresentationField(
-                "reconnect.limit",
-                _preferences.ReconnectLimit.ToString(CultureInfo.InvariantCulture)));
-            fields.Add(new PresentationField("flood.control", _preferences.FloodControl ? "on" : "off"));
-            fields.Add(new PresentationField(
-                "usermodes",
-                _preferences.UserModes.Length == 0 ? "not set" : _preferences.UserModes));
             fields.AddRange(OutputRoutingCoordinator.SettingOrder
                 .Where(_outputRouting.Supports)
                 .Select(key => new PresentationField(
