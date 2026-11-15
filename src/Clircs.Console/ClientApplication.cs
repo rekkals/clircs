@@ -275,6 +275,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.Startup = appearance.Startup;
         _preferences.CloneDetection = appearance.CloneDetection;
         _preferences.NetworkReconnect = appearance.NetworkReconnect;
+        _preferences.FloodControl = appearance.FloodControl;
         _preferences.KillReconnect = appearance.KillReconnect;
         _preferences.ReconnectLimit = appearance.ReconnectLimit;
         _preferences.AwayLogging = appearance.AwayLogging;

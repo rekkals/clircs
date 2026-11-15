@@ -106,6 +106,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
     public IrcConnectionState ConnectionState => _connection.State;
 
+    public void SetFloodControlEnabled(bool enabled) =>
+        _connection.FloodControlEnabled = enabled;
+
     public ConnectionLagSnapshot Lag =>
         Volatile.Read(ref _disposed) == 0 &&
         _connection.State == IrcConnectionState.Online
@@ -297,10 +300,23 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         IReadOnlyList<string> parameters,
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
         CancellationToken cancellationToken = default,
-        bool cancelBeforeSend = false) =>
-        _connection.SendAsync(
-            command, parameters, priority, cancellationToken,
+        bool cancelBeforeSend = false)
+    {
+        var partChannels = string.Equals(command, "PART", StringComparison.OrdinalIgnoreCase) &&
+            parameters is { Count: > 0 }
+            ? parameters[0]
+            : null;
+
+        return _connection.SendAsync(
+            command,
+            parameters,
+            priority,
+            cancellationToken,
+            beforeWrite: partChannels is { } channels
+                ? () => CancelQueuedChatForChannels(channels)
+                : null,
             cancelBeforeSend: cancelBeforeSend);
+    }
 
     public async ValueTask SendModeQueryAsync(
         string channelName,
@@ -452,6 +468,85 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             IrcLineFramer.MaximumPayloadBytes);
     }
 
+    public void QueueChatMessage(
+        BufferState buffer,
+        string text,
+        CancellationToken cancellationToken = default,
+        bool action = false)
+    {
+        var target = buffer.Name;
+        var segments = IrcTextSegmenter.Split(
+            text,
+            MaximumRelayTextBytes("PRIVMSG", target, contentFramingBytes: action ? 9 : 0));
+
+        foreach (var segment in segments)
+        {
+            var wireText = action ? $"\u0001ACTION {segment}\u0001" : segment;
+            Guid? pendingEcho = null;
+            var write = _connection.QueueChatLine(
+                buffer.Id,
+                target,
+                wireText,
+                cancellationToken,
+                beforeWrite: () =>
+                {
+                    if (_connection.IsCapabilityEnabled("echo-message"))
+                    {
+                        pendingEcho = _echoTracker.Track("PRIVMSG", target, wireText);
+                    }
+                },
+                afterWrite: () =>
+                {
+                    if (action)
+                    {
+                        RaiseActionEcho(buffer, segment);
+                    }
+                    else
+                    {
+                        RaiseMessageEcho(buffer, target, segment);
+                    }
+                });
+
+            _ = ObserveWriteAsync();
+
+            async Task ObserveWriteAsync()
+            {
+                try
+                {
+                    await write.ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    if (pendingEcho is { } echoId)
+                    {
+                        _echoTracker.Cancel(echoId);
+                    }
+
+                    if (exception is not OperationCanceledException)
+                    {
+                        Raise(State.StatusBuffer, SessionEventKind.Error,
+                            $"Could not send queued chat to {target}: {exception.Message}");
+                    }
+                }
+            }
+        }
+    }
+
+    public bool CancelQueuedChat(BufferId bufferId) =>
+        _connection.CancelQueuedChat(bufferId);
+
+    private void CancelQueuedChatForChannels(string channels)
+    {
+        foreach (var channel in channels.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (State.TryGetBuffer(channel, out var buffer) &&
+                buffer is { Kind: BufferKind.Channel })
+            {
+                CancelQueuedChat(buffer.Id);
+            }
+        }
+    }
+
     public async ValueTask SendMessageAsync(
         string target,
         string text,
@@ -538,17 +633,23 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             buffer = null;
         }
 
+        if (buffer is null)
+        {
+            return;
+        }
+
+        RaiseMessageEcho(buffer, displayTarget, localEchoText);
+    }
+
+    private void RaiseMessageEcho(BufferState buffer, string displayTarget, string localEchoText)
+    {
+
         string? nickPrefix = null;
         if (Features.IsChannel(displayTarget) &&
             State.TryGetChannel(displayTarget, out var messageChannel) &&
             messageChannel!.TryGetMember(CurrentNickname, out var messageMember))
         {
             nickPrefix = Features.HighestPrefix(messageMember!.PrefixModes)?.ToString();
-        }
-
-        if (buffer is null)
-        {
-            return;
         }
 
         var formattedText = IrcTextFormatting.Parse(localEchoText);
@@ -666,20 +767,23 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 : State.GetOrCreateBuffer(
                     BufferKind.Query,
                     target);
-            var formattedText =
-                IrcTextFormatting.Parse(segment);
-
-            Raise(
-                buffer,
-                SessionEventKind.Action,
-                $"* {CurrentNickname} {formattedText.PlainText}",
-                new Dictionary<string, string?>
-                {
-                    ["nick"] = CurrentNickname,
-                    ["message"] = formattedText.PlainText
-                },
-                formattedText);
+            RaiseActionEcho(buffer, segment);
         }
+    }
+
+    private void RaiseActionEcho(BufferState buffer, string text)
+    {
+        var formattedText = IrcTextFormatting.Parse(text);
+        Raise(
+            buffer,
+            SessionEventKind.Action,
+            $"* {CurrentNickname} {formattedText.PlainText}",
+            new Dictionary<string, string?>
+            {
+                ["nick"] = CurrentNickname,
+                ["message"] = formattedText.PlainText
+            },
+            formattedText);
     }
 
     public ValueTask DisconnectAsync(string reason = "Leaving", CancellationToken cancellationToken = default)
@@ -782,6 +886,20 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         var processedEvents = registrationProtocolMessage
             ? []
             : _processor.Process(message, occurredAt);
+        if (message.Command == "PART" && message.Parameters.Count >= 1 &&
+            new IrcNameComparer(State.CaseMapping).Equals(
+                IrcSessionProcessor.NickFromPrefix(message.Prefix),
+                CurrentNickname))
+        {
+            CancelQueuedChatForChannels(message.Parameters[0]);
+            ForgetJoin(message.Parameters[0]);
+        }
+        else if (message.Command == "KICK" && message.Parameters.Count >= 2 &&
+            new IrcNameComparer(State.CaseMapping).Equals(message.Parameters[1], CurrentNickname))
+        {
+            CancelQueuedChatForChannels(message.Parameters[0]);
+            ForgetJoin(message.Parameters[0]);
+        }
         ObserveNicknameResult(message, previousNickname);
         if (_synchronizationCompleted)
         {
@@ -813,19 +931,6 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 sessionEvent = sessionEvent with { Fields = fields };
             }
             EventRaised?.Invoke(sessionEvent);
-        }
-
-        if (message.Command == "PART" && message.Parameters.Count >= 1 &&
-            new IrcNameComparer(State.CaseMapping).Equals(
-                IrcSessionProcessor.NickFromPrefix(message.Prefix),
-                CurrentNickname))
-        {
-            ForgetJoin(message.Parameters[0]);
-        }
-        else if (message.Command == "KICK" && message.Parameters.Count >= 2 &&
-            new IrcNameComparer(State.CaseMapping).Equals(message.Parameters[1], CurrentNickname))
-        {
-            ForgetJoin(message.Parameters[0]);
         }
 
         if (message.Command == "001")
@@ -889,8 +994,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 _channelsToRestore[channel] = key;
                 if (!channel.StartsWith('+'))
                 {
-                    await SendModeQueryAsync(channel, Guid.NewGuid(), automatic: true)
-                        .ConfigureAwait(false);
+                    await HandleAutomaticSendAsync(
+                        SendModeQueryAsync(channel, Guid.NewGuid(), automatic: true),
+                        $"automatic MODE query for {channel}").ConfigureAwait(false);
                 }
             }
         }
@@ -1038,7 +1144,39 @@ public sealed class IrcNetworkSession : IAsyncDisposable
             }
             return;
         }
-        await SendAsync("NOTICE", [sender, $"\u0001{reply}\u0001"], IrcOutboundPriority.Control).ConfigureAwait(false);
+        await HandleAutomaticSendAsync(
+            SendAsync("NOTICE", [sender, $"\u0001{reply}\u0001"], IrcOutboundPriority.Control),
+            $"automatic CTCP reply to {sender}").ConfigureAwait(false);
+    }
+
+    private ValueTask HandleAutomaticSendAsync(ValueTask send, string description)
+    {
+        if (!_connection.FloodControlEnabled)
+        {
+            return send;
+        }
+
+        _ = ObserveAutomaticSendAsync(send, description);
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task ObserveAutomaticSendAsync(ValueTask send, string description)
+    {
+        try
+        {
+            await send.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Connection shutdown can cancel an automatic send.
+        }
+        catch (Exception exception)
+        {
+            Raise(
+                State.StatusBuffer,
+                SessionEventKind.Error,
+                $"Could not send {description}: {exception.Message}");
+        }
     }
 
     private static string VersionReply() => $"VERSION {ProductInfo.DisplayName}";

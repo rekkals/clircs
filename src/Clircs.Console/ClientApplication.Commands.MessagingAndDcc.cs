@@ -172,9 +172,12 @@ internal sealed partial class ClientApplication
     }
 
     private ValueTask<CommandResult> SayCommandAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
-        SayAsync(input.RawArguments, cancellationToken);
+        SayAsync(input.RawArguments, cancellationToken, queueIrcChat: _preferences.FloodControl);
 
-    private async ValueTask<CommandResult> SayAsync(string text, CancellationToken cancellationToken)
+    private async ValueTask<CommandResult> SayAsync(
+        string text,
+        CancellationToken cancellationToken,
+        bool queueIrcChat = false)
     {
         if (text.Length == 0)
         {
@@ -199,12 +202,55 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Switch to a channel or query before sending text.");
         }
 
+        if (queueIrcChat && activeBuffer is not null)
+        {
+            return QueueIrcChat(session, activeBuffer, text, cancellationToken);
+        }
+
         await session.SendMessageAsync(
             target,
             text,
             cancellationToken);
 
         return CommandResult.Success();
+    }
+
+    private static CommandResult QueueIrcChat(
+        IrcNetworkSession session,
+        BufferState buffer,
+        string text,
+        CancellationToken cancellationToken,
+        bool action = false)
+    {
+        try
+        {
+            session.QueueChatMessage(buffer, text, cancellationToken, action);
+            return CommandResult.Success();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return CommandResult.Failure(exception.Message);
+        }
+    }
+
+    private ValueTask<CommandResult> StopAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        if (input.RawArguments.Length != 0)
+        {
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /stop"));
+        }
+
+        var (session, buffer) = ResolveWindowContext(context);
+        var stopped = session is not null &&
+            buffer is { Kind: BufferKind.Channel or BufferKind.Query } &&
+            session.CancelQueuedChat(buffer.Id);
+
+        return ValueTask.FromResult(stopped
+            ? CommandResult.Success()
+            : CommandResult.Success("No queued chat to stop."));
     }
 
     private static CommandResult OversizedSendFailure(string subject) =>
@@ -230,6 +276,12 @@ internal sealed partial class ClientApplication
         if (target is null || input.RawArguments.Length == 0)
         {
             return CommandResult.Failure("Usage in a channel/query: /me <action>");
+        }
+
+        if (_preferences.FloodControl && activeBuffer is not null)
+        {
+            return QueueIrcChat(
+                session, activeBuffer, input.RawArguments, cancellationToken, action: true);
         }
 
         await session.SendActionAsync(

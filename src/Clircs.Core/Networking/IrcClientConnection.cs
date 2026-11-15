@@ -1,3 +1,4 @@
+using Clircs.Identity;
 using Clircs.Protocol;
 
 namespace Clircs.Networking;
@@ -15,6 +16,7 @@ public sealed class IrcClientConnection : IAsyncDisposable
     private CancellationTokenSource? _connectionLifetime;
     private IIrcTransport? _transport;
     private IrcOutboundScheduler? _outbound;
+    private volatile bool _floodControlEnabled;
     private Task? _receiveTask;
     private IrcConnectionOptions? _options;
     private int _nicknameIndex;
@@ -51,6 +53,16 @@ public sealed class IrcClientConnection : IAsyncDisposable
     public event Action<IrcWireLine>? WireLineTransferred;
 
     public IrcConnectionState State => _state;
+
+    internal bool FloodControlEnabled
+    {
+        get => _floodControlEnabled;
+        set
+        {
+            _floodControlEnabled = value;
+            _outbound?.FloodControlChanged();
+        }
+    }
 
     public string? CurrentNickname { get; private set; }
 
@@ -101,7 +113,8 @@ public sealed class IrcClientConnection : IAsyncDisposable
         {
             _transport = await _transportFactory.ConnectAsync(
                 new IrcTransportOptions(options.Endpoint, options.Sasl?.ClientCertificate), connectionToken).ConfigureAwait(false);
-            _outbound = new IrcOutboundScheduler(_transport);
+            _outbound = new IrcOutboundScheduler(
+                _transport, floodControlEnabled: () => _floodControlEnabled);
             _state = IrcConnectionState.Registering;
             CurrentNickname = options.Identity.Nicknames[0];
 
@@ -150,7 +163,8 @@ public sealed class IrcClientConnection : IAsyncDisposable
         CancellationToken cancellationToken,
         Action? beforeWrite,
         bool forceTrailingParameter = false,
-        bool cancelBeforeSend = false)
+        bool cancelBeforeSend = false,
+        Action? afterWrite = null)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         var outbound = _outbound ?? throw new InvalidOperationException("Not connected to a server.");
@@ -158,9 +172,37 @@ public sealed class IrcClientConnection : IAsyncDisposable
             ? IrcLineBuilder.BuildWithTrailingParameter(command, parameters.ToArray())
             : IrcLineBuilder.Build(command, parameters.ToArray());
         await outbound.EnqueueAsync(
-            line, priority, cancellationToken, cancelBeforeSend, beforeWrite).ConfigureAwait(false);
+            line, priority, cancellationToken, cancelBeforeSend, beforeWrite, afterWrite).ConfigureAwait(false);
         RaiseWireLine(IrcWireDirection.Sent, IrcTextEncoding.Decode(line.AsSpan(0, line.Length - 2)));
     }
+
+    internal Task QueueChatLine(
+        BufferId bufferId,
+        string target,
+        string text,
+        CancellationToken cancellationToken,
+        Action beforeWrite,
+        Action afterWrite)
+    {
+        var outbound = _outbound ?? throw new InvalidOperationException("Not connected to a server.");
+        var line = IrcLineBuilder.Build("PRIVMSG", target, text);
+
+        return outbound.Enqueue(
+            line,
+            IrcOutboundPriority.Interactive,
+            cancellationToken,
+            cancelBeforeSend: true,
+            beforeWrite: beforeWrite,
+            afterWrite: () =>
+            {
+                RaiseWireLine(IrcWireDirection.Sent, IrcTextEncoding.Decode(line.AsSpan(0, line.Length - 2)));
+                afterWrite();
+            },
+            chatBufferId: bufferId);
+    }
+
+    internal bool CancelQueuedChat(BufferId bufferId) =>
+        _outbound?.CancelQueuedChat(bufferId) == true;
 
     public ValueTask SendNicknameAsync(string nickname, CancellationToken cancellationToken = default)
     {
@@ -197,9 +239,15 @@ public sealed class IrcClientConnection : IAsyncDisposable
         _state = IrcConnectionState.Disconnecting;
         try
         {
-            if (_outbound is not null)
+            if (_outbound is { } outbound)
             {
-                await SendAsync("QUIT", [reason], IrcOutboundPriority.Critical, cancellationToken).ConfigureAwait(false);
+                await SendAsync(
+                    "QUIT",
+                    [reason],
+                    IrcOutboundPriority.Critical,
+                    cancellationToken,
+                    beforeWrite: null,
+                    afterWrite: outbound.StopWriting).ConfigureAwait(false);
             }
         }
         catch (Exception exception)

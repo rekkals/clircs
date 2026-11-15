@@ -149,7 +149,7 @@ internal sealed partial class ClientApplication
 
         if (buffer.Kind != BufferKind.Script)
         {
-            return SayAsync(text, cancellationToken);
+            return SayAsync(text, cancellationToken, queueIrcChat: _preferences.FloodControl);
         }
 
         if (handler is null)

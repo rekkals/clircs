@@ -43,6 +43,7 @@ internal sealed class ClientPreferences
     public bool Startup { get; set; } = true;
     public bool CloneDetection { get; set; } = true;
     public bool NetworkReconnect { get; set; } = true;
+    public bool FloodControl { get; set; } = true;
     public bool KillReconnect { get; set; }
     public int ReconnectLimit { get; set; } = 100;
     public bool AwayLogging { get; set; }

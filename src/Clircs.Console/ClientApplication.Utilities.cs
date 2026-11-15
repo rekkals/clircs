@@ -487,7 +487,8 @@ internal sealed partial class ClientApplication
         _preferences.OnJoinTopic,
         _preferences.OnJoinCreated,
         _preferences.OnJoinSync,
-        _preferences.OnJoinModes);
+        _preferences.OnJoinModes,
+        _preferences.FloodControl);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -529,6 +530,7 @@ internal sealed partial class ClientApplication
         _preferences.Startup = settings.Startup;
         _preferences.CloneDetection = settings.CloneDetection;
         _preferences.NetworkReconnect = settings.NetworkReconnect;
+        _preferences.FloodControl = settings.FloodControl;
         _preferences.KillReconnect = settings.KillReconnect;
         _preferences.ReconnectLimit = settings.ReconnectLimit;
         _preferences.AwayLogging = settings.AwayLogging;

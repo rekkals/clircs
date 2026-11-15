@@ -37,6 +37,7 @@ internal sealed partial class ClientApplication
         Register("notice", ["n"], "Send a notice to a nickname or channel.", NoticeAsync);
         Register("wallops", [], "Send a message to all IRC operators.", WallopsAsync);
         Register("say", [], "Send text to the active channel/query.", SayCommandAsync);
+        Register("stop", [], "Stop queued chat in the current channel or query.", StopAsync);
         Register("me", [], "Send an action to the active channel/query.", MeAsync);
         Register("describe", [], "Send an action to a nickname or channel.", DescribeAsync);
         Register("ame", [], "Send an action to every joined channel on this network.", AllChannelActionAsync);
@@ -280,7 +281,7 @@ internal sealed partial class ClientApplication
             new("Behavior", "banmask, clonedetect, datechange, highlight, joininfo, kickrejoin, startup"),
             new("On join", "onjoin.users, onjoin.topic, onjoin.created, onjoin.modes, onjoin.sync"),
             new("Status bar", "status.lagmeter, status.tls, status.bouncer, status.chanmodes, status.usermodes, status.totals"),
-            new("Network", "usermodes, network.reconnect, kill.reconnect, reconnect.limit"),
+            new("Network", "usermodes, network.reconnect, kill.reconnect, reconnect.limit, flood.control"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads, xdcc.auto"),
             new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
             new("Routing", "who.output, whois.output, whowas.output, names.output, ctcp.output, notice.output, snotice.output, notify.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
@@ -405,6 +406,7 @@ internal sealed partial class ClientApplication
             "network.reconnect" => ("<on|off>", "on", "Reconnects after an unrequested network or server disconnect.", "/set network.reconnect on"),
             "kill.reconnect" => ("<on|off>", "off", "Reconnects after the server kills your current IRC connection.", "/set kill.reconnect on"),
             "reconnect.limit" => ("[number]", "100", "Maximum automatic reconnect attempts per connection (set to 0 to disable).", "/set reconnect.limit 100"),
+            "flood.control" => ("[on|off]", "on", "Paces outgoing IRC traffic to reduce flood disconnects.", "/set flood.control off"),
             "dcc.address" => ("<auto|IP|hostname>", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", "/set dcc.address 2603:8081:3000:48b3::20"),
             "dcc.ports" => ("<random|port|first-last>", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
             "dcc.downloads" => ("<folder>", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
@@ -489,6 +491,7 @@ internal sealed partial class ClientApplication
         "network.reconnect" => _preferences.NetworkReconnect ? "on" : "off",
         "kill.reconnect" => _preferences.KillReconnect ? "on" : "off",
         "reconnect.limit" => _preferences.ReconnectLimit.ToString(CultureInfo.InvariantCulture),
+        "flood.control" => _preferences.FloodControl ? "on" : "off",
         "dcc.address" => _preferences.DccAddress,
         "dcc.ports" => _preferences.DccPorts.ToString(),
         "dcc.downloads" => _preferences.DccDownloads,

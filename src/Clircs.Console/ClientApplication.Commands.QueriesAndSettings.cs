@@ -250,6 +250,7 @@ internal sealed partial class ClientApplication
             fields.Add(new PresentationField(
                 "reconnect.limit",
                 _preferences.ReconnectLimit.ToString(CultureInfo.InvariantCulture)));
+            fields.Add(new PresentationField("flood.control", _preferences.FloodControl ? "on" : "off"));
             fields.Add(new PresentationField(
                 "usermodes",
                 _preferences.UserModes.Length == 0 ? "not set" : _preferences.UserModes));
@@ -269,7 +270,7 @@ internal sealed partial class ClientApplication
         if (input.Arguments.Count == 1 &&
             (setting.StartsWith("status.", StringComparison.Ordinal) ||
              setting.StartsWith("onjoin.", StringComparison.Ordinal) ||
-             setting is "xdcc.auto" or "startup" or "reconnect.limit") &&
+             setting is "xdcc.auto" or "startup" or "reconnect.limit" or "flood.control") &&
             CurrentSettingValue(setting) is { } currentValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
@@ -475,6 +476,15 @@ internal sealed partial class ClientApplication
                 }
                 _preferences.ReconnectLimit = reconnectLimit;
                 break;
+            case "flood.control":
+                if (!TryParseOnOff(value, out var floodControl))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure("flood.control must be on or off."));
+                }
+
+                _preferences.FloodControl = floodControl;
+                value = floodControl ? "on" : "off";
+                break;
             case "dcc.address":
                 if (!IsValidDccAddressSetting(value))
                 {
@@ -567,6 +577,13 @@ internal sealed partial class ClientApplication
         try
         {
             SaveAppearanceSettings();
+            if (setting == "flood.control")
+            {
+                foreach (var session in SessionsSnapshot())
+                {
+                    session.SetFloodControlEnabled(_preferences.FloodControl);
+                }
+            }
             if (setting == "xdcc.auto" && !_preferences.XdccAuto)
             {
                 _dcc.ClearXdccRequests();

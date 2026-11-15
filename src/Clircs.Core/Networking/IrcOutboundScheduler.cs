@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using Clircs.Identity;
 using System.Diagnostics;
 
 namespace Clircs.Networking;
@@ -11,9 +11,10 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
     private static readonly TimeSpan DefaultTokenInterval = TimeSpan.FromMilliseconds(750);
 
     private readonly IIrcTransport _transport;
-    private readonly ConcurrentQueue<OutboundItem>[] _queues;
+    private readonly Func<bool>? _floodControlEnabled;
+    private readonly List<OutboundItem>[] _queues;
     private readonly object _lifecycleGate = new();
-    private readonly SemaphoreSlim _available = new(0);
+    private readonly SemaphoreSlim _available = new(0, 1);
     private readonly CancellationTokenSource _stopping = new();
     private readonly Task _writerTask;
     private readonly int _queueLimit;
@@ -22,8 +23,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
     private readonly TimeSpan _tokenInterval;
     private double _availableTokens;
     private long _lastRefillTimestamp;
-    private int _pending;
-    private int _criticalPending;
+    private BufferId? _lastChatBufferId;
     private bool _accepting = true;
     private int _disposed;
 
@@ -32,7 +32,8 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         int queueLimit = DefaultQueueLimit,
         int criticalQueueLimit = DefaultCriticalQueueLimit,
         int burstTokens = DefaultBurstTokens,
-        TimeSpan? tokenInterval = null)
+        TimeSpan? tokenInterval = null,
+        Func<bool>? floodControlEnabled = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(queueLimit);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(criticalQueueLimit);
@@ -46,8 +47,9 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         _availableTokens = burstTokens;
         _lastRefillTimestamp = Stopwatch.GetTimestamp();
         _queues = Enumerable.Range(0, Enum.GetValues<IrcOutboundPriority>().Length)
-            .Select(_ => new ConcurrentQueue<OutboundItem>())
+            .Select(_ => new List<OutboundItem>())
             .ToArray();
+        _floodControlEnabled = floodControlEnabled;
         _writerTask = Task.Run(WriteLoopAsync);
     }
 
@@ -56,14 +58,34 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         IrcOutboundPriority priority,
         CancellationToken cancellationToken,
         bool cancelBeforeSend = false,
-        Action? beforeWrite = null)
+        Action? beforeWrite = null,
+        Action? afterWrite = null)
+    {
+        var completion = Enqueue(bytes, priority, cancellationToken, cancelBeforeSend, beforeWrite, afterWrite);
+        var wait = cancelBeforeSend
+            ? completion
+            : completion.WaitAsync(cancellationToken);
+        await wait.ConfigureAwait(false);
+    }
+
+    internal Task Enqueue(
+        ReadOnlyMemory<byte> bytes,
+        IrcOutboundPriority priority,
+        CancellationToken cancellationToken,
+        bool cancelBeforeSend = false,
+        Action? beforeWrite = null,
+        Action? afterWrite = null,
+        BufferId? chatBufferId = null)
     {
         if (cancelBeforeSend) cancellationToken.ThrowIfCancellationRequested();
 
         var item = new OutboundItem(bytes.ToArray())
         {
+            Priority = priority,
             BeforeSendCancellation = cancelBeforeSend ? cancellationToken : default,
-            BeforeWrite = beforeWrite
+            BeforeWrite = beforeWrite,
+            AfterWrite = afterWrite,
+            ChatBufferId = chatBufferId
         };
         lock (_lifecycleGate)
         {
@@ -72,30 +94,92 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
                 throw new InvalidOperationException("The IRC outbound scheduler is stopped.");
             }
 
+            var queue = _queues[(int)priority];
             if (priority == IrcOutboundPriority.Critical)
             {
-                if (_criticalPending >= _criticalQueueLimit)
+                if (queue.Count >= _criticalQueueLimit)
                 {
                     throw new InvalidOperationException("The critical IRC send queue is full");
                 }
-                _criticalPending++;
             }
             else
             {
-                if (_pending >= _queueLimit)
+                var pending = _queues.Sum(candidate => candidate.Count) -
+                    _queues[(int)IrcOutboundPriority.Critical].Count;
+                if (pending >= _queueLimit)
                 {
                     throw new InvalidOperationException("The IRC send queue is full; excess output was not sent");
                 }
-                _pending++;
             }
 
-            _queues[(int)priority].Enqueue(item with { Priority = priority });
+            queue.Add(item);
+            WakeWriter();
+        }
+
+        return item.Completion.Task;
+    }
+
+    internal bool CancelQueuedChat(BufferId bufferId)
+    {
+        lock (_lifecycleGate)
+        {
+            if (!_accepting)
+            {
+                return false;
+            }
+
+            var queue = _queues[(int)IrcOutboundPriority.Interactive];
+            var canceled = false;
+            for (var index = queue.Count - 1; index >= 0; index--)
+            {
+                var item = queue[index];
+                if (item.ChatBufferId != bufferId)
+                {
+                    continue;
+                }
+
+                queue.RemoveAt(index);
+                item.Completion.TrySetCanceled();
+                canceled = true;
+            }
+
+            if (canceled)
+            {
+                WakeWriter();
+            }
+
+            return canceled;
+        }
+    }
+
+    internal void FloodControlChanged()
+    {
+        lock (_lifecycleGate)
+        {
+            if (_accepting)
+            {
+                WakeWriter();
+            }
+        }
+    }
+
+    // Call while holding _lifecycleGate.
+    private void WakeWriter()
+    {
+        if (_available.CurrentCount == 0)
+        {
             _available.Release();
         }
-        var completion = cancelBeforeSend
-            ? item.Completion.Task
-            : item.Completion.Task.WaitAsync(cancellationToken);
-        await completion.ConfigureAwait(false);
+    }
+
+    internal void StopWriting()
+    {
+        lock (_lifecycleGate)
+        {
+            _accepting = false;
+        }
+
+        _stopping.Cancel();
     }
 
     public async ValueTask DisposeAsync()
@@ -105,11 +189,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
             return;
         }
 
-        lock (_lifecycleGate)
-        {
-            _accepting = false;
-        }
-        _stopping.Cancel();
+        StopWriting();
         try
         {
             await _writerTask.ConfigureAwait(false);
@@ -129,17 +209,13 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         {
             while (true)
             {
-                await _available.WaitAsync(_stopping.Token).ConfigureAwait(false);
-                if (!TryDequeue(out var item))
-                {
-                    continue;
-                }
+                var (item, floodControlEnabled) = await TakeNextAsync().ConfigureAwait(false);
 
                 var writeStarted = false;
                 try
                 {
                     item.BeforeSendCancellation.ThrowIfCancellationRequested();
-                    if (item.Priority is not (IrcOutboundPriority.Critical or IrcOutboundPriority.Interactive))
+                    if (!floodControlEnabled && item.Priority is not (IrcOutboundPriority.Critical or IrcOutboundPriority.Interactive))
                     {
                         using var budgetCancellation = item.BeforeSendCancellation.CanBeCanceled
                             ? CancellationTokenSource.CreateLinkedTokenSource(
@@ -157,7 +233,6 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
                     writeStarted = true;
                     item.BeforeWrite?.Invoke();
                     await _transport.WriteAsync(item.Bytes, _stopping.Token).ConfigureAwait(false);
-                    item.Completion.TrySetResult();
                 }
                 catch (OperationCanceledException) when (
                     !writeStarted &&
@@ -165,11 +240,21 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
                     !_stopping.IsCancellationRequested)
                 {
                     item.Completion.TrySetCanceled(item.BeforeSendCancellation);
+                    continue;
                 }
                 catch (Exception exception)
                 {
                     item.Completion.TrySetException(exception);
                     throw;
+                }
+                try
+                {
+                    item.AfterWrite?.Invoke();
+                    item.Completion.TrySetResult();
+                }
+                catch (Exception exception)
+                {
+                    item.Completion.TrySetException(exception);
                 }
             }
         }
@@ -186,38 +271,113 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         }
     }
 
-    private bool TryDequeue(out OutboundItem item)
+    private async ValueTask<(OutboundItem Item, bool FloodControlEnabled)> TakeNextAsync()
     {
-        foreach (var queue in _queues)
+        var stopping = _stopping.Token;
+
+        while (true)
         {
-            if (queue.TryDequeue(out item!))
+            stopping.ThrowIfCancellationRequested();
+            var delay = Timeout.InfiniteTimeSpan;
+            var lineCancellation = CancellationToken.None;
+
+            lock (_lifecycleGate)
             {
-                if (item.Priority == IrcOutboundPriority.Critical) _criticalPending--;
-                else _pending--;
-                return true;
+                var floodControlEnabled = _floodControlEnabled?.Invoke() == true;
+                foreach (var queue in _queues)
+                {
+                    if (queue.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var index = floodControlEnabled && queue[0].Priority == IrcOutboundPriority.Interactive
+                        ? NextInteractiveIndex(queue)
+                        : 0;
+                    var item = queue[index];
+                    var destination = item.ChatBufferId;
+                    var canceled = item.BeforeSendCancellation.IsCancellationRequested;
+
+                    if (floodControlEnabled && item.Priority != IrcOutboundPriority.Critical && !canceled)
+                    {
+                        RefillTokens();
+                        var cost = SendCost(item.Bytes.Length);
+                        if (_availableTokens < cost)
+                        {
+                            delay = BudgetDelay(cost);
+                            lineCancellation = item.BeforeSendCancellation;
+                            break;
+                        }
+
+                        _availableTokens -= cost;
+                    }
+
+                    queue.RemoveAt(index);
+                    if (floodControlEnabled && destination.HasValue && !canceled)
+                    {
+                        _lastChatBufferId = destination;
+                        var remaining = queue.FindAll(candidate => candidate.ChatBufferId == destination);
+                        queue.RemoveAll(candidate => candidate.ChatBufferId == destination);
+                        queue.AddRange(remaining);
+                    }
+
+                    return (item, floodControlEnabled);
+                }
+            }
+
+            using var waitCancellation = lineCancellation.CanBeCanceled
+                ? CancellationTokenSource.CreateLinkedTokenSource(stopping, lineCancellation)
+                : null;
+
+            try
+            {
+                await _available.WaitAsync(delay, waitCancellation?.Token ?? stopping).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                lineCancellation.IsCancellationRequested && !stopping.IsCancellationRequested)
+            {
+                // Recheck the queue so the canceled entry can be retired.
             }
         }
+    }
 
-        item = null!;
-        return false;
+    private int NextInteractiveIndex(List<OutboundItem> queue)
+    {
+        var command = queue.FindIndex(item => item.ChatBufferId is null);
+        if (command >= 0)
+        {
+            return command;
+        }
+
+        var otherDestination = queue.FindIndex(item => item.ChatBufferId != _lastChatBufferId);
+        return otherDestination >= 0 ? otherDestination : 0;
     }
 
     private void FailPending(Exception exception)
     {
-        foreach (var queue in _queues)
+        lock (_lifecycleGate)
         {
-            while (queue.TryDequeue(out var item))
+            foreach (var queue in _queues)
             {
-                if (item.Priority == IrcOutboundPriority.Critical) _criticalPending--;
-                else _pending--;
-                item.Completion.TrySetException(exception);
+                foreach (var item in queue)
+                {
+                    item.Completion.TrySetException(exception);
+                }
+
+                queue.Clear();
             }
         }
     }
 
+    private int SendCost(int byteCount) =>
+        Math.Min(_burstTokens, Math.Max(1, (int)Math.Ceiling(byteCount / 120d)));
+
+    private TimeSpan BudgetDelay(int cost) =>
+        TimeSpan.FromTicks((long)Math.Ceiling((cost - _availableTokens) * _tokenInterval.Ticks));
+
     private async Task WaitForSendBudgetAsync(int byteCount, CancellationToken cancellationToken)
     {
-        var cost = Math.Min(_burstTokens, Math.Max(1, (int)Math.Ceiling(byteCount / 120d)));
+        var cost = SendCost(byteCount);
         while (true)
         {
             RefillTokens();
@@ -227,9 +387,7 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
                 return;
             }
 
-            var missing = cost - _availableTokens;
-            var delay = TimeSpan.FromTicks((long)Math.Ceiling(missing * _tokenInterval.Ticks));
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(BudgetDelay(cost), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -252,5 +410,9 @@ internal sealed class IrcOutboundScheduler : IAsyncDisposable
         public CancellationToken BeforeSendCancellation { get; init; }
 
         public Action? BeforeWrite { get; init; }
+
+        public Action? AfterWrite { get; init; }
+
+        public BufferId? ChatBufferId { get; init; }
     }
 }

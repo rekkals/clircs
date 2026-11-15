@@ -41,6 +41,7 @@ internal sealed partial class ClientApplication
         {
             _liveSessions.Add(session, connectionRoute ?? options, profileId, _lifetime.Token);
             session.SetLagMeasurementEnabled(_preferences.LagMeter);
+            session.SetFloodControlEnabled(_preferences.FloodControl);
 
             _windowStates.RegisterConnection(
                 session.State.Id,

@@ -44,7 +44,8 @@ internal sealed record AppearanceSettings(
     bool OnJoinTopic = true,
     bool OnJoinCreated = true,
     bool OnJoinSync = true,
-    bool OnJoinModes = false);
+    bool OnJoinModes = false,
+    bool FloodControl = true);
 
 internal sealed class AppearanceSettingsStore
 {
@@ -121,7 +122,8 @@ internal sealed class AppearanceSettingsStore
                 stored.OnJoinTopic,
                 stored.OnJoinCreated,
                 stored.OnJoinSync,
-                stored.OnJoinModes);
+                stored.OnJoinModes,
+                stored.FloodControl);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -153,6 +155,7 @@ internal sealed class AppearanceSettingsStore
             OnJoinCreated = settings.OnJoinCreated,
             OnJoinSync = settings.OnJoinSync,
             OnJoinModes = settings.OnJoinModes,
+            FloodControl = settings.FloodControl,
             HighlightNickname = settings.HighlightNickname,
             LagMeter = settings.LagMeter,
             StatusTls = settings.StatusTls,
@@ -221,6 +224,7 @@ internal sealed class AppearanceSettingsStore
         public bool OnJoinCreated { get; set; } = true;
         public bool OnJoinSync { get; set; } = true;
         public bool OnJoinModes { get; set; }
+        public bool FloodControl { get; set; } = true;
         public bool HighlightNickname { get; set; } = true;
         public bool LagMeter { get; set; } = true;
         public bool StatusTls { get; set; } = true;
