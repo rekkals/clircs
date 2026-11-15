@@ -168,7 +168,7 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _processor.TryBeginTopicRequest(channelName, out requestId);
 
     public bool TryBeginModeRequest(string channelName, out Guid requestId) =>
-        _processor.TryBeginModeRequest(channelName, out requestId);
+        _processor.TryBeginModeRequest(channelName, out requestId, awaitWrite: true);
 
     public void CancelChannelQueryRequest(Guid requestId) =>
         _processor.CancelChannelQueryRequest(requestId);
@@ -301,6 +301,29 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         _connection.SendAsync(
             command, parameters, priority, cancellationToken,
             cancelBeforeSend: cancelBeforeSend);
+
+    public async ValueTask SendModeQueryAsync(
+        string channelName,
+        Guid requestId,
+        CancellationToken cancellationToken = default,
+        bool automatic = false)
+    {
+        try
+        {
+            await _connection.SendAsync(
+                "MODE",
+                [channelName],
+                automatic ? IrcOutboundPriority.Automation : IrcOutboundPriority.Interactive,
+                cancellationToken,
+                beforeWrite: () => _processor.RecordModeWrite(channelName, requestId, automatic),
+                cancelBeforeSend: true).ConfigureAwait(false);
+        }
+        catch
+        {
+            _processor.CancelChannelQueryRequest(requestId);
+            throw;
+        }
+    }
 
     public async ValueTask SendWhoAsync(
         Guid requestId,
@@ -866,7 +889,8 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 _channelsToRestore[channel] = key;
                 if (!channel.StartsWith('+'))
                 {
-                    await SendAsync("MODE", [channel], IrcOutboundPriority.Automation).ConfigureAwait(false);
+                    await SendModeQueryAsync(channel, Guid.NewGuid(), automatic: true)
+                        .ConfigureAwait(false);
                 }
             }
         }

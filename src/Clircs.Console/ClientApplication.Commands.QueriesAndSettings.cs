@@ -227,6 +227,7 @@ internal sealed partial class ClientApplication
                 new("onjoin.users", _preferences.OnJoinUsers ? "on" : "off"),
                 new("onjoin.topic", _preferences.OnJoinTopic ? "on" : "off"),
                 new("onjoin.created", _preferences.OnJoinCreated ? "on" : "off"),
+                new("onjoin.modes", _preferences.OnJoinModes ? "on" : "off"),
                 new("onjoin.sync", _preferences.OnJoinSync ? "on" : "off"),
                 new("hostmasks.join", FormatHostmaskVisibility(_preferences.JoinHostmasks)),
                 new("hostmasks.part", FormatHostmaskVisibility(_preferences.PartHostmasks)),
@@ -411,6 +412,7 @@ internal sealed partial class ClientApplication
             case "onjoin.users":
             case "onjoin.topic":
             case "onjoin.created":
+            case "onjoin.modes":
             case "onjoin.sync":
                 if (!TryParseOnOff(value, out var onJoinEnabled))
                 {
@@ -427,6 +429,9 @@ internal sealed partial class ClientApplication
                         break;
                     case "onjoin.created":
                         _preferences.OnJoinCreated = onJoinEnabled;
+                        break;
+                    case "onjoin.modes":
+                        _preferences.OnJoinModes = onJoinEnabled;
                         break;
                     case "onjoin.sync":
                         _preferences.OnJoinSync = onJoinEnabled;

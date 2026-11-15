@@ -1196,6 +1196,28 @@ internal static class SessionTests
         Assert.True(lateCreated[0].Fields!.GetValueOrDefault("outputRequestId") is null);
         Assert.False(lateCreated[0].Fields!.ContainsKey("onJoin"));
 
+        Assert.True(processor.TryBeginModeRequest(
+            "#clirc", out var manualModeId, awaitWrite: true));
+
+        processor.RecordModeWrite("#clirc", Guid.NewGuid(), automatic: true);
+        processor.RecordModeWrite("#clirc", manualModeId, automatic: false);
+
+        var joinModes = processor.Process(IrcMessageParser.Parse(
+            ":server 324 me #clirc +kl sample-key 50")).Single();
+        Assert.Equal("Modes: +kl", joinModes.Text);
+        Assert.Equal("modes", joinModes.Fields!["onJoin"]!);
+        Assert.False(joinModes.Fields!.ContainsKey("outputRequestId"));
+        Assert.Equal("sample-key", channel.Modes['k']!);
+
+        var manualModes = processor.Process(IrcMessageParser.Parse(
+            ":server 324 me #clirc +nt")).Single();
+        Assert.Equal(manualModeId.ToString("D"), manualModes.Fields!["outputRequestId"]!);
+        Assert.False(manualModes.Fields!.ContainsKey("onJoin"));
+
+        var manualCreated = processor.Process(IrcMessageParser.Parse(
+            ":server 329 me #clirc 1700000000")).Single();
+        Assert.Equal(manualModeId.ToString("D"), manualCreated.Fields!["outputRequestId"]!);
+
         processor.Process(IrcMessageParser.Parse(
             ":server 005 me CHANTYPES=#&!+ :are supported"));
 

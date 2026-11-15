@@ -12,6 +12,7 @@ internal enum ChannelQueryKind
 
 internal sealed class ChannelQueryRequestTracker(NetworkSessionState state)
 {
+    private readonly object _gate = new();
     private readonly List<PendingRequest> _pending = [];
 
     private FollowUp? _followUp;
@@ -19,97 +20,147 @@ internal sealed class ChannelQueryRequestTracker(NetworkSessionState state)
     public bool TryBegin(
         string channelName,
         ChannelQueryKind kind,
-        out Guid requestId)
+        out Guid requestId,
+        bool awaitWrite = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
 
-        if (FindIndex(channelName, kind) >= 0)
+        lock (_gate)
         {
-            requestId = default;
-            return false;
+            if (FindIndex(channelName, kind) >= 0)
+            {
+                requestId = default;
+                return false;
+            }
+
+            requestId = Guid.NewGuid();
+            var namesState = kind == ChannelQueryKind.Names &&
+                             !state.TryGetChannel(channelName, out _)
+                ? new ChannelState(channelName, state.CaseMapping)
+                : null;
+
+            _pending.Add(new PendingRequest(
+                requestId, channelName, kind, namesState, AwaitingWrite: awaitWrite));
+            return true;
         }
+    }
 
-        requestId = Guid.NewGuid();
-        var namesState = kind == ChannelQueryKind.Names &&
-                         !state.TryGetChannel(channelName, out _)
-            ? new ChannelState(channelName, state.CaseMapping)
-            : null;
+    public void RecordModeWrite(string channelName, Guid requestId, bool automatic)
+    {
+        lock (_gate)
+        {
+            if (automatic)
+            {
+                _pending.Add(new PendingRequest(
+                    requestId, channelName, ChannelQueryKind.Mode, null, Automatic: true));
+                return;
+            }
 
-        _pending.Add(new PendingRequest(requestId, channelName, kind, namesState));
-        return true;
+            var index = _pending.FindIndex(request =>
+                request.Id == requestId && request.AwaitingWrite);
+            if (index < 0) return;
+
+            var request = _pending[index];
+            _pending.RemoveAt(index);
+            _pending.Add(request with { AwaitingWrite = false });
+        }
     }
 
     public ChannelState? FindNamesState(string channelName)
     {
-        var index = FindIndex(channelName, ChannelQueryKind.Names);
-        return index < 0 ? null : _pending[index].NamesState;
-    }
-
-    public Guid? Complete(string channelName, ChannelQueryKind kind)
-    {
-        var index = FindIndex(channelName, kind);
-        if (index < 0)
+        lock (_gate)
         {
-            return null;
+            var index = FindIndex(channelName, ChannelQueryKind.Names);
+            return index < 0 ? null : _pending[index].NamesState;
         }
-
-        var requestId = _pending[index].Id;
-        _pending.RemoveAt(index);
-        return requestId;
     }
+
+    public Guid? Complete(string channelName, ChannelQueryKind kind) =>
+        CompleteRequest(channelName, kind).RequestId;
 
     public Guid? CompleteWithFollowUp(
         string channelName,
         ChannelQueryKind kind,
-        string command)
+        string command) =>
+        CompleteRequest(channelName, kind, command).RequestId;
+
+    public (Guid? RequestId, bool Automatic) CompleteRequest(
+        string channelName,
+        ChannelQueryKind kind,
+        string? followUpCommand = null)
     {
-        var requestId = Complete(channelName, kind);
-        _followUp = requestId is { } id
-            ? new FollowUp(id, channelName, command)
-            : null;
-        return requestId;
+        lock (_gate)
+        {
+            var index = FindIndex(channelName, kind, forReply: true);
+            var request = index >= 0 ? _pending[index] : null;
+            if (request is not null)
+            {
+                _pending.RemoveAt(index);
+            }
+
+            var automatic = request?.Automatic == true;
+            var requestId = automatic ? null : request?.Id;
+            if (followUpCommand is not null)
+            {
+                _followUp = requestId is { } id
+                    ? new FollowUp(id, channelName, followUpCommand)
+                    : null;
+            }
+
+            return (requestId, automatic);
+        }
     }
 
     public Guid? TakeFollowUp(string command, string? channelName)
     {
-        var followUp = _followUp;
-        _followUp = null;
-
-        if (followUp is null ||
-            !command.Equals(
-                followUp.Command,
-                StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(channelName))
+        lock (_gate)
         {
-            return null;
-        }
+            var followUp = _followUp;
+            _followUp = null;
 
-        var comparer = new IrcNameComparer(state.CaseMapping);
-        return comparer.Equals(followUp.ChannelName, channelName)
-            ? followUp.Id
-            : null;
+            if (followUp is null ||
+                !command.Equals(
+                    followUp.Command,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(channelName))
+            {
+                return null;
+            }
+
+            var comparer = new IrcNameComparer(state.CaseMapping);
+            return comparer.Equals(followUp.ChannelName, channelName)
+                ? followUp.Id
+                : null;
+        }
     }
 
     public void Cancel(Guid requestId)
     {
-        _pending.RemoveAll(request => request.Id == requestId);
-        if (_followUp?.Id == requestId)
+        lock (_gate)
         {
-            _followUp = null;
+            _pending.RemoveAll(request => request.Id == requestId);
+            if (_followUp?.Id == requestId)
+            {
+                _followUp = null;
+            }
         }
     }
 
     public void Reset()
     {
-        _pending.Clear();
-        _followUp = null;
+        lock (_gate)
+        {
+            _pending.Clear();
+            _followUp = null;
+        }
     }
 
-    private int FindIndex(string channelName, ChannelQueryKind kind)
+    private int FindIndex(string channelName, ChannelQueryKind kind, bool forReply = false)
     {
         var comparer = new IrcNameComparer(state.CaseMapping);
         return _pending.FindIndex(request =>
             request.Kind == kind &&
+            (forReply ? !request.AwaitingWrite : !request.Automatic) &&
             comparer.Equals(request.ChannelName, channelName));
     }
 
@@ -122,5 +173,7 @@ internal sealed class ChannelQueryRequestTracker(NetworkSessionState state)
         Guid Id,
         string ChannelName,
         ChannelQueryKind Kind,
-        ChannelState? NamesState);
+        ChannelState? NamesState,
+        bool AwaitingWrite = false,
+        bool Automatic = false);
 }

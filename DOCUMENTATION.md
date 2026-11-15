@@ -230,7 +230,7 @@ On servers with caller ID, use `/accept` to list allowed nicknames, `/accept <ni
 
 ## Channel Management and Protection
 
-Use the `onjoin.users`, `onjoin.topic`, `onjoin.created`, and `onjoin.sync` settings to choose what appears when you join a channel. Disabled items are also omitted from logs.
+Use the `onjoin.users`, `onjoin.topic`, `onjoin.created`, `onjoin.modes`, and `onjoin.sync` settings to choose what appears when you join a channel. Disabled items are also omitted from logs.
 
 The userlist stores network user records, masks, flags, comments, and channel policy. Use `/help adduser`, `/help users`, `/help uwhois`, `/help cprot`, and `/help pprot` for all the syntax and settings.
 

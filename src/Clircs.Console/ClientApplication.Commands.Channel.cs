@@ -333,15 +333,11 @@ internal sealed partial class ClientApplication
         TrackOutputRequest(session, "mode", requestId);
         try
         {
-            await session.SendAsync(
-                "MODE",
-                [channelName],
-                cancellationToken: cancellationToken);
+            await session.SendModeQueryAsync(channelName, requestId, cancellationToken);
             return CommandResult.Success();
         }
         catch
         {
-            session.CancelChannelQueryRequest(requestId);
             CancelOutputRequest(session, "mode", requestId);
             throw;
         }

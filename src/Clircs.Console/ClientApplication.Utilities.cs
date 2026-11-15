@@ -486,7 +486,8 @@ internal sealed partial class ClientApplication
         _preferences.OnJoinUsers,
         _preferences.OnJoinTopic,
         _preferences.OnJoinCreated,
-        _preferences.OnJoinSync);
+        _preferences.OnJoinSync,
+        _preferences.OnJoinModes);
 
     private void SaveAppearanceSettings() => _appearanceStore.Save(CaptureAppearanceSettings());
 
@@ -516,6 +517,7 @@ internal sealed partial class ClientApplication
         _preferences.OnJoinTopic = settings.OnJoinTopic;
         _preferences.OnJoinCreated = settings.OnJoinCreated;
         _preferences.OnJoinSync = settings.OnJoinSync;
+        _preferences.OnJoinModes = settings.OnJoinModes;
         _preferences.HighlightNickname = settings.HighlightNickname;
         _preferences.LagMeter = settings.LagMeter;
         _preferences.StatusTls = settings.StatusTls;

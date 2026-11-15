@@ -129,8 +129,12 @@ public sealed class IrcSessionProcessor
     public bool TryBeginTopicRequest(string channelName, out Guid requestId) =>
         _channelQueries.TryBegin(channelName, ChannelQueryKind.Topic, out requestId);
 
-    public bool TryBeginModeRequest(string channelName, out Guid requestId) =>
-        _channelQueries.TryBegin(channelName, ChannelQueryKind.Mode, out requestId);
+    public bool TryBeginModeRequest(
+        string channelName, out Guid requestId, bool awaitWrite = false) =>
+        _channelQueries.TryBegin(channelName, ChannelQueryKind.Mode, out requestId, awaitWrite);
+
+    internal void RecordModeWrite(string channelName, Guid requestId, bool automatic) =>
+        _channelQueries.RecordModeWrite(channelName, requestId, automatic);
 
     public void CancelChannelQueryRequest(Guid requestId) =>
         _channelQueries.Cancel(requestId);
@@ -805,10 +809,10 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 3)
                 {
                     var modeChannel = message.Parameters[1];
-                    var modeRequestId = _channelQueries.CompleteWithFollowUp(
+                    var (modeRequestId, automaticModeReply) = _channelQueries.CompleteRequest(
                         modeChannel,
                         ChannelQueryKind.Mode,
-                        "329");
+                        followUpCommand: "329");
                     var modeText = string.Join(
                         ' ',
                         message.Parameters.Skip(2));
@@ -842,6 +846,23 @@ public sealed class IrcSessionProcessor
                                 ("outputRequestId", requestId.ToString("D")),
                                 ("outputEnd", "true"),
                                 ("outputFollowUp", "true"))));
+                    }
+
+                    else if (automaticModeReply &&
+                        modeState is not null &&
+                        _state.TryGetBuffer(modeChannel, out var joinModeBuffer))
+                    {
+                        var modes = message.Parameters[2];
+                        events.Add(Event(
+                            joinModeBuffer!,
+                            SessionEventKind.ChannelInfo,
+                            $"Modes: {modes}",
+                            now,
+                            Fields(
+                                ("numeric", "324"),
+                                ("channel", modeChannel),
+                                ("modes", modes),
+                                ("onJoin", "modes"))));
                     }
                 }
 
@@ -1153,21 +1174,25 @@ public sealed class IrcSessionProcessor
                     "476" => "invalid channel name or mask",
                     _ => Last(message).TrimEnd('.')
                 };
-                if ((message.Command is "403" or "477") &&
-                    deniedChannel.StartsWith('+') &&
-                    _channelQueries.Complete(deniedChannel, ChannelQueryKind.Mode) is { } deniedModeRequestId)
+                if (message.Command == "403" ||
+                    (message.Command == "477" && deniedChannel.StartsWith('+')))
                 {
-                    events.Add(Status(
-                        SessionEventKind.Error,
-                        $"Cannot query modes for {deniedChannel}: {denialReason}",
-                        now,
-                        Fields(
-                            ("numeric", message.Command),
-                            ("channel", deniedChannel),
-                            ("outputFamily", "mode"),
-                            ("outputRequestId", deniedModeRequestId.ToString("D")),
-                            ("outputEnd", "true"))));
-                    break;
+                    var (requestId, automatic) = _channelQueries.CompleteRequest(
+                        deniedChannel, ChannelQueryKind.Mode);
+                    if (requestId is not null || automatic)
+                    {
+                        events.Add(Status(
+                            SessionEventKind.Error,
+                            $"Cannot query modes for {deniedChannel}: {denialReason}",
+                            now,
+                            Fields(
+                                ("numeric", message.Command),
+                                ("channel", deniedChannel),
+                                ("outputFamily", requestId is null ? null : "mode"),
+                                ("outputRequestId", requestId?.ToString("D")),
+                                ("outputEnd", requestId is null ? null : "true"))));
+                        break;
+                    }
                 }
                 events.Add(Status(
                     SessionEventKind.Error,

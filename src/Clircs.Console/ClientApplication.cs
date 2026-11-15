@@ -260,6 +260,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.OnJoinTopic = appearance.OnJoinTopic;
         _preferences.OnJoinCreated = appearance.OnJoinCreated;
         _preferences.OnJoinSync = appearance.OnJoinSync;
+        _preferences.OnJoinModes = appearance.OnJoinModes;
         _preferences.DefaultKickMessage = appearance.DefaultKickMessage;
         _preferences.DefaultQuitMessage = appearance.DefaultQuitMessage;
         _preferences.DefaultTopicMessage = appearance.DefaultTopicMessage;

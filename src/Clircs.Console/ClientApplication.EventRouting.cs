@@ -171,6 +171,7 @@ internal sealed partial class ClientApplication
             "users" => _preferences.OnJoinUsers,
             "topic" => _preferences.OnJoinTopic,
             "created" => _preferences.OnJoinCreated,
+            "modes" => _preferences.OnJoinModes,
             "sync" => _preferences.OnJoinSync,
             _ => true
         };

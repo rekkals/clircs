@@ -28,6 +28,7 @@ internal sealed class ClientPreferences
     public bool OnJoinTopic { get; set; } = true;
     public bool OnJoinCreated { get; set; } = true;
     public bool OnJoinSync { get; set; } = true;
+    public bool OnJoinModes { get; set; }
     public string? DefaultKickMessage { get; set; }
     public string? DefaultQuitMessage { get; set; }
     public string? DefaultTopicMessage { get; set; }
