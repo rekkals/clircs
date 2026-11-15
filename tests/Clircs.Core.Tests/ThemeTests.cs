@@ -1218,9 +1218,9 @@ internal static class ThemeTests
             Assert.True(application.SettingHelp(".output") is null);
             Assert.True(application.SettingHelp("hostmaskslol") is null);
             Assert.True(application.SettingHelp("hostmasks.lol") is null);
-            Assert.True(application.SettingHelp("network.reconnect")!.Fields!
+            Assert.True(application.SettingHelp("reconnect.network")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "on"));
-            Assert.True(application.SettingHelp("kill.reconnect")!.Fields!
+            Assert.True(application.SettingHelp("reconnect.kill")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "off"));
             application.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }

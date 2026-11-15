@@ -398,8 +398,8 @@ internal sealed partial class ClientApplication
         {
             PublishStatus(session, SessionEventKind.Status,
                 info.Kind == SessionDisconnectKind.Killed
-                    ? "kill.reconnect is off; this network session will remain offline."
-                    : "network.reconnect is off; this network session will remain offline.");
+                    ? "reconnect.kill is off; this network session will remain offline."
+                    : "reconnect.network is off; this network session will remain offline.");
             return;
         }
 

@@ -63,7 +63,7 @@ The `--new` option creates another network session instead of replacing the curr
 
 TLS certificates are validated normally. A self-signed or otherwise untrusted certificate is shown to the user and may be accepted once or pinned for later. They are not accepted all willy nilly.
 
-Automatic reconnect (after unintentional disconnection) can be enabled via the `network.reconnect` setting, including after KILL by turning `kill.reconnect` on. Existing channel and query windows stay open unless you `/part`.
+Automatic reconnect (after unintentional disconnection) can be enabled via the `reconnect.network` setting, including after KILL by turning `reconnect.kill` on. Existing channel and query windows stay open unless you `/part`.
 
 Use `/set reconnect.limit <number>` to set the (global) maximum number of reconnect attempts. Older per-profile `reconnect_max_attempts` values no longer apply.
 

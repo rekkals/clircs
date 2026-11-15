@@ -230,10 +230,10 @@ internal sealed partial class ClientApplication
                 new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
                 new("startup", _preferences.Startup ? "on" : "off"),
-                new("flood.control", _preferences.FloodControl ? "on" : "off"),
+                new("floodcontrol", _preferences.FloodControl ? "on" : "off"),
 
-                new("network.reconnect", _preferences.NetworkReconnect ? "on" : "off"),
-                new("kill.reconnect", _preferences.KillReconnect ? "on" : "off"),
+                new("reconnect.network", _preferences.NetworkReconnect ? "on" : "off"),
+                new("reconnect.kill", _preferences.KillReconnect ? "on" : "off"),
                 new("reconnect.limit", _preferences.ReconnectLimit.ToString(CultureInfo.InvariantCulture)),
 
                 new("onjoin.users", _preferences.OnJoinUsers ? "on" : "off"),
@@ -270,7 +270,7 @@ internal sealed partial class ClientApplication
         if (input.Arguments.Count == 1 &&
             (setting.StartsWith("status.", StringComparison.Ordinal) ||
              setting.StartsWith("onjoin.", StringComparison.Ordinal) ||
-             setting is "xdcc.auto" or "startup" or "reconnect.limit" or "flood.control" or "showhosts") &&
+             setting is "xdcc.auto" or "startup" or "reconnect.limit" or "floodcontrol" or "showhosts") &&
             CurrentSettingValue(setting) is { } currentValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
@@ -453,17 +453,17 @@ internal sealed partial class ClientApplication
                 }
                 _preferences.AutoRejoinOnKick = autoRejoin;
                 break;
-            case "network.reconnect":
+            case "reconnect.network":
                 if (!TryParseOnOff(value, out var networkReconnect))
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("network.reconnect must be on or off."));
+                    return ValueTask.FromResult(CommandResult.Failure("reconnect.network must be on or off."));
                 }
                 _preferences.NetworkReconnect = networkReconnect;
                 break;
-            case "kill.reconnect":
+            case "reconnect.kill":
                 if (!TryParseOnOff(value, out var killReconnect))
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("kill.reconnect must be on or off."));
+                    return ValueTask.FromResult(CommandResult.Failure("reconnect.kill must be on or off."));
                 }
                 _preferences.KillReconnect = killReconnect;
                 break;
@@ -476,10 +476,10 @@ internal sealed partial class ClientApplication
                 }
                 _preferences.ReconnectLimit = reconnectLimit;
                 break;
-            case "flood.control":
+            case "floodcontrol":
                 if (!TryParseOnOff(value, out var floodControl))
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("flood.control must be on or off."));
+                    return ValueTask.FromResult(CommandResult.Failure("floodcontrol must be on or off."));
                 }
 
                 _preferences.FloodControl = floodControl;
@@ -573,7 +573,7 @@ internal sealed partial class ClientApplication
         try
         {
             SaveAppearanceSettings();
-            if (setting == "flood.control")
+            if (setting == "floodcontrol")
             {
                 foreach (var session in SessionsSnapshot())
                 {
