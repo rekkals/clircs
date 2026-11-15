@@ -244,9 +244,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         {
             _presenter.SetTheme(TerminalTheme.BuiltIns["clircs"]);
         }
-        if (TryParseHostmaskVisibility(appearance.JoinHostmasks, out var joinVisibility)) _preferences.JoinHostmasks = joinVisibility;
-        if (TryParseHostmaskVisibility(appearance.PartHostmasks, out var partVisibility)) _preferences.PartHostmasks = partVisibility;
-        if (TryParseHostmaskVisibility(appearance.QuitHostmasks, out var quitVisibility)) _preferences.QuitHostmasks = quitVisibility;
+        _preferences.ShowHosts = appearance.ShowHosts;
         foreach (var route in appearance.OutputRoutes)
         {
             if (_outputRouting.Supports(route.Key) && TryParseOutputDestination(route.Value, out var destination))
@@ -284,7 +282,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         _preferences.DccDownloads = ResolveDccDownloadDirectory(appearance.DccDownloads, dataDirectory);
         _preferences.XdccAuto = appearance.XdccAuto;
         if (BanmaskFormatter.TryParse(appearance.DefaultBanmask, out var banmaskStyle)) _preferences.BanmaskStyle = banmaskStyle;
-        _presenter.SetHostmaskVisibility(_preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
+        _presenter.SetShowHosts(_preferences.ShowHosts);
         _scriptManager = new ScriptManager(
             dataDirectory,
             new ScriptHostServices(

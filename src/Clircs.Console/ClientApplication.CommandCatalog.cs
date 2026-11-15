@@ -278,12 +278,11 @@ internal sealed partial class ClientApplication
         [
             new("Identity", "nickname, altnick, username, realname"),
             new("Messages", "awaymsg, kickmsg, quitmsg, topicmsg"),
-            new("Behavior", "banmask, clonedetect, datechange, highlight, joininfo, kickrejoin, startup"),
+            new("Behavior", "banmask, showhosts, clonedetect, datechange, highlight, joininfo, kickrejoin, startup"),
             new("On join", "onjoin.users, onjoin.topic, onjoin.created, onjoin.modes, onjoin.sync"),
             new("Status bar", "status.lagmeter, status.tls, status.bouncer, status.chanmodes, status.usermodes, status.totals"),
             new("Network", "usermodes, network.reconnect, kill.reconnect, reconnect.limit, flood.control"),
             new("DCC", "dcc.address, dcc.ports, dcc.downloads, xdcc.auto"),
-            new("Hostmasks", "hostmasks, hostmasks.join, hostmasks.part, hostmasks.quit"),
             new("Routing", "who.output, whois.output, whowas.output, names.output, ctcp.output, notice.output, snotice.output, notify.output, wallops.output, invite.output, links.output, list.output, dns.output, callerid.output")
         ],
         "cprot" =>
@@ -411,14 +410,7 @@ internal sealed partial class ClientApplication
             "dcc.ports" => ("<random|port|first-last>", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
             "dcc.downloads" => ("<folder>", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
             "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", "/set xdcc.auto on"),
-            "hostmasks" =>
-                ("<userhost|host|off>", "userhost", "Controls hostmask detail on join, part, or quit messages.", "/set hostmasks host"),
-            "hostmasks.join" =>
-                ("<userhost|host|off>", "userhost", "Controls hostmask detail on join messages.", "/set hostmasks.join host"),
-            "hostmasks.part" =>
-                ("<userhost|host|off>", "userhost", "Controls hostmask detail on part messages.", "/set hostmasks.part host"),
-            "hostmasks.quit" =>
-                ("<userhost|host|off>", "userhost", "Controls hostmask detail on quit messages.", "/set hostmasks.quit host"),
+            "showhosts" => ("[on|off]", "on", "Shows user@host on joins, parts, and quits.", string.Empty),
             "notice.output" =>
                 ("<active|status|window>", "active", "Selects the window used for notices from users.", "/set notice.output window"),
             "snotice.output" =>
@@ -450,13 +442,19 @@ internal sealed partial class ClientApplication
             _ => default
         };
         if (detail == default) return null;
-        return new PresentationBlock("HELP:",
-        [
+        var fields = new List<PresentationField>
+        {
             new("Usage", $"/set {setting} {detail.Item1}"),
             new("Currently", CurrentSettingValue(setting) ?? detail.Item2),
-            new("Description", detail.Item3),
-            new("Example", detail.Item4)
-        ], TitleHighlight: $"/set {setting}");
+            new("Description", detail.Item3)
+        };
+
+        if (detail.Item4.Length > 0)
+        {
+            fields.Add(new("Example", detail.Item4));
+        }
+
+        return new PresentationBlock("HELP:", fields, TitleHighlight: $"/set {setting}");
     }
 
     private string? CurrentSettingValue(string setting) => setting switch
@@ -496,11 +494,7 @@ internal sealed partial class ClientApplication
         "dcc.ports" => _preferences.DccPorts.ToString(),
         "dcc.downloads" => _preferences.DccDownloads,
         "xdcc.auto" => _preferences.XdccAuto ? "on" : "off",
-        "hostmasks" => _preferences.JoinHostmasks == _preferences.PartHostmasks && _preferences.PartHostmasks == _preferences.QuitHostmasks
-            ? FormatHostmaskVisibility(_preferences.JoinHostmasks) : "mixed",
-        "hostmasks.join" => FormatHostmaskVisibility(_preferences.JoinHostmasks),
-        "hostmasks.part" => FormatHostmaskVisibility(_preferences.PartHostmasks),
-        "hostmasks.quit" => FormatHostmaskVisibility(_preferences.QuitHostmasks),
+        "showhosts" => _preferences.ShowHosts ? "on" : "off",
         _ when setting.EndsWith(".output", StringComparison.Ordinal) &&
             _outputRouting.TryGetDestination(setting[..^".output".Length], out var destination) =>
                 FormatOutputDestination(destination),

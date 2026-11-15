@@ -150,10 +150,3 @@ internal sealed record StatusBarModel(
     IReadOnlyList<StatusActivity> Activity,
     StatusWarning? Warning = null);
 
-internal enum HostmaskVisibility
-{
-    Full,
-    UserHost,
-    Host,
-    Off
-}

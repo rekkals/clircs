@@ -67,7 +67,7 @@ internal static class ApplicationOrchestrationTests
         Assert.Equal("slakker", preferences.Username);
         Assert.Equal("default settings enthusiast", preferences.RealName);
         Assert.Equal("away", preferences.AwayMessage);
-        Assert.Equal(HostmaskVisibility.UserHost, preferences.JoinHostmasks);
+        Assert.True(preferences.ShowHosts);
         Assert.True(preferences.HighlightNickname);
         Assert.True(preferences.CloneDetection);
         Assert.True(preferences.NetworkReconnect);

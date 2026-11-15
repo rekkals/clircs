@@ -5,10 +5,7 @@ namespace Clircs.ConsoleClient;
 internal static class TranscriptFormatter
 {
     public static IReadOnlyList<string> FormatLines(
-        SessionEvent sessionEvent,
-        HostmaskVisibility joinHostmasks = HostmaskVisibility.UserHost,
-        HostmaskVisibility partHostmasks = HostmaskVisibility.UserHost,
-        HostmaskVisibility quitHostmasks = HostmaskVisibility.UserHost)
+        SessionEvent sessionEvent, bool showHosts = true)
     {
         var semantics = SessionEventPresentation.From(sessionEvent);
         if (semantics.Subtype == SessionEventSubtype.Startup || semantics.IsTransientHistory)
@@ -24,11 +21,11 @@ internal static class TranscriptFormatter
         var text = sessionEvent.Kind switch
         {
             SessionEventKind.Join when semantics.Nick is not null =>
-                $"--> {semantics.Nick}{Identity(semantics, joinHostmasks)} joined {semantics.Channel}",
+                $"--> {semantics.Nick}{Identity(semantics, showHosts)} joined {semantics.Channel}",
             SessionEventKind.Part when semantics.Nick is not null && semantics.Subtype == SessionEventSubtype.Quit =>
-                $"<-- {semantics.Nick}{Identity(semantics, quitHostmasks)} quit{Reason(semantics.Reason)}",
+                $"<-- {semantics.Nick}{Identity(semantics, showHosts)} quit{Reason(semantics.Reason)}",
             SessionEventKind.Part when semantics.Nick is not null && semantics.Subtype != SessionEventSubtype.Kick =>
-                $"<-- {semantics.Nick}{Identity(semantics, partHostmasks)} left {semantics.Channel}{Reason(semantics.Reason)}",
+                $"<-- {semantics.Nick}{Identity(semantics, showHosts)} left {semantics.Channel}{Reason(semantics.Reason)}",
             SessionEventKind.Message or SessionEventKind.Highlight
                 when semantics.Nick is not null && semantics.Message is not null =>
                 $"<{semantics.NickPrefix}{semantics.Nick}> {semantics.Message}",
@@ -58,18 +55,10 @@ internal static class TranscriptFormatter
             .ToArray();
     }
 
-    private static string Identity(SessionEventPresentation semantics, HostmaskVisibility visibility)
-    {
-        var value = visibility switch
-        {
-            HostmaskVisibility.Full or HostmaskVisibility.UserHost
-                when semantics.Username is not null && semantics.Host is not null =>
-                $"{semantics.Username}@{semantics.Host}",
-            HostmaskVisibility.Host when semantics.Host is not null => semantics.Host,
-            _ => null
-        };
-        return value is null ? string.Empty : $" [{value}]";
-    }
+    private static string Identity(SessionEventPresentation semantics, bool showHosts) =>
+        showHosts && semantics.Username is { } user && semantics.Host is { } host
+            ? $" [{user}@{host}]"
+            : string.Empty;
 
     private static string Reason(string? reason) =>
         string.IsNullOrWhiteSpace(reason) ? string.Empty : $" ({reason})";

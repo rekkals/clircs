@@ -19,9 +19,7 @@ internal sealed class ClientPreferences
     public string RealName { get; set; } = "default settings enthusiast";
     public string UserModes { get; set; } = "+i";
     public string AwayMessage { get; set; } = "away";
-    public HostmaskVisibility JoinHostmasks { get; set; } = HostmaskVisibility.UserHost;
-    public HostmaskVisibility PartHostmasks { get; set; } = HostmaskVisibility.UserHost;
-    public HostmaskVisibility QuitHostmasks { get; set; } = HostmaskVisibility.UserHost;
+    public bool ShowHosts { get; set; } = true;
     public bool AutoRejoinOnKick { get; set; }
     public bool AnnounceUserInfoOnJoin { get; set; }
     public bool OnJoinUsers { get; set; } = true;

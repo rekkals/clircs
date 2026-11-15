@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Clircs.Infrastructure;
 using Clircs.Networking;
 
@@ -6,9 +7,7 @@ namespace Clircs.ConsoleClient;
 
 internal sealed record AppearanceSettings(
     string Theme,
-    string JoinHostmasks,
-    string PartHostmasks,
-    string QuitHostmasks,
+    bool ShowHosts,
     IReadOnlyDictionary<string, string> OutputRoutes,
     bool AutoRejoinOnKick = false,
     string? DefaultKickMessage = null,
@@ -80,11 +79,13 @@ internal sealed class AppearanceSettingsStore
                 throw new InvalidDataException(
                     "reconnect.limit must be a nonnegative whole number.");
             }
+            var showHosts = stored.ShowHosts ??
+                !(IsLegacyHostmaskOff(stored.JoinHostmasks) ||
+                  IsLegacyHostmaskOff(stored.PartHostmasks) ||
+                  IsLegacyHostmaskOff(stored.QuitHostmasks));
             return new AppearanceSettings(
                 stored.Theme,
-                stored.JoinHostmasks,
-                stored.PartHostmasks,
-                stored.QuitHostmasks,
+                showHosts,
                 stored.OutputRoutes,
                 stored.AutoRejoinOnKick,
                 EmptyToNull(stored.DefaultKickMessage),
@@ -142,9 +143,7 @@ internal sealed class AppearanceSettingsStore
         {
             SchemaVersion = 1,
             Theme = settings.Theme,
-            JoinHostmasks = settings.JoinHostmasks,
-            PartHostmasks = settings.PartHostmasks,
-            QuitHostmasks = settings.QuitHostmasks,
+            ShowHosts = settings.ShowHosts,
             AutoRejoinOnKick = settings.AutoRejoinOnKick,
             DefaultKickMessage = settings.DefaultKickMessage,
             DefaultQuitMessage = settings.DefaultQuitMessage,
@@ -187,7 +186,7 @@ internal sealed class AppearanceSettingsStore
     }
 
     private static AppearanceSettings Defaults() => new(
-        "clircs", "userhost", "userhost", "userhost",
+        "clircs", true,
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["who"] = "active",
@@ -205,15 +204,26 @@ internal sealed class AppearanceSettingsStore
             ["callerid"] = "active"
         });
 
+    private static bool IsLegacyHostmaskOff(string? value) =>
+        string.Equals(value, "off", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "nick", StringComparison.OrdinalIgnoreCase);
+
     private static string? EmptyToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private sealed class StoredAppearance
     {
         public int SchemaVersion { get; set; }
         public string Theme { get; set; } = "clircs";
-        public string JoinHostmasks { get; set; } = "userhost";
-        public string PartHostmasks { get; set; } = "userhost";
-        public string QuitHostmasks { get; set; } = "userhost";
+        public bool? ShowHosts { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? JoinHostmasks { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? PartHostmasks { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? QuitHostmasks { get; set; }
         public bool AutoRejoinOnKick { get; set; }
         public string? DefaultKickMessage { get; set; }
         public string? DefaultQuitMessage { get; set; }

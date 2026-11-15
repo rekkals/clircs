@@ -323,41 +323,6 @@ internal sealed partial class ClientApplication
         _ => throw new ArgumentOutOfRangeException(nameof(destination))
     };
 
-    private static bool TryParseHostmaskVisibility(string value, out HostmaskVisibility visibility)
-    {
-        if (value.Equals("full", StringComparison.OrdinalIgnoreCase))
-        {
-            visibility = HostmaskVisibility.UserHost;
-            return true;
-        }
-        if (value.Equals("userhost", StringComparison.OrdinalIgnoreCase))
-        {
-            visibility = HostmaskVisibility.UserHost;
-            return true;
-        }
-        if (value.Equals("host", StringComparison.OrdinalIgnoreCase))
-        {
-            visibility = HostmaskVisibility.Host;
-            return true;
-        }
-        if (value.Equals("off", StringComparison.OrdinalIgnoreCase) || value.Equals("nick", StringComparison.OrdinalIgnoreCase))
-        {
-            visibility = HostmaskVisibility.Off;
-            return true;
-        }
-        visibility = default;
-        return false;
-    }
-
-    private static string FormatHostmaskVisibility(HostmaskVisibility visibility) => visibility switch
-    {
-        HostmaskVisibility.Full => "userhost",
-        HostmaskVisibility.UserHost => "userhost",
-        HostmaskVisibility.Host => "host",
-        HostmaskVisibility.Off => "off",
-        _ => throw new ArgumentOutOfRangeException(nameof(visibility))
-    };
-
     private static bool TryParseOnOff(string value, out bool enabled)
     {
         if (value.Equals("on", StringComparison.OrdinalIgnoreCase))
@@ -446,9 +411,7 @@ internal sealed partial class ClientApplication
 
     private AppearanceSettings CaptureAppearanceSettings() => new(
         _presenter.Theme.Name,
-        FormatHostmaskVisibility(_preferences.JoinHostmasks),
-        FormatHostmaskVisibility(_preferences.PartHostmasks),
-        FormatHostmaskVisibility(_preferences.QuitHostmasks),
+        _preferences.ShowHosts,
         _outputRouting.DestinationSnapshot().ToDictionary(
             entry => entry.Key,
             entry => FormatOutputDestination(entry.Value),
@@ -501,9 +464,7 @@ internal sealed partial class ClientApplication
         _preferences.AwayMessage = settings.AwayMessage;
         _preferences.UserModes = settings.UserModes;
         if (_themeManager.TryGet(settings.Theme, out var theme)) _presenter.SetTheme(theme!);
-        if (TryParseHostmaskVisibility(settings.JoinHostmasks, out var join)) _preferences.JoinHostmasks = join;
-        if (TryParseHostmaskVisibility(settings.PartHostmasks, out var part)) _preferences.PartHostmasks = part;
-        if (TryParseHostmaskVisibility(settings.QuitHostmasks, out var quit)) _preferences.QuitHostmasks = quit;
+        _preferences.ShowHosts = settings.ShowHosts;
         foreach (var route in settings.OutputRoutes)
         {
             if (TryParseOutputDestination(route.Value, out var destination))
@@ -539,7 +500,7 @@ internal sealed partial class ClientApplication
         _preferences.DccDownloads = settings.DccDownloads ?? _preferences.DccDownloads;
         _preferences.XdccAuto = settings.XdccAuto;
         if (BanmaskFormatter.TryParse(settings.DefaultBanmask, out var mask)) _preferences.BanmaskStyle = mask;
-        _presenter.SetHostmaskVisibility(_preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
+        _presenter.SetShowHosts(_preferences.ShowHosts);
     }
 
     private sealed class CallbackDisposable(Action callback) : IDisposable

@@ -341,8 +341,7 @@ internal sealed partial class ClientApplication
             : _loggingStore.IsEnabled(profile.Id, target);
         if (!enabled) return ResourceQueueWriteResult.Accepted;
 
-        var lines = TranscriptFormatter.FormatLines(
-            sessionEvent, _preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
+        var lines = TranscriptFormatter.FormatLines(sessionEvent, _preferences.ShowHosts);
         if (lines.Count == 0) return ResourceQueueWriteResult.Accepted;
 
         return profile is null

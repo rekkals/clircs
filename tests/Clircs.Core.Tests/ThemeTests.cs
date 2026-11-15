@@ -1208,10 +1208,11 @@ internal static class ThemeTests
             Assert.Equal("/set list.output", application.SettingHelp("list.output")!.TitleHighlight!);
             Assert.True(application.SettingHelp("list.output")!.Fields!
                 .Any(field => field.Label == "Currently" && field.Value == "window"));
-            Assert.Equal("/set hostmasks.join", application.SettingHelp("hostmasks.join")!.TitleHighlight!);
-            Assert.True(application.SettingHelp("hostmasks") is not null);
-            Assert.True(application.SettingHelp("hostmasks.part") is not null);
-            Assert.True(application.SettingHelp("hostmasks.quit") is not null);
+            Assert.Equal("/set showhosts", application.SettingHelp("showhosts")!.TitleHighlight!);
+            Assert.True(application.SettingHelp("hostmasks") is null);
+            Assert.True(application.SettingHelp("hostmasks.part") is null);
+            Assert.True(application.SettingHelp("hostmasks.quit") is null);
+            Assert.True(application.SettingHelp("hostmasks.join") is null);
 
             Assert.True(application.SettingHelp("lol.output") is null);
             Assert.True(application.SettingHelp(".output") is null);
@@ -1330,10 +1331,17 @@ internal static class ThemeTests
     private static void AppearancePersistence()
     {
         using var temporary = new TemporaryDirectory();
-        var store = new AppearanceSettingsStore(Path.Combine(temporary.Path, "appearance.json"));
-        Assert.False(store.Load().XdccAuto);
+        var path = Path.Combine(temporary.Path, "appearance.json");
+        var store = new AppearanceSettingsStore(path);
+        var defaults = store.Load();
+        Assert.False(defaults.XdccAuto);
+        Assert.True(defaults.ShowHosts);
+
+        File.WriteAllText(path,
+            """{"SchemaVersion":1,"JoinHostmasks":"userhost","PartHostmasks":"host","QuitHostmasks":"off"}""");
+        Assert.False(store.Load().ShowHosts);
         store.Save(new AppearanceSettings(
-            "green", "full", "userhost", "off",
+            "green", false,
             new Dictionary<string, string> { ["whois"] = "dedicated" },
             AutoRejoinOnKick: true,
             DefaultKickMessage: "lewser",
@@ -1364,7 +1372,7 @@ internal static class ThemeTests
 
         var loaded = store.Load();
         Assert.Equal("green", loaded.Theme);
-        Assert.Equal("userhost", loaded.PartHostmasks);
+        Assert.False(loaded.ShowHosts);
         Assert.Equal("dedicated", loaded.OutputRoutes["whois"]);
         Assert.True(loaded.AutoRejoinOnKick);
         Assert.Equal("lewser", loaded.DefaultKickMessage!);

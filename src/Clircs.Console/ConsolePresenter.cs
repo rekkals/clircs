@@ -44,9 +44,7 @@ internal sealed class ConsolePresenter
     private string? _topicBar;
     private bool _topicBarWasVisible;
     private TerminalTheme _theme = TerminalTheme.BuiltIns["clircs"];
-    private HostmaskVisibility _joinHostmasks = HostmaskVisibility.UserHost;
-    private HostmaskVisibility _partHostmasks = HostmaskVisibility.UserHost;
-    private HostmaskVisibility _quitHostmasks = HostmaskVisibility.UserHost;
+    private bool _showHosts = true;
     private bool _fullScreen;
     private bool _redrawing;
     private int _eventBatchDepth;
@@ -135,16 +133,11 @@ internal sealed class ConsolePresenter
         }
     }
 
-    public void SetHostmaskVisibility(
-        HostmaskVisibility joins,
-        HostmaskVisibility parts,
-        HostmaskVisibility quits)
+    public void SetShowHosts(bool showHosts)
     {
         lock (_consoleLock)
         {
-            _joinHostmasks = joins;
-            _partHostmasks = parts;
-            _quitHostmasks = quits;
+            _showHosts = showHosts;
         }
     }
 
@@ -1268,14 +1261,14 @@ internal sealed class ConsolePresenter
 
         if (sessionEvent.Kind == SessionEventKind.Join && semantics.Nick is { } joinedNick)
         {
-            var identity = FormatIdentity(semantics, _joinHostmasks);
+            var identity = FormatIdentity(semantics);
             return $"{_theme.JoinMarker} {joinedNick}{identity} joined {semantics.Channel}";
         }
 
         if (sessionEvent.Kind == SessionEventKind.Part && semantics.Nick is { } partedNick)
         {
             var quit = semantics.Subtype == SessionEventSubtype.Quit;
-            var identity = FormatIdentity(semantics, quit ? _quitHostmasks : _partHostmasks);
+            var identity = FormatIdentity(semantics);
             var reason = string.IsNullOrWhiteSpace(semantics.Reason)
                 ? string.Empty
                 : $" ({semantics.Reason})";
@@ -1300,19 +1293,10 @@ internal sealed class ConsolePresenter
         ? $"[{sessionEvent.Timestamp:HH:mm:ss}] [{bufferName}] "
         : $"[{sessionEvent.Timestamp:HH:mm:ss}] ";
 
-    private static string FormatIdentity(SessionEventPresentation semantics, HostmaskVisibility visibility)
-    {
-        var user = semantics.Username;
-        var host = semantics.Host;
-        var value = visibility switch
-        {
-            HostmaskVisibility.Full when user is not null && host is not null => $"{user}@{host}",
-            HostmaskVisibility.UserHost when user is not null && host is not null => $"{user}@{host}",
-            HostmaskVisibility.Host when host is not null => host,
-            _ => null
-        };
-        return value is null ? string.Empty : $" [{value}]";
-    }
+    private string FormatIdentity(SessionEventPresentation semantics) =>
+        _showHosts && semantics.Username is { } user && semantics.Host is { } host
+            ? $" [{user}@{host}]"
+            : string.Empty;
 
     private void WritePresentation(
         SessionEvent sessionEvent,

@@ -220,6 +220,7 @@ internal sealed partial class ClientApplication
                 new("quitmsg", _preferences.DefaultQuitMessage ?? "default"),
                 new("topicmsg", _preferences.DefaultTopicMessage ?? "random"),
                 new("banmask", BanmaskFormatter.Name(_preferences.BanmaskStyle)),
+                new("showhosts", _preferences.ShowHosts ? "on" : "off"),
                 new("clonedetect", _preferences.CloneDetection ? "on" : "off"),
                 new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
@@ -229,9 +230,6 @@ internal sealed partial class ClientApplication
                 new("onjoin.created", _preferences.OnJoinCreated ? "on" : "off"),
                 new("onjoin.modes", _preferences.OnJoinModes ? "on" : "off"),
                 new("onjoin.sync", _preferences.OnJoinSync ? "on" : "off"),
-                new("hostmasks.join", FormatHostmaskVisibility(_preferences.JoinHostmasks)),
-                new("hostmasks.part", FormatHostmaskVisibility(_preferences.PartHostmasks)),
-                new("hostmasks.quit", FormatHostmaskVisibility(_preferences.QuitHostmasks)),
                 new("kickrejoin", _preferences.AutoRejoinOnKick ? "on" : "off"),
                 new("startup", _preferences.Startup ? "on" : "off"),
                 new("status.lagmeter", _preferences.LagMeter ? "on" : "off"),
@@ -270,7 +268,7 @@ internal sealed partial class ClientApplication
         if (input.Arguments.Count == 1 &&
             (setting.StartsWith("status.", StringComparison.Ordinal) ||
              setting.StartsWith("onjoin.", StringComparison.Ordinal) ||
-             setting is "xdcc.auto" or "startup" or "reconnect.limit" or "flood.control") &&
+             setting is "xdcc.auto" or "startup" or "reconnect.limit" or "flood.control" or "showhosts") &&
             CurrentSettingValue(setting) is { } currentValue)
         {
             return ValueTask.FromResult(CommandResult.Success(
@@ -555,19 +553,15 @@ internal sealed partial class ClientApplication
                     setting[..^".output".Length],
                     destination);
                 break;
-            case "hostmasks":
-            case "hostmasks.join":
-            case "hostmasks.part":
-            case "hostmasks.quit":
-                if (!TryParseHostmaskVisibility(value, out var visibility))
+            case "showhosts":
+                if (!TryParseOnOff(value, out var showHosts))
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("Hostmask visibility must be userhost, host, or off."));
+                    return ValueTask.FromResult(CommandResult.Failure("showhosts must be on or off."));
                 }
-                var hostmaskSetting = setting;
-                if (hostmaskSetting is "hostmasks" or "hostmasks.join") _preferences.JoinHostmasks = visibility;
-                if (hostmaskSetting is "hostmasks" or "hostmasks.part") _preferences.PartHostmasks = visibility;
-                if (hostmaskSetting is "hostmasks" or "hostmasks.quit") _preferences.QuitHostmasks = visibility;
-                _presenter.SetHostmaskVisibility(_preferences.JoinHostmasks, _preferences.PartHostmasks, _preferences.QuitHostmasks);
+
+                _preferences.ShowHosts = showHosts;
+                _presenter.SetShowHosts(showHosts);
+                value = showHosts ? "on" : "off";
                 break;
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
