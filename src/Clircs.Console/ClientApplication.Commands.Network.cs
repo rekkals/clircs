@@ -1870,6 +1870,15 @@ internal sealed partial class ClientApplication
         return CommandResult.Success();
     }
 
+    private ValueTask<CommandResult> AutojoinAddAliasAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken) =>
+        AutojoinAsync(
+            context,
+            new CommandInput("autojoin", ["add", .. input.Arguments], $"add {input.RawArguments}".TrimEnd()),
+            cancellationToken);
+
     private async ValueTask<CommandResult> AutojoinRemoveAliasAsync(
         CommandContext context,
         CommandInput input,
@@ -1894,16 +1903,16 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
+        const string usage = "Usage: /autojoin [list|add [channel]|remove [channel]|run|clear]";
+        var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
+        if (operation is not ("list" or "add" or "remove" or "run" or "clear"))
+        {
+            return CommandResult.Failure(usage);
+        }
+
         var session = RequireSession(out var failure);
         if (session is null)
         {
-            if (input.Arguments.Count == 0)
-            {
-                return await HelpAsync(
-                    context,
-                    new CommandInput("help", ["autojoin"], "autojoin"),
-                    cancellationToken);
-            }
             return failure;
         }
 
@@ -1913,25 +1922,6 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure(
                 "Autojoin requires a saved network profile. Set one up with /network add <name> <host> [port] [--tls], then connect with /server <name>.");
         }
-
-        if (input.Arguments.Count == 0)
-        {
-            if (ActiveChannel() is not { } activeChannel)
-            {
-                return await HelpAsync(
-                    context,
-                    new CommandInput("help", ["autojoin"], "autojoin"),
-                    cancellationToken);
-            }
-            input = new CommandInput("autojoin", ["add", activeChannel], $"add {activeChannel}");
-        }
-
-        if (session.Features.IsChannel(input.Arguments[0]))
-        {
-            input = new CommandInput("autojoin", ["add", input.Arguments[0]], $"add {input.Arguments[0]}");
-        }
-
-        var operation = input.Arguments[0].ToLowerInvariant();
         switch (operation)
         {
             case "list":
@@ -1994,14 +1984,14 @@ internal sealed partial class ClientApplication
                 await RunAutojoinAsync(session, profile, cancellationToken);
                 return CommandResult.Success();
             case "clear":
-                if (input.Arguments.Count != 2 || !input.Arguments[1].Equals("--force", StringComparison.OrdinalIgnoreCase))
+                if (input.Arguments.Count != 1)
                 {
-                    return CommandResult.Failure("Usage: /autojoin clear --force");
+                    return CommandResult.Failure("Usage: /autojoin clear");
                 }
 
                 return SaveAutojoin(profile, [], $"Cleared autojoin for {profile.DisplayName}.");
             default:
-                return CommandResult.Failure("Usage: /autojoin list|add|remove|run|clear");
+                return CommandResult.Failure(usage);
         }
     }
 
