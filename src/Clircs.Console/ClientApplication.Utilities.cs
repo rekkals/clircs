@@ -17,24 +17,30 @@ internal sealed partial class ClientApplication
             ? "disabled"
             : $"{(paused ? "paused" : "enabled")} ({target})";
 
-    private CommandResult SessionStatus(IrcNetworkSession session)
+    private static string ServerTlsStatus(IrcNetworkSession session)
     {
-        var profile = ProfileFor(session);
         var upstreamTls = session.State.BouncerName is null
             ? session.State.ClientTransportTls
             : session.State.UpstreamTls;
+
+        return upstreamTls switch
+        {
+            true => "enabled",
+            false => "disabled",
+            null => "not confirmed"
+        };
+    }
+
+    private CommandResult SessionStatus(IrcNetworkSession session)
+    {
+        var profile = ProfileFor(session);
         var fields = new List<PresentationField>
         {
             new("Network", session.Features.NetworkName ?? session.State.DisplayName),
             new("Connection", ConnectionStatusLabel(session)),
             new("Nickname", session.CurrentNickname),
             new("Server", session.State.ServerName ?? session.Options.Endpoint.Host),
-            new("Server TLS", upstreamTls switch
-            {
-                true => "enabled",
-                false => "disabled",
-                null => "not confirmed"
-            })
+            new("Server TLS", ServerTlsStatus(session))
         };
 
         if (session.State.BouncerName is null)

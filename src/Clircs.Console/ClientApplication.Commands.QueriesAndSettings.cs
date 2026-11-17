@@ -700,8 +700,25 @@ internal sealed partial class ClientApplication
 
     private ValueTask<CommandResult> TlsAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
-        if (input.Arguments.Count == 0 ||
-            input.Arguments.Count == 1 && input.Arguments[0].Equals("pins", StringComparison.OrdinalIgnoreCase))
+        if (input.Arguments.Count == 0)
+        {
+            var session = ActiveSession();
+            if (session is null || session.ConnectionState != IrcConnectionState.Online)
+            {
+                return ValueTask.FromResult(CommandResult.Failure("Not connected."));
+            }
+
+            var status = $"Server TLS: {ServerTlsStatus(session)}";
+            if (session.State.BouncerName is not null)
+            {
+                var bouncerTls = session.State.ClientTransportTls ? "enabled" : "disabled";
+                status += $" | Bouncer TLS: {bouncerTls}";
+            }
+
+            return ValueTask.FromResult(CommandResult.Success(status));
+        }
+
+        if (input.Arguments.Count == 1 && input.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
         {
             var pins = _tlsCertificatePolicy.Pins;
             if (pins.Count == 0)
@@ -749,7 +766,7 @@ internal sealed partial class ClientApplication
             }
         }
 
-        return ValueTask.FromResult(CommandResult.Failure("Usage: /tls pins or /tls forget <host> <port>"));
+        return ValueTask.FromResult(CommandResult.Failure("Usage: /tls [list|forget <host> <port>]"));
     }
 
     private async ValueTask<CommandResult> ScriptAsync(

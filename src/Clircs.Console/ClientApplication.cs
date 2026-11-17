@@ -149,7 +149,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["dcc"] = "/dcc [chat|schat|send|ssend|list|show|accept|resume|reject|cancel]",
             ["set"] = "/set [setting value]",
             ["theme"] = "/theme [load <name>|reload|list]",
-            ["tls"] = "/tls [pins|forget <host> <port>]",
+            ["tls"] = "/tls [list|forget <host> <port>]",
             ["script"] = "/script <list|load|unload|reload|errors|permissions> [arguments]"
         };
     private readonly long _startedTimestamp = Stopwatch.GetTimestamp();

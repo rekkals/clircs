@@ -144,7 +144,7 @@ internal sealed partial class ClientApplication
         Register("limitserv", [], "Send a command to LimitServ.", ServiceAsync);
         Register("set", [], "Inspect or change client settings.", SetAsync);
         Register("theme", [], "Show, list, load, or reload themes.", ThemeAsync);
-        Register("tls", [], "List or revoke remembered TLS certificate pins.", TlsAsync);
+        Register("tls", [], "Show connection TLS status or manage saved certificate pins.", TlsAsync);
         Register("script", [], "Manage third party scripts.", ScriptAsync);
         Register("debug", [], "Open raw IRC traffic for the active network.", DebugAsync);
     }

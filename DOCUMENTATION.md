@@ -63,6 +63,8 @@ The `--new` option creates another network session instead of replacing the curr
 
 TLS certificates are validated normally. A self-signed or otherwise untrusted certificate is shown to the user and may be accepted once or pinned for later. They are not accepted all willy nilly.
 
+Use `/tls` to check the current connection, `/tls list` to list saved certificate pins, or `/tls forget <host> <port>` to remove a pin.
+
 Automatic reconnect (after unintentional disconnection) can be enabled via the `reconnect.network` setting, including after KILL by turning `reconnect.kill` on. Existing channel and query windows stay open unless you `/part`.
 
 Use `/set reconnect.limit <number>` to set the (global) maximum number of reconnect attempts. Older per-profile `reconnect_max_attempts` values no longer apply.
