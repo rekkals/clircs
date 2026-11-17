@@ -583,7 +583,12 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
+        if (input.Arguments.Count == 0)
+        {
+            return CommandResult.Failure(DccUsage());
+        }
+
+        var operation = input.Arguments[0].ToLowerInvariant();
         if (operation is "chat" or "schat")
         {
             if (input.Arguments.Count < 2)
@@ -810,7 +815,7 @@ internal sealed partial class ClientApplication
     }
 
     private static string DccUsage() =>
-        "Usage: /dcc [chat|schat|send|ssend|list|show|accept|resume|reject|cancel]";
+        "Usage: /dcc <chat|schat|send|ssend|list|show|accept|reject|resume|cancel>";
 
     private static string DccStateText(DccRequestState state) =>
         state == DccRequestState.Cancelled ? "canceled" : state.ToString().ToLowerInvariant();

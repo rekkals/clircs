@@ -176,7 +176,7 @@ internal sealed partial class ClientApplication
         _commands.Register(new CommandDefinition(
             name,
             aliases,
-            name == "dcc" ? string.Empty : usage,
+            usage,
             description,
             handler,
             visibleInHelp: true,
@@ -530,6 +530,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
+                Summary: command.Name == "dcc" ? "Use /help dcc <command> for details." : null,
                 TitleHighlight: $"/{command.Name}")));
         }
 

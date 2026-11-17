@@ -340,7 +340,7 @@ Use `/set` to configure the advertised DCC address, listening ports, and downloa
 
 Passive DCC is supported.
 
-Check `/help dcc` and `/help dcc <type>` for commands and details.
+Use `/help dcc` for commands and `/help dcc <command>` for details.
 
 ## Themes
 

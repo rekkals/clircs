@@ -146,7 +146,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["botserv"] = "/botserv <command> [arguments]",
             ["oper"] = "/oper <name>",
             ["limitserv"] = "/limitserv <command> [arguments]",
-            ["dcc"] = "/dcc [chat|schat|send|ssend|list|show|accept|resume|reject|cancel]",
+            ["dcc"] = "/dcc <command> [arguments]",
             ["set"] = "/set [setting value]",
             ["theme"] = "/theme [load <name>|reload|list]",
             ["tls"] = "/tls [list|forget <host> <port>]",
