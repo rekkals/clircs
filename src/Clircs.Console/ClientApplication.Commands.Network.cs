@@ -151,7 +151,7 @@ internal sealed partial class ClientApplication
     {
         var sessions = SessionsSnapshot();
         var profiles = _profileStore.Entries;
-        var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
+        var operation = input.Arguments.Count == 0 ? "status" : input.Arguments[0].ToLowerInvariant();
         switch (operation)
         {
             case "list":
@@ -203,7 +203,7 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure("Usage: /network status [name|number]"));
                 }
 
-                if (input.Arguments.Count == 1)
+                if (input.Arguments.Count <= 1)
                 {
                     var activeStatusSession = ActiveSession();
                     return ValueTask.FromResult(activeStatusSession is null
@@ -223,7 +223,7 @@ internal sealed partial class ClientApplication
                         $"{(index + 1).ToString(CultureInfo.InvariantCulture)} ({sessions[index].State.DisplayName})"));
                     return ValueTask.FromResult(CommandResult.Failure(
                         $"More than one connection matches '{statusSelector}': {choices}. " +
-                        "Use /network status <number> with a connection number from /network."));
+                        "Use /network status <number> with a connection number from /network list."));
                 }
 
                 if (statusMatches.Length == 1)

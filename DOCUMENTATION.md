@@ -73,13 +73,13 @@ Use `/set reconnect.limit <number>` to set the (global) maximum number of reconn
 
 Profiles store network-specific settings, including server endpoints, TLS, SASL, username overrides, user modes, and autojoin.
 
-Use `/network` to list connections and their connection numbers. Inspect connection details with:
+Use `/network list` to show connections and their numbers. Use `/network` (or `/net`) to show current connection status. You can also use:
 
 ```
 /network status [name|number]
 ```
 
-With no argument, this shows the active connection. Names can match an advertised network name, a profile name, or a connection name. If a name matches multiple connections, use a connection number from `/network`.
+Names can match an advertised network name, a profile name, or a connection name. If a name matches multiple connections, use a connection number from `/network list`.
 
 Network Status shows connection details first, followed by Profile Settings when a profile is attached. A saved profile with no matching connection can also be inspected by name.
 

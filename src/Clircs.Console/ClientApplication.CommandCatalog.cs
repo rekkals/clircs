@@ -17,7 +17,7 @@ internal sealed partial class ClientApplication
         Register("backup", [], "Create or restore user-data backups.", BackupAsync);
         Register("logging", ["log"], "Start, stop, and manage channel and query logs.", LoggingAsync);
         Register("server", ["connect"], "Connect to an IRC server or saved network profile.", ServerAsync);
-        Register("network", [], "List live connections or manage saved network profiles.", NetworkAsync);
+        Register("network", ["net"], "Show network status, list connections, or manage saved network profiles.", NetworkAsync);
         Register("disconnect", [], "Disconnect, but leave clircs running.", DisconnectAsync);
         Register("reconnect", [], "Reconnect the active offline session, cancel an automatic retry, or tolerate improperly tagged CAP messages once.", ReconnectAsync);
         Register("quit", ["exit"], "Disconnect and exit clircs.", QuitAsync);
