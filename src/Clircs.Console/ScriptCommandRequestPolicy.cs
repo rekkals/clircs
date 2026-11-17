@@ -18,7 +18,6 @@ internal static class ScriptCommandRequestPolicy
         "ame",
         "amsg",
         "ctcp",
-        "ping",
         "sv",
         "time",
 

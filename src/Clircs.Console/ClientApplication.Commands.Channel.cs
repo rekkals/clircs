@@ -10,11 +10,6 @@ namespace Clircs.ConsoleClient;
 // Owns joins, modes, topics, bans, and other channel commands.
 internal sealed partial class ClientApplication
 {
-    private ValueTask<CommandResult> PingAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
-        input.Arguments.Count == 1
-            ? CtcpAsync(context, new CommandInput("ctcp", [input.Arguments[0], "PING", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()], string.Empty), cancellationToken)
-            : ValueTask.FromResult(CommandResult.Failure("Usage: /ping <nick>"));
-
     private async ValueTask<CommandResult> ShowVersionAsync(
         CommandContext context,
         CommandInput input,
@@ -44,7 +39,7 @@ internal sealed partial class ClientApplication
     private ValueTask<CommandResult> TimeAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
         input.Arguments.Count == 0
             ? ValueTask.FromResult(CommandResult.Success(DateTimeOffset.Now.ToString("F")))
-            : CtcpAsync(context, new CommandInput("ctcp", [input.Arguments[0], "TIME"], string.Empty), cancellationToken);
+            : ValueTask.FromResult(CommandResult.Failure("Usage: /time"));
 
     private async ValueTask<CommandResult> UptimeAsync(
         CommandContext context,

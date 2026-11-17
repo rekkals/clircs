@@ -47,9 +47,8 @@ internal sealed partial class ClientApplication
         Register("ctcp", [], "Send a CTCP request to a nickname.", CtcpAsync);
         Register("dcc", [], "Start and manage DCC chats, file transfers, and requests.", DccAsync);
         Register("xdcc", [], "List and request file packs from XDCC bots.", XdccAsync);
-        Register("ping", [], "Send a CTCP PING request.", PingAsync);
         Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
-        Register("time", [], "Show local time or query a [nickname].", TimeAsync);
+        Register("time", ["date"], "Show the local date and time.", TimeAsync);
         Register("uptime", [], "Show clircs runtime locally, or say it in the active conversation.", UptimeAsync);
         Register("raw", ["quote"], "Send an IRC command directly to the server.", RawAsync, argumentMode: CommandArgumentMode.Text);
         Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
