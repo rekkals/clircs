@@ -247,12 +247,6 @@ internal sealed partial class ClientApplication
             new("Remove", "/unignore <nickname|nick!user@host>"),
             new("Matching", "Removes one exact stored entry; wildcards are not expanded.")
         ],
-        "users" =>
-        [
-            new("Export", "/users export <path> [--force]"),
-            new("Import", "/users import <path> [--force]"),
-            new("Import preview", "Omit --force to inspect the import before replacing the saved directory.")
-        ],
         "dcc" =>
         [
             new("Chat", "/dcc chat <nick> [--passive]"),

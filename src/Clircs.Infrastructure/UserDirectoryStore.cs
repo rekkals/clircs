@@ -27,20 +27,9 @@ public sealed class UserDirectoryStore
     public NetworkUserDirectory Load(NetworkProfileId profileId)
     {
         var path = PathFor(profileId);
-        return LoadFrom(profileId, path);
-    }
-
-    public NetworkUserDirectory LoadFrom(NetworkProfileId profileId, string sourcePath)
-    {
-        var path = Path.GetFullPath(sourcePath);
         if (!File.Exists(path))
         {
-            if (path.Equals(PathFor(profileId), StringComparison.OrdinalIgnoreCase))
-            {
-                return new NetworkUserDirectory(profileId);
-            }
-
-            throw new FileNotFoundException("User-directory import file was not found.", path);
+            return new NetworkUserDirectory(profileId);
         }
 
         try
@@ -112,19 +101,6 @@ public sealed class UserDirectoryStore
             IgnoreEntries = directory.IgnoreEntries.ToArray()
         };
         _files.WriteText(path, JsonSerializer.Serialize(envelope, _jsonOptions));
-    }
-
-    public void Export(NetworkUserDirectory directory, string destinationPath, bool overwrite = false)
-    {
-        Save(directory);
-        var destination = Path.GetFullPath(destinationPath);
-        var parent = Path.GetDirectoryName(destination);
-        if (string.IsNullOrWhiteSpace(parent) || !Directory.Exists(parent))
-        {
-            throw new DirectoryNotFoundException("The export destination directory does not exist.");
-        }
-
-        File.Copy(PathFor(directory.NetworkProfileId), destination, overwrite);
     }
 
     public string PathFor(NetworkProfileId profileId) => Path.Combine(_directory, $"{profileId}.json");

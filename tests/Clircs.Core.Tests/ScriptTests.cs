@@ -876,7 +876,7 @@ internal static class ScriptTests
         [
             "/dcc send Nick secret.txt",
             "/xdcc get Bot 1",
-            "/users export stolen.json",
+            "/users",
             "/backup create",
             "/backup restore snapshot.zip",
             "/server hostile.example",

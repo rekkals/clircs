@@ -261,58 +261,14 @@ internal sealed partial class ClientApplication
 
     private ValueTask<CommandResult> UsersAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
+        if (input.Arguments.Count != 0)
+        {
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /users"));
+        }
+
         if (!TryGetUserDirectory(out var session, out var directory, out var failure))
         {
             return ValueTask.FromResult(failure);
-        }
-
-        try
-        {
-            if (input.Arguments.Count is 2 or 3 &&
-                input.Arguments[0].Equals("export", StringComparison.OrdinalIgnoreCase))
-            {
-                var overwrite = input.Arguments.Count == 3 && input.Arguments[2].Equals("--force", StringComparison.OrdinalIgnoreCase);
-                if (input.Arguments.Count == 3 && !overwrite)
-                {
-                    return ValueTask.FromResult(CommandResult.Failure("Usage: /users export <path> [--force]"));
-                }
-
-                _userDirectoryStore.Export(directory!, input.Arguments[1], overwrite);
-                return ValueTask.FromResult(CommandResult.Success($"Exported the active network user directory to {Path.GetFullPath(input.Arguments[1])}."));
-            }
-
-            if (input.Arguments.Count is 2 or 3 &&
-                input.Arguments[0].Equals("import", StringComparison.OrdinalIgnoreCase))
-            {
-                var imported = _userDirectoryStore.LoadFrom(ProfileFor(session!)!.Id, input.Arguments[1]);
-                if (input.Arguments.Count == 2)
-                {
-                    return ValueTask.FromResult(CommandResult.Success(
-                        $"Import preview: {imported.Users.Count} user(s), {imported.PolicyBans.Count} policy ban(s), " +
-                        $"{imported.IgnoreEntries.Count} ignore entry(s). " +
-                        "Re-run with --force to replace the active network directory."));
-                }
-
-                if (!input.Arguments[2].Equals("--force", StringComparison.OrdinalIgnoreCase))
-                {
-                    return ValueTask.FromResult(CommandResult.Failure("Usage: /users import <path> [--force]"));
-                }
-
-                _userDirectoryStore.Save(imported);
-                _userAndChannelPolicy.ReplaceDirectory(imported);
-                return ValueTask.FromResult(CommandResult.Success(
-                    $"Imported {imported.Users.Count} user(s), {imported.PolicyBans.Count} policy ban(s), " +
-                    $"and {imported.IgnoreEntries.Count} ignore entry(s). The previous file was backed up."));
-            }
-        }
-        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or InvalidOperationException or IOException or UnauthorizedAccessException)
-        {
-            return ValueTask.FromResult(CommandResult.Failure(exception.Message));
-        }
-
-        if (input.Arguments.Count != 0)
-        {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /users | /users export <path> [--force] | /users import <path> [--force]"));
         }
 
         var users = directory!.Users;
