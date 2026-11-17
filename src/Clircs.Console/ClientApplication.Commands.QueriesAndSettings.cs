@@ -619,15 +619,15 @@ internal sealed partial class ClientApplication
     {
         if (input.Arguments.Count == 0)
         {
-            return ValueTask.FromResult(CommandResult.Success(ThemeOverview(
-                _presenter.Theme.Name,
-                _themeManager.Themes.Select(theme => theme.Name))));
+            return ValueTask.FromResult(CommandResult.Success(
+                $"Current theme: {_presenter.Theme.Name}"));
         }
 
         if (input.Arguments.Count == 1 && input.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
         {
-            return ValueTask.FromResult(CommandResult.Success(
-                $"Themes: {string.Join(", ", _themeManager.Themes.Select(theme => theme.Name + (theme.Name.Equals(_presenter.Theme.Name, StringComparison.OrdinalIgnoreCase) ? "*" : string.Empty)))}"));
+            return ValueTask.FromResult(CommandResult.Success(ThemeOverview(
+                _presenter.Theme.Name,
+                _themeManager.Themes.Select(theme => theme.Name))));
         }
 
         if (input.Arguments.Count == 1 && input.Arguments[0].Equals("reload", StringComparison.OrdinalIgnoreCase))
@@ -662,7 +662,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count == 2 && input.Arguments[0].Equals("load", StringComparison.OrdinalIgnoreCase))
         {
-            var requested = input.Arguments[1].Equals("color", StringComparison.OrdinalIgnoreCase) ? "clircs" : input.Arguments[1];
+            var requested = input.Arguments[1];
             if (_themeManager.TryGet(requested, out var theme))
             {
                 _presenter.SetTheme(theme!);
@@ -695,7 +695,7 @@ internal sealed partial class ClientApplication
                 new PresentationField("Current", current),
                 new PresentationField("Available", available.Length == 0 ? "none" : string.Join(", ", available))
             ],
-            Summary: "Use: /theme load <name> | /theme reload | /theme list");
+            Summary: "Use: /theme load <name> | /theme reload");
     }
 
     private ValueTask<CommandResult> TlsAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)

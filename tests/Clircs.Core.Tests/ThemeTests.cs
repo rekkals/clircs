@@ -69,7 +69,7 @@ internal static class ThemeTests
         suite.Add("window close behavior follows the active buffer kind", WindowCloseBehaviorFollowsBufferKind);
         suite.Add("window close selects the nearest lower numbered buffer", WindowCloseSelectsPreviousNumber);
         suite.Add("status windows use a distinct not-applicable target marker", StatusWindowsUseDistinctTargetMarker);
-        suite.Add("bare theme output is concise and excludes the current theme", ThemeOverviewIsConcise);
+        suite.Add("theme list separates the current theme from available themes", ThemeOverviewIsConcise);
         suite.Add("long input stays on one row and scrolls horizontally", LongInputScrollsHorizontally);
         suite.Add("input formatting shortcuts insert IRC control codes", InputFormattingShortcutsInsertControlCodes);
         suite.Add("WHO address columns expand when the viewport grows", WhoAddressesExpandWithViewport);
@@ -2508,7 +2508,7 @@ internal static class ThemeTests
         Assert.Equal(
             "amber, green, white",
             fields.Single(field => field.Label == "Available").Value);
-        Assert.Equal("Use: /theme load <name> | /theme reload | /theme list", overview.Summary!);
+        Assert.Equal("Use: /theme load <name> | /theme reload", overview.Summary!);
         Assert.False(fields.Any(field => field.Label.Contains("color", StringComparison.OrdinalIgnoreCase)));
     }
 

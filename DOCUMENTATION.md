@@ -342,7 +342,7 @@ Check `/help dcc` and `/help dcc <type>` for commands and details.
 
 ## Themes
 
-Use `/theme` to show the current and available themes. Use `/theme list`, `/theme load <name>`, or `/theme reload` to manage them.
+Use `/theme` to show the active theme and `/theme list` to list available themes. Use `/theme load <name>` to select a theme or `/theme reload` to, obviously, reload the current theme.
 
 Theme files control colors and presentation choices including window-name and nick-prefix display.
 
