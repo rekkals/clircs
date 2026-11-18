@@ -1333,34 +1333,6 @@ internal sealed partial class ClientApplication
         return CommandResult.Success();
     }
 
-    private ValueTask<CommandResult> AwayLogAsync(
-        CommandContext context,
-        CommandInput input,
-        CancellationToken cancellationToken)
-    {
-        if (input.Arguments.Count == 0 ||
-            input.Arguments[0].Equals("status", StringComparison.OrdinalIgnoreCase))
-        {
-            return ValueTask.FromResult(CommandResult.Success(
-                $"Away-message recording is {(_preferences.AwayLogging ? "on" : "off")}."));
-        }
-        if (input.Arguments.Count != 1 || !TryParseOnOff(input.Arguments[0], out var enabled))
-        {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /awaylog on|off|status"));
-        }
-        try
-        {
-            _preferences.AwayLogging = enabled;
-            SaveAppearanceSettings();
-            return ValueTask.FromResult(CommandResult.Success(
-                $"Away-message recording turned {(enabled ? "on" : "off")}."));
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return ValueTask.FromResult(CommandResult.Failure(exception.Message));
-        }
-    }
-
     private ValueTask<CommandResult> AwayMessagesAsync(
         CommandContext context,
         CommandInput input,

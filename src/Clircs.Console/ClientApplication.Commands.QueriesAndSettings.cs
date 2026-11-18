@@ -228,6 +228,7 @@ internal sealed partial class ClientApplication
                 new("kickrejoin", _preferences.AutoRejoinOnKick ? "on" : "off"),
                 new("datechange", _preferences.DateChange ? "on" : "off"),
                 new("highlight", _preferences.HighlightNickname ? "on" : "off"),
+                new("awaylog", _preferences.AwayLogging ? "on" : "off"),
                 new("startup", _preferences.Startup ? "on" : "off"),
                 new("floodcontrol", _preferences.FloodControl ? "on" : "off"),
 
@@ -350,6 +351,14 @@ internal sealed partial class ClientApplication
                     return ValueTask.FromResult(CommandResult.Failure("highlight must be on or off."));
                 }
                 _preferences.HighlightNickname = highlightNickname;
+                break;
+            case "awaylog":
+                if (!TryParseOnOff(value, out var awayLogging))
+                {
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "awaylog must be on or off."));
+                }
+                _preferences.AwayLogging = awayLogging;
                 break;
             case "status.lagmeter":
             case "status.tls":

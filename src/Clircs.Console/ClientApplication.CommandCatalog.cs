@@ -24,7 +24,6 @@ internal sealed partial class ClientApplication
         Register("nick", [], "Change your nickname, or set it before connecting.", NickAsync);
         Register("away", [], "Set yourself as away.", AwayAsync);
         Register("back", [], "Set yourself as back.", BackAsync);
-        Register("awaylog", ["msglog"], "Enables or disables logging messages while away.", AwayLogAsync);
         Register("messages", [], "Read or remove messages logged while away.", AwayMessagesAsync);
         Register("window", ["win"], "List windows or switch to window [number|name].", BufferAsync);
         Register("next", ["wn"], "Switch to the next window.", NextBufferAsync);
@@ -274,7 +273,7 @@ internal sealed partial class ClientApplication
         [
             new("Identity", "nickname, altnick, username, realname"),
             new("Messages", "awaymsg, kickmsg, quitmsg"),
-            new("Behavior", "banmask, showhosts, clonedetect, datechange, highlight, joininfo, kickrejoin, startup"),
+            new("Behavior", "banmask, showhosts, clonedetect, datechange, highlight, awaylog, joininfo, kickrejoin, startup"),
             new("On join", "onjoin.users, onjoin.topic, onjoin.created, onjoin.modes, onjoin.sync"),
             new("Status bar", "status.lagmeter, status.tls, status.bouncer, status.chanmodes, status.usermodes, status.totals"),
             new("Network", "usermodes, reconnect.network, reconnect.kill, reconnect.limit, floodcontrol"),
@@ -383,6 +382,7 @@ internal sealed partial class ClientApplication
             "datechange" => ("[on|off]", "on", "Shows date changes in window output.", "/set datechange off"),
             "startup" => ("[on|off]", "on", "Shows the startup presentation at launch and on new connections.", "/set startup off"),
             "highlight" => ("[on|off]", "on", "Highlights mentions of your nickname and mirrors them into the active window.", "/set highlight on"),
+            "awaylog" => ("[on|off]", "off", "Records incoming private messages and actions while you are away.", string.Empty),
             "status.lagmeter" => ("[on|off]", "on", "Shows connection response time; off stops its extra probes.", "/set status.lagmeter off"),
             "status.tls" => ("[on|off]", "on", "Shows TLS indicators for server and bouncer connections.", "/set status.tls off"),
             "status.bouncer" => ("[on|off]", "on", "Shows bouncer identification beside the server name.", "/set status.bouncer off"),
@@ -466,6 +466,7 @@ internal sealed partial class ClientApplication
         "datechange" => _preferences.DateChange ? "on" : "off",
         "startup" => _preferences.Startup ? "on" : "off",
         "highlight" => _preferences.HighlightNickname ? "on" : "off",
+        "awaylog" => _preferences.AwayLogging ? "on" : "off",
         "status.lagmeter" => _preferences.LagMeter ? "on" : "off",
         "status.tls" => _preferences.StatusTls ? "on" : "off",
         "status.bouncer" => _preferences.StatusBouncer ? "on" : "off",
