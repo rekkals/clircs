@@ -345,11 +345,6 @@ internal sealed partial class ClientApplication
         return false;
     }
 
-    private static string? ParseOptionalDefault(string value) =>
-        value.Equals("none", StringComparison.OrdinalIgnoreCase) || value.Equals("random", StringComparison.OrdinalIgnoreCase)
-            ? null
-            : TerminalTextSanitizer.Sanitize(value).Trim();
-
     private static bool IsValidDccAddressSetting(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 253 ||
@@ -423,8 +418,6 @@ internal sealed partial class ClientApplication
         return ResolveMessage(supplied, configured);
     }
 
-    private string ResolveTopicMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultTopicMessage);
-
     private string ResolveMessage(string? supplied, string? configured) =>
         !string.IsNullOrWhiteSpace(supplied) ? TerminalTextSanitizer.Sanitize(supplied).Trim() :
         !string.IsNullOrWhiteSpace(configured) ? configured : _quotes.Next();
@@ -439,7 +432,6 @@ internal sealed partial class ClientApplication
         _preferences.AutoRejoinOnKick,
         _preferences.DefaultKickMessage,
         _preferences.DefaultQuitMessage,
-        _preferences.DefaultTopicMessage,
         _preferences.AnnounceUserInfoOnJoin,
         _preferences.HighlightNickname,
         BanmaskFormatter.Name(_preferences.BanmaskStyle),
@@ -493,7 +485,6 @@ internal sealed partial class ClientApplication
         _preferences.AutoRejoinOnKick = settings.AutoRejoinOnKick;
         _preferences.DefaultKickMessage = settings.DefaultKickMessage;
         _preferences.DefaultQuitMessage = settings.DefaultQuitMessage;
-        _preferences.DefaultTopicMessage = settings.DefaultTopicMessage;
         _preferences.AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin;
         _preferences.OnJoinUsers = settings.OnJoinUsers;
         _preferences.OnJoinTopic = settings.OnJoinTopic;

@@ -12,7 +12,6 @@ internal sealed record AppearanceSettings(
     bool AutoRejoinOnKick = false,
     string? DefaultKickMessage = null,
     string? DefaultQuitMessage = null,
-    string? DefaultTopicMessage = null,
     bool AnnounceUserInfoOnJoin = false,
     bool HighlightNickname = true,
     string DefaultBanmask = "host",
@@ -90,7 +89,6 @@ internal sealed class AppearanceSettingsStore
                 stored.AutoRejoinOnKick,
                 EmptyToNull(stored.DefaultKickMessage),
                 EmptyToNull(stored.DefaultQuitMessage),
-                EmptyToNull(stored.DefaultTopicMessage),
                 stored.AnnounceUserInfoOnJoin,
                 stored.HighlightNickname,
                 string.IsNullOrWhiteSpace(stored.DefaultBanmask) ? "host" : stored.DefaultBanmask,
@@ -147,7 +145,6 @@ internal sealed class AppearanceSettingsStore
             AutoRejoinOnKick = settings.AutoRejoinOnKick,
             DefaultKickMessage = settings.DefaultKickMessage,
             DefaultQuitMessage = settings.DefaultQuitMessage,
-            DefaultTopicMessage = settings.DefaultTopicMessage,
             AnnounceUserInfoOnJoin = settings.AnnounceUserInfoOnJoin,
             OnJoinUsers = settings.OnJoinUsers,
             OnJoinTopic = settings.OnJoinTopic,
@@ -230,7 +227,6 @@ internal sealed class AppearanceSettingsStore
         public bool AutoRejoinOnKick { get; set; }
         public string? DefaultKickMessage { get; set; }
         public string? DefaultQuitMessage { get; set; }
-        public string? DefaultTopicMessage { get; set; }
         public bool AnnounceUserInfoOnJoin { get; set; }
         public bool OnJoinUsers { get; set; } = true;
         public bool OnJoinTopic { get; set; } = true;

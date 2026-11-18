@@ -57,7 +57,7 @@ internal sealed partial class ClientApplication
         Register("cycle", [], "Part and rejoin a channel.", CycleAsync);
         Register("invite", ["i"], "Invite a nickname to a channel; defaults to the active channel.", InviteAsync);
         Register("topic", ["t"], "Show or set a channel topic.", TopicAsync);
-        Register("rt", [], "Set a configured default topic or a random quote.", RandomTopicAsync);
+        Register("rt", [], "Set the topic to a random quote from quotes.txt.", RandomTopicAsync);
         Register("mode", [], "Show or change modes.", ModeAsync);
         Register("op", [], "Grant channel operator status.", OpAsync);
         Register("deop", ["dop"], "Remove channel operator status.", DeopAsync);
@@ -271,7 +271,7 @@ internal sealed partial class ClientApplication
         "set" =>
         [
             new("Identity", "nickname, altnick, username, realname"),
-            new("Messages", "awaymsg, kickmsg, quitmsg, topicmsg"),
+            new("Messages", "awaymsg, kickmsg, quitmsg"),
             new("Behavior", "banmask, showhosts, clonedetect, datechange, highlight, joininfo, kickrejoin, startup"),
             new("On join", "onjoin.users, onjoin.topic, onjoin.created, onjoin.modes, onjoin.sync"),
             new("Status bar", "status.lagmeter, status.tls, status.bouncer, status.chanmodes, status.usermodes, status.totals"),
@@ -376,7 +376,6 @@ internal sealed partial class ClientApplication
             "awaymsg" => ("[message|random|default]", "default", "Away message. default uses 'default settings enthusiast'. random selects a quote.", "/set awaymsg doing IRL stuff"),
             "kickmsg" => ("[message|random|default]", "default", "Kick reason. default uses the kicked nickname. random selects a quote.", "/set kickmsg lewser"),
             "quitmsg" => ("[message|random|default]", "default", "Quit reason. default uses the clircs version and description. random selects a quote.", "/set quitmsg default"),
-            "topicmsg" => ("<message|random>", "random", "Default topic used by /rt; random selects a quote.", "/set topicmsg random"),
             "banmask" => ("[host|userhost|nick-userhost|wildcard-host]", "host", "Mask style used when a nickname must be converted into a ban.", "/set banmask host"),
             "clonedetect" => ("[on|off]", "on", "Detects channel users sharing one visible host; it never takes protection action.", "/set clonedetect on"),
             "datechange" => ("[on|off]", "on", "Shows date changes in window output.", "/set datechange off"),
@@ -460,7 +459,6 @@ internal sealed partial class ClientApplication
         "awaymsg" => _preferences.AwayMessage,
         "kickmsg" => _preferences.DefaultKickMessage ?? "random",
         "quitmsg" => _preferences.DefaultQuitMessage ?? "default",
-        "topicmsg" => _preferences.DefaultTopicMessage ?? "random",
         "banmask" => BanmaskFormatter.Name(_preferences.BanmaskStyle),
         "clonedetect" => _preferences.CloneDetection ? "on" : "off",
         "datechange" => _preferences.DateChange ? "on" : "off",

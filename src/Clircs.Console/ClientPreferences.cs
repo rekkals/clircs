@@ -29,7 +29,6 @@ internal sealed class ClientPreferences
     public bool OnJoinModes { get; set; }
     public string? DefaultKickMessage { get; set; }
     public string? DefaultQuitMessage { get; set; }
-    public string? DefaultTopicMessage { get; set; }
     public bool HighlightNickname { get; set; } = true;
     public bool LagMeter { get; set; } = true;
     public bool StatusTls { get; set; } = true;

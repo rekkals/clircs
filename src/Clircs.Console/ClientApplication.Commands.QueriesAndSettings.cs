@@ -220,7 +220,6 @@ internal sealed partial class ClientApplication
                 new("awaymsg", _preferences.AwayMessage),
                 new("kickmsg", _preferences.DefaultKickMessage ?? "random"),
                 new("quitmsg", _preferences.DefaultQuitMessage ?? "default"),
-                new("topicmsg", _preferences.DefaultTopicMessage ?? "random"),
 
                 new("banmask", BanmaskFormatter.Name(_preferences.BanmaskStyle)),
                 new("showhosts", _preferences.ShowHosts ? "on" : "off"),
@@ -267,7 +266,7 @@ internal sealed partial class ClientApplication
         var setting = requestedSetting.ToLowerInvariant();
         if (input.Arguments.Count == 1)
         {
-            if (setting != "topicmsg" && CurrentSettingValue(setting) is { } currentValue)
+            if (CurrentSettingValue(setting) is { } currentValue)
             {
                 return ValueTask.FromResult(CommandResult.Success(
                     $"{setting} is {currentValue}."));
@@ -335,11 +334,6 @@ internal sealed partial class ClientApplication
                 {
                     _preferences.DefaultQuitMessage = value;
                 }
-                break;
-            case "topicmsg":
-                var topicDefault = ParseOptionalDefault(value);
-                if (topicDefault?.Length > 300) return ValueTask.FromResult(CommandResult.Failure("A default message cannot exceed 300 characters."));
-                _preferences.DefaultTopicMessage = topicDefault;
                 break;
             case "banmask":
                 if (!BanmaskFormatter.TryParse(value, out var requestedBanmask))

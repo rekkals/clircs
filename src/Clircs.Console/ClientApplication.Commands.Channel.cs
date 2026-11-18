@@ -273,7 +273,7 @@ internal sealed partial class ClientApplication
         {
             return CommandResult.Failure("Usage: /rt [channel]");
         }
-        await session.SendAsync("TOPIC", [channel, ResolveTopicMessage(null)], cancellationToken: cancellationToken);
+        await session.SendAsync("TOPIC", [channel, _quotes.Next()], cancellationToken: cancellationToken);
         return CommandResult.Success();
     }
 
