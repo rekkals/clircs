@@ -267,8 +267,7 @@ internal sealed partial class ClientApplication
         var setting = requestedSetting.ToLowerInvariant();
         if (input.Arguments.Count == 1)
         {
-            if (setting is not ("awaymsg" or "kickmsg" or "quitmsg" or "topicmsg") &&
-                CurrentSettingValue(setting) is { } currentValue)
+            if (setting != "topicmsg" && CurrentSettingValue(setting) is { } currentValue)
             {
                 return ValueTask.FromResult(CommandResult.Success(
                     $"{setting} is {currentValue}."));
@@ -282,6 +281,15 @@ internal sealed partial class ClientApplication
         var clearingUserModes = setting == "usermodes" &&
             input.Arguments.Count == 2 &&
             input.Arguments[1].Equals("none", StringComparison.OrdinalIgnoreCase);
+        if (setting is "awaymsg" or "kickmsg" or "quitmsg")
+        {
+            value = TerminalTextSanitizer.Sanitize(value).Trim();
+            if (value.Equals("random", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("default", StringComparison.OrdinalIgnoreCase))
+            {
+                value = value.ToLowerInvariant();
+            }
+        }
         var previousSettings = CaptureAppearanceSettings();
         switch (setting)
         {
@@ -312,19 +320,21 @@ internal sealed partial class ClientApplication
                 _preferences.AwayMessage = value;
                 break;
             case "kickmsg":
-                var kickDefault = ParseOptionalDefault(value);
-                if (kickDefault?.Length > 300) return ValueTask.FromResult(CommandResult.Failure("A default message cannot exceed 300 characters."));
-                _preferences.DefaultKickMessage = kickDefault;
-                break;
             case "quitmsg":
-                var quitDefault = TerminalTextSanitizer.Sanitize(value).Trim();
-                if (quitDefault.Length > 300) return ValueTask.FromResult(CommandResult.Failure("A default message cannot exceed 300 characters."));
-                _preferences.DefaultQuitMessage = quitDefault.ToLowerInvariant() switch
+                if (value.Length > 300)
                 {
-                    "" or "default" => null,
-                    "none" or "random" => "random",
-                    _ => quitDefault
-                };
+                    return ValueTask.FromResult(CommandResult.Failure(
+                        "A default message cannot exceed 300 characters."));
+                }
+
+                if (setting == "kickmsg")
+                {
+                    _preferences.DefaultKickMessage = value;
+                }
+                else
+                {
+                    _preferences.DefaultQuitMessage = value;
+                }
                 break;
             case "topicmsg":
                 var topicDefault = ParseOptionalDefault(value);

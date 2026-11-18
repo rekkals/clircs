@@ -407,7 +407,21 @@ internal sealed partial class ClientApplication
         return ResolveMessage(supplied, configured);
     }
 
-    private string ResolveKickMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultKickMessage);
+    private string? ResolveKickMessage(string? supplied)
+    {
+        var configured = _preferences.DefaultKickMessage;
+        if (string.IsNullOrWhiteSpace(supplied) &&
+            string.Equals(configured, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        if (string.Equals(configured, "random", StringComparison.OrdinalIgnoreCase))
+        {
+            configured = null;
+        }
+
+        return ResolveMessage(supplied, configured);
+    }
 
     private string ResolveTopicMessage(string? supplied) => ResolveMessage(supplied, _preferences.DefaultTopicMessage);
 

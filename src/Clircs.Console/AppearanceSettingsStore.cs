@@ -202,7 +202,10 @@ internal sealed class AppearanceSettingsStore
             ["list"] = "window",
             ["dns"] = "active",
             ["callerid"] = "active"
-        });
+        },
+        DefaultKickMessage: "default",
+        DefaultQuitMessage: "default",
+        AwayMessage: "default");
 
     private static bool IsLegacyHostmaskOff(string? value) =>
         string.Equals(value, "off", StringComparison.OrdinalIgnoreCase) ||

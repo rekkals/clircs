@@ -1266,7 +1266,19 @@ internal sealed partial class ClientApplication
             return failure;
         }
 
-        await session.SendAsync("AWAY", [input.RawArguments.Length == 0 ? _preferences.AwayMessage : input.RawArguments], cancellationToken: cancellationToken);
+        var message = input.RawArguments;
+        if (message.Length == 0)
+        {
+            var configured = _preferences.AwayMessage;
+            message = configured.ToLowerInvariant() switch
+            {
+                "default" => "default settings enthusiast",
+                "random" => _quotes.Next(),
+                _ => configured
+            };
+        }
+
+        await session.SendAsync("AWAY", [message], cancellationToken: cancellationToken);
         return CommandResult.Success();
     }
 

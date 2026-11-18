@@ -1021,7 +1021,7 @@ internal sealed partial class ClientApplication
         }
 
         string pattern;
-        string reason;
+        string? reason;
         if (nonOperatorsOnly)
         {
             pattern = "*";
@@ -1075,7 +1075,7 @@ internal sealed partial class ClientApplication
 
         foreach (var target in targets)
         {
-            await session.SendAsync("KICK", [channel.Name, target, reason], IrcOutboundPriority.Bulk, cancellationToken);
+            await session.SendAsync("KICK", [channel.Name, target, reason ?? target], IrcOutboundPriority.Bulk, cancellationToken);
         }
 
         return CommandResult.Success(
@@ -1168,7 +1168,7 @@ internal sealed partial class ClientApplication
 
             if (kick)
             {
-                await session.SendAsync("KICK", [channel.Name, member!.Nickname, reason], IrcOutboundPriority.Bulk, cancellationToken);
+                await session.SendAsync("KICK", [channel.Name, member!.Nickname, reason ?? member!.Nickname], IrcOutboundPriority.Bulk, cancellationToken);
             }
             changed++;
         }

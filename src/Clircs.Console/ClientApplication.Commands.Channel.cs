@@ -363,7 +363,7 @@ internal sealed partial class ClientApplication
         }
 
         var reason = ResolveKickMessage(TrySplitFirst(input.RawArguments, out _, out var suppliedReason) ? suppliedReason : null);
-        await session!.SendAsync("KICK", [channel!.Name, input.Arguments[0], reason], cancellationToken: cancellationToken);
+        await session!.SendAsync("KICK", [channel!.Name, input.Arguments[0], reason ?? input.Arguments[0]], cancellationToken: cancellationToken);
         return CommandResult.Success();
     }
 
@@ -387,7 +387,7 @@ internal sealed partial class ClientApplication
         var mask = BanmaskFormatter.Create(member, _preferences.BanmaskStyle);
         var reason = ResolveKickMessage(TrySplitFirst(input.RawArguments, out _, out var suppliedReason) ? suppliedReason : null);
         await session!.SendAsync("MODE", [channel!.Name, "+b", mask], cancellationToken: cancellationToken);
-        await session.SendAsync("KICK", [channel.Name, member.Nickname, reason], cancellationToken: cancellationToken);
+        await session.SendAsync("KICK", [channel.Name, member.Nickname, reason ?? member.Nickname], cancellationToken: cancellationToken);
         return CommandResult.Success($"Banning {mask} and kicking {member.Nickname}.");
     }
 
