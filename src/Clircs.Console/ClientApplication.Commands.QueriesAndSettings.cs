@@ -339,7 +339,7 @@ internal sealed partial class ClientApplication
                 if (!BanmaskFormatter.TryParse(value, out var requestedBanmask))
                 {
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "banmask must be host, userhost, nick-userhost, or wildcard-host."));
+                        "banmask must be nick, host, userhost, full, or wildcard."));
                 }
                 _preferences.BanmaskStyle = requestedBanmask;
                 value = BanmaskFormatter.Name(_preferences.BanmaskStyle);

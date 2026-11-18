@@ -376,7 +376,7 @@ internal sealed partial class ClientApplication
             "awaymsg" => ("[message|random|default]", "default", "Away message. default uses 'default settings enthusiast'. random selects a quote.", "/set awaymsg doing IRL stuff"),
             "kickmsg" => ("[message|random|default]", "default", "Kick reason. default uses the kicked nickname. random selects a quote.", "/set kickmsg lewser"),
             "quitmsg" => ("[message|random|default]", "default", "Quit reason. default uses the clircs version and description. random selects a quote.", "/set quitmsg default"),
-            "banmask" => ("[host|userhost|nick-userhost|wildcard-host]", "host", "Mask style used when a nickname must be converted into a ban.", "/set banmask host"),
+            "banmask" => ("[nick|host|userhost|full|wildcard]", "host", "Hostmask style used when banning someone.", "/set banmask host"),
             "clonedetect" => ("[on|off]", "on", "Detects channel users sharing one visible host; it never takes protection action.", "/set clonedetect on"),
             "datechange" => ("[on|off]", "on", "Shows date changes in window output.", "/set datechange off"),
             "startup" => ("[on|off]", "on", "Shows the startup presentation at launch and on new connections.", "/set startup off"),

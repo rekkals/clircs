@@ -379,7 +379,8 @@ internal sealed partial class ClientApplication
             return CommandResult.Failure("Usage: /kickban <channel-member> [reason]");
         }
 
-        if (string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host))
+        if ((string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host)) &&
+            _preferences.BanmaskStyle != BanmaskStyle.Nick)
         {
             return CommandResult.Failure($"{member.Nickname}'s host is not known; try /who {channel.Name} first.");
         }
@@ -408,9 +409,11 @@ internal sealed partial class ClientApplication
         {
             mask = target;
         }
-        else if (channel!.TryGetMember(target, out var member) && member!.Username is not null && member.Host is not null)
+        else if (channel!.TryGetMember(target, out var member) &&
+            (_preferences.BanmaskStyle == BanmaskStyle.Nick ||
+             member!.Username is not null && member.Host is not null))
         {
-            mask = BanmaskFormatter.Create(member, _preferences.BanmaskStyle);
+            mask = BanmaskFormatter.Create(member!, _preferences.BanmaskStyle);
         }
         else
         {
@@ -439,7 +442,8 @@ internal sealed partial class ClientApplication
         string mask;
         if (channel!.TryGetMember(target, out var member))
         {
-            if (string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host))
+            if ((string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host)) &&
+                _preferences.BanmaskStyle != BanmaskStyle.Nick)
             {
                 return CommandResult.Failure($"{member.Nickname}'s host is not known; try /who {channel.Name} first.");
             }

@@ -2689,16 +2689,33 @@ internal static class ThemeTests
     private static void BanmaskStylesAreConsistent()
     {
         var member = new ChannelMemberState("Alice", "~alice", "dialup.example.test");
-        Assert.Equal("*!*@dialup.example.test", BanmaskFormatter.Create(member, BanmaskStyle.Host));
-        Assert.Equal("*!~alice@dialup.example.test", BanmaskFormatter.Create(member, BanmaskStyle.UserHost));
-        Assert.Equal("Alice!~alice@dialup.example.test", BanmaskFormatter.Create(member, BanmaskStyle.NickUserHost));
-        Assert.Equal("*!*@*.example.test", BanmaskFormatter.Create(member, BanmaskStyle.WildcardHost));
+        (string Name, string Mask)[] styles =
+        [
+            ("nick", "Alice!*@*"),
+            ("host", "*!*@dialup.example.test"),
+            ("userhost", "*!~alice@dialup.example.test"),
+            ("full", "Alice!~alice@dialup.example.test"),
+            ("wildcard", "*!*alice@*.example.test")
+        ];
+        foreach (var (name, mask) in styles)
+        {
+            Assert.True(BanmaskFormatter.TryParse(name, out var style));
+            Assert.Equal(name, BanmaskFormatter.Name(style));
+            Assert.Equal(mask, BanmaskFormatter.Create(member, style));
+        }
 
+        Assert.Equal("Alice!*@*", BanmaskFormatter.Create(new ChannelMemberState("Alice"), BanmaskStyle.Nick));
         var address = new ChannelMemberState("Alice", "alice", "192.0.2.7");
-        Assert.Equal("*!*@192.0.2.7", BanmaskFormatter.Create(address, BanmaskStyle.WildcardHost));
-        Assert.True(BanmaskFormatter.TryParse("nick-userhost", out var parsed));
-        Assert.Equal(BanmaskStyle.NickUserHost, parsed);
-        Assert.False(BanmaskFormatter.TryParse("3", out _));
+        Assert.Equal("*!*alice@192.0.2.7", BanmaskFormatter.Create(address, BanmaskStyle.WildcardHost));
+        var ipv6 = new ChannelMemberState("Alice", "alice", "2001:db8::7");
+        Assert.Equal("*!*alice@2001:db8::7", BanmaskFormatter.Create(ipv6, BanmaskStyle.WildcardHost));
+        var shortHost = new ChannelMemberState("Alice", "alice", "example.test");
+        Assert.Equal("*!*alice@example.test", BanmaskFormatter.Create(shortHost, BanmaskStyle.WildcardHost));
+
+        foreach (var retired in new[] { "nick-userhost", "wildcard-host", "domain", "3" })
+        {
+            Assert.False(BanmaskFormatter.TryParse(retired, out _));
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable

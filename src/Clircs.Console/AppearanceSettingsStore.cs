@@ -82,6 +82,15 @@ internal sealed class AppearanceSettingsStore
                 !(IsLegacyHostmaskOff(stored.JoinHostmasks) ||
                   IsLegacyHostmaskOff(stored.PartHostmasks) ||
                   IsLegacyHostmaskOff(stored.QuitHostmasks));
+            var banmask = string.IsNullOrWhiteSpace(stored.DefaultBanmask)
+                ? "host"
+                : stored.DefaultBanmask;
+            banmask = banmask.ToLowerInvariant() switch
+            {
+                "nick-userhost" => "full",
+                "wildcard-host" or "domain" => "wildcard",
+                _ => banmask
+            };
             return new AppearanceSettings(
                 stored.Theme,
                 showHosts,
@@ -91,7 +100,7 @@ internal sealed class AppearanceSettingsStore
                 EmptyToNull(stored.DefaultQuitMessage),
                 stored.AnnounceUserInfoOnJoin,
                 stored.HighlightNickname,
-                string.IsNullOrWhiteSpace(stored.DefaultBanmask) ? "host" : stored.DefaultBanmask,
+                banmask,
                 EmptyToNull(stored.Nickname),
                 EmptyToNull(stored.AlternateNickname),
                 EmptyToNull(stored.Username),
