@@ -553,25 +553,51 @@ internal sealed partial class ClientApplication
         return rows;
     }
 
+    // Only bare global restores inheritance; quoted "global" is a literal username.
+    private static bool IsGlobalInheritanceRequest(CommandInput input)
+    {
+        var raw = input.RawArguments.TrimEnd();
+        return input.Arguments.Count == 3 &&
+            input.Arguments[2].Equals("global", StringComparison.OrdinalIgnoreCase) &&
+            raw.Length >= 7 &&
+            raw.EndsWith("global", StringComparison.OrdinalIgnoreCase) &&
+            char.IsWhiteSpace(raw[^7]);
+    }
+
     private CommandResult ConfigureNetworkUsername(CommandInput input)
     {
-        const string usage = "Usage: /network username <profile> [username]";
+        const string usage = "Usage: /network username [profile [username|global]]";
 
-        if (input.Arguments.Count is < 2 or > 3)
+        if (input.Arguments.Count is < 1 or > 3)
         {
             return CommandResult.Failure(usage);
         }
 
-        var profile = _profileStore.Find(input.Arguments[1]);
+        var profile = ActiveSession() is { } session ? ProfileFor(session) : null;
+        if (input.Arguments.Count > 1)
+        {
+            profile = _profileStore.Find(input.Arguments[1]);
+        }
         if (profile is null)
         {
-            return CommandResult.Failure(
-                $"No saved network profile matches '{input.Arguments[1]}'.");
+            return CommandResult.Failure(input.Arguments.Count == 1
+                ? "No active saved network profile."
+                : $"No saved network profile matches '{input.Arguments[1]}'.");
         }
 
-        var requested = input.Arguments.Count == 3
-            ? input.Arguments[2]
-            : null;
+        if (input.Arguments.Count < 3)
+        {
+            var username = profile.UsernameOverride ?? _preferences.Username;
+            var source = profile.UsernameOverride is null ? "global" : "profile";
+            return CommandResult.Success(
+                $"Username for {profile.DisplayName}: {username} ({source}).");
+        }
+
+        var requested = IsGlobalInheritanceRequest(input) ? null : input.Arguments[2];
+        if (requested is not null && string.IsNullOrWhiteSpace(requested))
+        {
+            return CommandResult.Failure(usage);
+        }
 
         try
         {
@@ -701,22 +727,35 @@ internal sealed partial class ClientApplication
 
     private CommandResult ConfigureNetworkUserModes(CommandInput input)
     {
-        const string usage = "Usage: /network usermodes <profile> [modes]";
+        const string usage = "Usage: /network usermodes [profile [modes|global]]";
 
-        if (input.Arguments.Count is < 2 or > 3)
+        if (input.Arguments.Count is < 1 or > 3)
         {
             return CommandResult.Failure(usage);
         }
 
-        var profile = _profileStore.Find(input.Arguments[1]);
+        var profile = ActiveSession() is { } session ? ProfileFor(session) : null;
+        if (input.Arguments.Count > 1)
+        {
+            profile = _profileStore.Find(input.Arguments[1]);
+        }
         if (profile is null)
         {
-            return CommandResult.Failure(
-                $"No saved network profile matches '{input.Arguments[1]}'.");
+            return CommandResult.Failure(input.Arguments.Count == 1
+                ? "No active saved network profile."
+                : $"No saved network profile matches '{input.Arguments[1]}'.");
+        }
+        if (input.Arguments.Count < 3)
+        {
+            var modes = profile.UserModesOverride ?? _preferences.UserModes;
+            var displayedModes = modes.Length == 0 ? "not set" : modes;
+            var source = profile.UserModesOverride is null ? "global" : "profile";
+            return CommandResult.Success(
+                $"User modes for {profile.DisplayName}: {displayedModes} ({source}).");
         }
 
         string? requested = null;
-        if (input.Arguments.Count == 3)
+        if (!IsGlobalInheritanceRequest(input))
         {
             try
             {
