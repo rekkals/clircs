@@ -147,7 +147,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["oper"] = "/oper <name>",
             ["limitserv"] = "/limitserv <command> [arguments]",
             ["dcc"] = "/dcc <command> [arguments]",
-            ["set"] = "/set [setting value]",
+            ["set"] = "/set [setting [value]]",
             ["theme"] = "/theme [load <name>|reload|list]",
             ["tls"] = "/tls [list|forget <host> <port>]",
             ["script"] = "/script <list|load|unload|reload|errors|permissions> [arguments]"

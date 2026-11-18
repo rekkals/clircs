@@ -369,70 +369,70 @@ internal sealed partial class ClientApplication
         var setting = requested.ToLowerInvariant();
         var detail = setting switch
         {
-            "nickname" => ("<nickname>", "your current default", "Primary nickname used when connecting.", "/set nickname slakker"),
-            "altnick" => ("<nickname>", "primary nickname plus _", "Fallback nickname used if the primary nickname is unavailable.", "/set altnick slakker_"),
-            "username" => ("<username>", "your Windows user name", "Username sent during IRC registration.", "/set username slakker"),
-            "realname" => ("<name>", "default settings enthusiast", "Real name text sent during IRC registration.", "/set realname Definitely Not My Name"),
+            "nickname" => ("[nickname]", "your current default", "Primary nickname used when connecting.", "/set nickname slakker"),
+            "altnick" => ("[nickname]", "primary nickname plus _", "Fallback nickname used if the primary nickname is unavailable.", "/set altnick slakker_"),
+            "username" => ("[username]", "your Windows user name", "Username sent during IRC registration.", "/set username slakker"),
+            "realname" => ("[name]", "default settings enthusiast", "Real name text sent during IRC registration.", "/set realname Definitely Not My Name"),
             "awaymsg" => ("<message>", "away", "Message used by /away when no message is supplied.", "/set awaymsg doing IRL stuff"),
             "kickmsg" => ("<message|random>", "random", "Default kick reason; random selects a quote when no reason is supplied.", "/set kickmsg lewser"),
             "quitmsg" => ("<message|default|random>", "default", "Default quit reason; default uses the current clircs version and description, random selects a quote.", "/set quitmsg default"),
             "topicmsg" => ("<message|random>", "random", "Default topic used by /rt; random selects a quote.", "/set topicmsg random"),
-            "banmask" => ("<host|userhost|nick-userhost|wildcard-host>", "host", "Mask style used when a nickname must be converted into a ban.", "/set banmask host"),
-            "clonedetect" => ("<on|off>", "on", "Detects channel users sharing one visible host; it never takes protection action.", "/set clonedetect on"),
+            "banmask" => ("[host|userhost|nick-userhost|wildcard-host]", "host", "Mask style used when a nickname must be converted into a ban.", "/set banmask host"),
+            "clonedetect" => ("[on|off]", "on", "Detects channel users sharing one visible host; it never takes protection action.", "/set clonedetect on"),
             "datechange" => ("[on|off]", "on", "Shows date changes in window output.", "/set datechange off"),
             "startup" => ("[on|off]", "on", "Shows the startup presentation at launch and on new connections.", "/set startup off"),
-            "highlight" => ("<on|off>", "on", "Highlights mentions of your nickname and mirrors them into the active window.", "/set highlight on"),
+            "highlight" => ("[on|off]", "on", "Highlights mentions of your nickname and mirrors them into the active window.", "/set highlight on"),
             "status.lagmeter" => ("[on|off]", "on", "Shows connection response time; off stops its extra probes.", "/set status.lagmeter off"),
             "status.tls" => ("[on|off]", "on", "Shows TLS indicators for server and bouncer connections.", "/set status.tls off"),
             "status.bouncer" => ("[on|off]", "on", "Shows bouncer identification beside the server name.", "/set status.bouncer off"),
             "status.chanmodes" => ("[on|off]", "on", "Shows channel modes beside the channel name.", "/set status.chanmodes off"),
             "status.usermodes" => ("[on|off]", "on", "Shows your user modes beside your nickname.", "/set status.usermodes off"),
             "status.totals" => ("[on|off]", "on", "Shows channel member totals and rank counts.", "/set status.totals off"),
-            "joininfo" => ("<on|off>", "off", "Shows matching userlist infolines when someone joins.", "/set joininfo on"),
+            "joininfo" => ("[on|off]", "off", "Shows matching userlist infolines when someone joins.", "/set joininfo on"),
             "onjoin.users" => ("[on|off]", "on", "Shows the user list when you join a channel.", "/set onjoin.users off"),
             "onjoin.topic" => ("[on|off]", "on", "Shows topic information when you join a channel.", "/set onjoin.topic off"),
             "onjoin.created" => ("[on|off]", "on", "Shows the channel's creation time when you join.", "/set onjoin.created off"),
             "onjoin.modes" => ("[on|off]", "off", "Shows channel modes when you join.", "/set onjoin.modes on"),
             "onjoin.sync" => ("[on|off]", "on", "Shows the join synchronization timing line.", "/set onjoin.sync off"),
-            "kickrejoin" => ("<on|off>", "off", "Automatically rejoins a channel after you are kicked.", "/set kickrejoin on"),
-            "usermodes" => ("[modes]", "+i", "User modes applied automatically after registration; omit modes to clear the global setting.", "/set usermodes +iw"),
-            "reconnect.network" => ("<on|off>", "on", "Reconnects after an unrequested network or server disconnect.", "/set reconnect.network on"),
-            "reconnect.kill" => ("<on|off>", "off", "Reconnects after the server kills your current IRC connection.", "/set reconnect.kill on"),
+            "kickrejoin" => ("[on|off]", "off", "Automatically rejoins a channel after you are kicked.", "/set kickrejoin on"),
+            "usermodes" => ("[modes|none]", "+i", "User modes applied automatically after registration. Use none to clear the global setting.", "/set usermodes +iw"),
+            "reconnect.network" => ("[on|off]", "on", "Reconnects after an unrequested network or server disconnect.", "/set reconnect.network on"),
+            "reconnect.kill" => ("[on|off]", "off", "Reconnects after the server kills your current IRC connection.", "/set reconnect.kill on"),
             "reconnect.limit" => ("[number]", "100", "Maximum automatic reconnect attempts per connection (set to 0 to disable).", "/set reconnect.limit 100"),
             "floodcontrol" => ("[on|off]", "on", "Paces outgoing IRC traffic to reduce flood disconnects.", "/set floodcontrol off"),
-            "dcc.address" => ("<auto|IP|hostname>", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", "/set dcc.address 2603:8081:3000:48b3::20"),
-            "dcc.ports" => ("<random|port|first-last>", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
-            "dcc.downloads" => ("<folder>", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
+            "dcc.address" => ("[auto|IP|hostname]", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", "/set dcc.address 2603:8081:3000:48b3::20"),
+            "dcc.ports" => ("[random|port|first-last]", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
+            "dcc.downloads" => ("[folder]", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
             "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", "/set xdcc.auto on"),
             "showhosts" => ("[on|off]", "on", "Shows user@host on joins, parts, and quits.", string.Empty),
             "notice.output" =>
-                ("<active|status|window>", "active", "Selects the window used for notices from users.", "/set notice.output window"),
+                ("[active|status|window]", "active", "Selects the window used for notices from users.", "/set notice.output window"),
             "snotice.output" =>
-                ("<active|status|window>", "status", "Selects the window used for server notices.", "/set snotice.output window"),
+                ("[active|status|window]", "status", "Selects the window used for server notices.", "/set snotice.output window"),
             "notify.output" =>
-                ("<active|status|window>", "status", "Selects the window used for notify online/offline announcements.", "/set notify.output window"),
+                ("[active|status|window]", "status", "Selects the window used for notify online/offline announcements.", "/set notify.output window"),
             "wallops.output" =>
-                ("<active|status|window>", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
+                ("[active|status|window]", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
             "callerid.output" =>
-                ("<active|status|window>", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output window"),
+                ("[active|status|window]", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output window"),
             "list.output" =>
-                ("<active|status|window>", "window", "Selects the window used for channel-list results.", "/set list.output window"),
+                ("[active|status|window]", "window", "Selects the window used for channel-list results.", "/set list.output window"),
             "who.output" =>
-                ("<active|status|window>", "active", "Selects the window used for WHO results.", "/set who.output window"),
+                ("[active|status|window]", "active", "Selects the window used for WHO results.", "/set who.output window"),
             "whois.output" =>
-                ("<active|status|window>", "active", "Selects the window used for WHOIS results.", "/set whois.output window"),
+                ("[active|status|window]", "active", "Selects the window used for WHOIS results.", "/set whois.output window"),
             "whowas.output" =>
-                ("<active|status|window>", "active", "Selects the window used for WHOWAS results.", "/set whowas.output window"),
+                ("[active|status|window]", "active", "Selects the window used for WHOWAS results.", "/set whowas.output window"),
             "names.output" =>
-                ("<active|status|window>", "active", "Selects the window used for /names results.", "/set names.output window"),
+                ("[active|status|window]", "active", "Selects the window used for /names results.", "/set names.output window"),
             "ctcp.output" =>
-                ("<active|status|window>", "active", "Selects the window used for CTCP requests and replies.", "/set ctcp.output window"),
+                ("[active|status|window]", "active", "Selects the window used for CTCP requests and replies.", "/set ctcp.output window"),
             "invite.output" =>
-                ("<active|status|window>", "active", "Selects the window used for channel invitations and confirmations.", "/set invite.output window"),
+                ("[active|status|window]", "active", "Selects the window used for channel invitations and confirmations.", "/set invite.output window"),
             "links.output" =>
-                ("<active|status|window>", "status", "Selects the window used for server-link listings.", "/set links.output window"),
+                ("[active|status|window]", "status", "Selects the window used for server-link listings.", "/set links.output window"),
             "dns.output" =>
-                ("<active|status|window>", "active", "Selects the window used for DNS lookup results.", "/set dns.output window"),
+                ("[active|status|window]", "active", "Selects the window used for DNS lookup results.", "/set dns.output window"),
             _ => default
         };
         if (detail == default) return null;

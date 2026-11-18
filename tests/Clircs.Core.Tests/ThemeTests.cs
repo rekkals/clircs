@@ -1103,7 +1103,7 @@ internal static class ThemeTests
                 {
                     var fields = application.SettingHelp($"{family}.output")!.Fields!;
                     Assert.Equal(
-                        $"/set {family}.output <active|status|window>",
+                        $"/set {family}.output [active|status|window]",
                         fields.Single(field => field.Label == "Usage").Value);
                     Assert.Equal(
                         "window",

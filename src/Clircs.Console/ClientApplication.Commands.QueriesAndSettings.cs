@@ -265,33 +265,23 @@ internal sealed partial class ClientApplication
 
         var requestedSetting = input.Arguments[0];
         var setting = requestedSetting.ToLowerInvariant();
-        var clearingUserModes = setting == "usermodes" && input.Arguments.Count == 1;
-
-        if (input.Arguments.Count == 1 &&
-            (setting.StartsWith("status.", StringComparison.Ordinal) ||
-             setting.StartsWith("onjoin.", StringComparison.Ordinal) ||
-             setting is "xdcc.auto" or "startup" or "reconnect.limit" or "floodcontrol" or "showhosts") &&
-            CurrentSettingValue(setting) is { } currentValue)
+        if (input.Arguments.Count == 1)
         {
-            return ValueTask.FromResult(CommandResult.Success(
-                $"{setting} is {currentValue}."));
-        }
+            if (setting is not ("awaymsg" or "kickmsg" or "quitmsg" or "topicmsg") &&
+                CurrentSettingValue(setting) is { } currentValue)
+            {
+                return ValueTask.FromResult(CommandResult.Success(
+                    $"{setting} is {currentValue}."));
+            }
 
-        if (setting == "datechange" && input.Arguments.Count == 1)
-        {
-            return ValueTask.FromResult(CommandResult.Success(
-                $"datechange is {(_preferences.DateChange ? "on" : "off")}."));
-        }
-
-        if (input.Arguments.Count < 2 && !clearingUserModes)
-        {
             return ValueTask.FromResult(CommandResult.Failure(
                 "Usage: /set <setting> <value>. Use /help set for the available settings."));
         }
 
-        var value = clearingUserModes
-            ? string.Empty
-            : input.RawArguments[(input.RawArguments.IndexOf(' ') + 1)..];
+        var value = input.RawArguments[(input.RawArguments.IndexOf(' ') + 1)..];
+        var clearingUserModes = setting == "usermodes" &&
+            input.Arguments.Count == 2 &&
+            input.Arguments[1].Equals("none", StringComparison.OrdinalIgnoreCase);
         var previousSettings = CaptureAppearanceSettings();
         switch (setting)
         {
@@ -310,7 +300,8 @@ internal sealed partial class ClientApplication
             case "usermodes":
                 try
                 {
-                    _preferences.UserModes = NetworkProfile.NormalizeUserModes(value);
+                    _preferences.UserModes = NetworkProfile.NormalizeUserModes(
+                        clearingUserModes ? string.Empty : value);
                 }
                 catch (ArgumentException exception)
                 {

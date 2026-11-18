@@ -45,7 +45,7 @@ dotnet run --project src/Clircs.Console/Clircs.Console.csproj -c Release --no-bu
 
 User data is stored under the clircs directory in the current Windows roaming application-data folder. Use `/config` to display the exact folder. Only one clircs instance can use a data directory at a time.
 
-Use `/set` to inspect or change client settings. Use `/help set` to see a list of settings and `/help set <setting>` for an explanation of that setting.
+Use `/set` to inspect or change client settings. Use `/help set` to see a list of settings and `/help set <setting>` for an explanation of that setting. For settings with an optional value, use `/set <setting>` to see its current value.
 
 Use `/network` to inspect live network sessions and saved profiles. Network-specific stuff like servers, autojoin channels, user modes, and SASL settings belong to profiles instead of individual server addresses.
 
