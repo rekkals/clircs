@@ -669,7 +669,9 @@ public sealed class IrcNetworkSession : IAsyncDisposable
     public async ValueTask SendNoticeAsync(
         string target,
         string text,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool echoLocally = true,
+        IrcOutboundPriority priority = IrcOutboundPriority.Interactive)
     {
         var segments = IrcTextSegmenter.Split(
             text,
@@ -692,7 +694,8 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 await SendAsync(
                     "NOTICE",
                     [target, segment],
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                    priority,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -703,10 +706,14 @@ public sealed class IrcNetworkSession : IAsyncDisposable
                 throw;
             }
 
-            Raise(
-                buffer,
-                SessionEventKind.Notice,
-                $"->{target}<- {segment}");
+            if (echoLocally)
+            {
+                Raise(
+                    buffer,
+                    SessionEventKind.Notice,
+                    $"->{target}<- {segment}");
+
+            }
         }
     }
 

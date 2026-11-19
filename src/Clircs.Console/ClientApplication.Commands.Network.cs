@@ -1506,11 +1506,12 @@ internal sealed partial class ClientApplication
     {
         try
         {
-            await session.SendAsync(
-                "NOTICE",
-                [nickname, "Your message has been recorded; I am currently away."],
-                IrcOutboundPriority.Automation,
-                SessionWorkToken(session));
+            await session.SendNoticeAsync(
+                nickname,
+                "Your message has been recorded; I am currently away.",
+                SessionWorkToken(session),
+                echoLocally: false,
+                priority: IrcOutboundPriority.Automation);
         }
         catch (OperationCanceledException) when (SessionWorkToken(session).IsCancellationRequested)
         {
