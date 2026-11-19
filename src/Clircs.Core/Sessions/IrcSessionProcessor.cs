@@ -1499,7 +1499,11 @@ public sealed class IrcSessionProcessor
                         ("username", ParsePrefix(message.Prefix).Username),
                         ("host", ParsePrefix(message.Prefix).Host), ("message", actionText.PlainText),
                         ("channel", isChannel ? target : null), ("private", isChannel ? null : "true")),
-                    formattedContent: actionText));
+                    formattedContent: actionText) with
+                {
+                    IsHighlighted = isChannel && !selfMessage &&
+                        ContainsNickname(actionText.PlainText, CurrentNickname)
+                });
             }
             else
             {

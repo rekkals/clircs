@@ -413,7 +413,7 @@ Each event contains:
 }
 ```
 
-Messages retain their normal event kind when highlighted. `highlighted` is false when `/set highlight` is off or the event is replayed. Foreground highlight copies are not delivered to scripts.
+Messages and actions retain their normal event kind when highlighted. `highlighted` is false when `/set highlight` is off or the event is replayed. Foreground highlight copies are not delivered to scripts.
 
 When present, `fields` is an object whose names depend on the event. IRC events commonly provide values such as `nick`, `user`, `host`, `channel`, `actor`, `reason`, `modes`, or request-routing identifiers. Field values are strings or `null`; scripts should check that `fields` and the particular field exist before using them.
 

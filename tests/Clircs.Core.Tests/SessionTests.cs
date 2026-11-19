@@ -926,12 +926,14 @@ internal static class SessionTests
     private static void CtcpActionRouting()
     {
         var (_, processor) = CreateProcessor();
-        foreach (var (wireText, expectedText, expectedPayload) in new[]
+        foreach (var (wireText, expectedText, expectedPayload, expectedHighlight) in new[]
         {
-            ("\u0001ACTION waves\u0001", "* alice waves", "waves"),
-            ("\u0001ACTION\u0001", "* alice", ""),
-            ("\u0001ACTION", "* alice", ""),
-            ("\u0001ACTION waves", "* alice waves", "waves")
+            ("\u0001ACTION waves\u0001", "* alice waves", "waves", false),
+            ("\u0001ACTION\u0001", "* alice", "", false),
+            ("\u0001ACTION", "* alice", "", false),
+            ("\u0001ACTION waves", "* alice waves", "waves", false),
+            ("\u0001ACTION greets ME!\u0001", "* alice greets ME!", "greets ME!", true),
+            ("\u0001ACTION greets someone\u0001", "* alice greets someone", "greets someone", false)
         })
         {
             var action = processor.Process(IrcMessageParser.Parse(
@@ -940,7 +942,18 @@ internal static class SessionTests
             Assert.Equal(SessionEventKind.Action, action.Kind);
             Assert.Equal(expectedText, action.Text);
             Assert.Equal(expectedPayload, action.Fields!["message"]!);
+            Assert.Equal(expectedHighlight, action.IsHighlighted);
         }
+
+        var privateAction = processor.Process(IrcMessageParser.Parse(
+            ":alice!u@h PRIVMSG me :\u0001ACTION greets me\u0001")).Single();
+        var selfAction = processor.Process(IrcMessageParser.Parse(
+            ":me!u@h PRIVMSG #clirc :\u0001ACTION greets me\u0001")).Single();
+
+        Assert.Equal(SessionEventKind.Action, privateAction.Kind);
+        Assert.Equal(SessionEventKind.Action, selfAction.Kind);
+        Assert.False(privateAction.IsHighlighted);
+        Assert.False(selfAction.IsHighlighted);
     }
 
     private static void CtcpRequestsDoNotCreateQueries()

@@ -326,7 +326,7 @@ internal sealed class ConsolePresenter
         }
 
         if (sessionEvent.IsHighlighted &&
-            sessionEvent.Kind == SessionEventKind.Message &&
+            sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Action &&
             semantics.Nick is { } highlightedNick && semantics.Message is { } highlightedMessage)
         {
             WriteHighlightEvent(
@@ -984,11 +984,19 @@ internal sealed class ConsolePresenter
         {
             var text = FormatSemanticEvent(sessionEvent);
             var eventPrefix = EventPrefix(sessionEvent, bufferName);
-            if (sessionEvent.Kind == SessionEventKind.Message &&
+            if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Action &&
                 semantics.Nick is { } nick && semantics.Message is { } message)
             {
-                var nickPrefix = _theme.ShowNickPrefix ? semantics.NickPrefix : null;
-                return TerminalWordWrapper.Wrap($"{eventPrefix}<{nickPrefix}{nick}> ", message, consoleWidth).Count;
+                var isAction = sessionEvent.Kind == SessionEventKind.Action;
+                var nickPrefix = !isAction && _theme.ShowNickPrefix ? semantics.NickPrefix : null;
+                var sourceText = sessionEvent.IsHighlighted &&
+                    semantics.IsHighlightEcho && semantics.Source is { } source
+                    ? $"[{source}] "
+                    : string.Empty;
+                var leading = isAction
+                    ? $"{eventPrefix}{sourceText}* {nick} "
+                    : $"{eventPrefix}{sourceText}<{nickPrefix}{nick}> ";
+                return TerminalWordWrapper.Wrap(leading, message, consoleWidth).Count;
             }
             return TerminalWordWrapper.Wrap(eventPrefix, text, consoleWidth).Count;
         }
@@ -2283,14 +2291,18 @@ internal sealed class ConsolePresenter
         lock (_consoleLock)
         {
             BeginOutputUnsafe();
+            var isAction = sessionEvent.Kind == SessionEventKind.Action;
+            var textColor = isAction ? _theme.Action : _theme.Normal;
             var prefix = EventPrefix(sessionEvent, bufferName);
             var sourceText = string.Empty;
             if (semantics.IsHighlightEcho && semantics.Source is { } source)
             {
                 sourceText = $"[{source}] ";
             }
-            var nickPrefix = _theme.ShowNickPrefix ? semantics.NickPrefix : null;
-            var lead = $"{prefix}{sourceText}<{nickPrefix}{nick}> ";
+            var nickPrefix = !isAction && _theme.ShowNickPrefix ? semantics.NickPrefix : null;
+            var lead = isAction
+                ? $"{prefix}{sourceText}* {nick} "
+                : $"{prefix}{sourceText}<{nickPrefix}{nick}> ";
             var lines = TerminalWordWrapper.Wrap(lead, message, EffectiveWidth(null));
             var plainOffset = 0;
             for (var index = 0; index < lines.Count; index++)
@@ -2299,19 +2311,20 @@ internal sealed class ConsolePresenter
                 {
                     var timestampColor = semantics.IsHighlightEcho
                         ? _theme.Dim
-                        : _theme.Message;
+                        : isAction ? _theme.Action : _theme.Message;
                     WriteColoredUnsafe(prefix, timestampColor);
                     if (sourceText.Length > 0) WriteColoredUnsafe(sourceText, _theme.Accent);
-                    WriteColoredUnsafe("<", _theme.Normal);
+                    WriteColoredUnsafe(isAction ? "* " : "<", textColor);
                     WriteColoredUnsafe($"{nickPrefix}{nick}", _theme.Highlight);
-                    WriteColoredUnsafe("> ", _theme.Normal);
+                    WriteColoredUnsafe(isAction ? " " : "> ", textColor);
                 }
                 else
                 {
-                    WriteColoredUnsafe(lines[index].Leading, _theme.Normal);
+                    WriteColoredUnsafe(lines[index].Leading, textColor);
                 }
                 plainOffset = FindWrappedTextOffset(formatted.PlainText, lines[index].Text, plainOffset);
-                WriteIrcFormattedRangeUnsafe(formatted, plainOffset, lines[index].Text.Length, _theme.Normal);
+                WriteIrcFormattedRangeUnsafe(
+                    formatted, plainOffset, lines[index].Text.Length, textColor);
                 plainOffset += lines[index].Text.Length;
                 Console.WriteLine();
             }
