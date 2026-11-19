@@ -1192,7 +1192,10 @@ internal static class ScriptTests
               clircs.run("/version");
               return `hello ${context.args.join(" ")} (${count})`;
             });
-            clircs.on("message", event => clircs.print(`${event.kind}:${event.networkId}:${event.text}:${event.fields.actor}`));
+            clircs.on("message", event => {
+              const highlighting = `${typeof event.highlighted}:${event.highlighted}`;
+              clircs.print(`${event.kind}:${event.networkId}:${event.text}:${event.fields.actor}:${highlighting}`);
+            });
             """, ["commands", "events", "timers", "output", "storage"]);
 
         var host = new TestScriptHost();
@@ -1229,9 +1232,16 @@ internal static class ScriptTests
                 SessionEventKind.Message,
                 "second",
                 DateTimeOffset.UtcNow,
-                new Dictionary<string, string?> { ["actor"] = "Bob" }));
-            await host.WaitForOutputAsync(text => text == $"message:{networkId.Value}:first:Alice", TimeSpan.FromSeconds(2));
-            await host.WaitForOutputAsync(text => text == $"message:{networkId.Value}:second:Bob", TimeSpan.FromSeconds(2));
+                new Dictionary<string, string?> { ["actor"] = "Bob" })
+            {
+                IsHighlighted = true
+            });
+            await host.WaitForOutputAsync(
+                text => text == $"message:{networkId.Value}:first:Alice:boolean:false",
+                TimeSpan.FromSeconds(2));
+            await host.WaitForOutputAsync(
+                text => text == $"message:{networkId.Value}:second:Bob:boolean:true",
+                TimeSpan.FromSeconds(2));
 
             Assert.True(await manager.UnloadAsync("greeter"));
             Assert.False(host.Commands.ContainsKey("hello"));

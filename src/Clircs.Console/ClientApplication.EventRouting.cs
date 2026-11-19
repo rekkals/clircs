@@ -136,12 +136,12 @@ internal sealed partial class ClientApplication
         }
 
         context.Event = RouteDccProtocolEvent(context.Event);
-        if (context.Event.Kind == SessionEventKind.Highlight &&
+        if (context.Event.IsHighlighted &&
             (!_preferences.HighlightNickname || context.IsReplay))
         {
-            context.Event = context.Event with { Kind = SessionEventKind.Message };
+            context.Event = context.Event with { IsHighlighted = false };
         }
-        context.EchoHighlight = context.Event.Kind == SessionEventKind.Highlight && !context.IsHighlightEcho;
+        context.EchoHighlight = context.Event.IsHighlighted && !context.IsHighlightEcho;
         return true;
     }
 

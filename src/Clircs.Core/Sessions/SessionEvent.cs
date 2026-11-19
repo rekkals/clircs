@@ -7,7 +7,6 @@ public enum SessionEventKind
     Status,
     Server,
     Message,
-    Highlight,
     Notice,
     Action,
     Join,
@@ -34,4 +33,6 @@ public sealed record SessionEvent(
     IrcFormattedText? FormattedContent = null)
 {
     public DateTimeOffset ReceivedAt { get; init; } = Timestamp;
+
+    public bool IsHighlighted { get; init; }
 }

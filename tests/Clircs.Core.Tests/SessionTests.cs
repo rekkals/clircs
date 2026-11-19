@@ -904,8 +904,10 @@ internal static class SessionTests
         var highlighted = processor.Process(IrcMessageParser.Parse(":alice!u@h PRIVMSG #clirc :hello, me!"));
         var embedded = processor.Process(IrcMessageParser.Parse(":alice!u@h PRIVMSG #clirc :someone is here"));
 
-        Assert.Equal(SessionEventKind.Highlight, highlighted[0].Kind);
+        Assert.Equal(SessionEventKind.Message, highlighted[0].Kind);
+        Assert.True(highlighted[0].IsHighlighted);
         Assert.Equal(SessionEventKind.Message, embedded[0].Kind);
+        Assert.False(embedded[0].IsHighlighted);
     }
 
     private static void QueryMessageRouting()

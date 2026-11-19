@@ -274,7 +274,8 @@ internal sealed class WindowStateRegistry
                     sessionEvent.Kind,
                     subtype,
                     IsSelfKick: subtype == SessionEventSubtype.Kick &&
-                        sessionEvent.Fields?.GetValueOrDefault("self") == "true"));
+                        sessionEvent.Fields?.GetValueOrDefault("self") == "true",
+                    IsHighlighted: sessionEvent.IsHighlighted));
             }
 
             return new WindowEventStoreResult(
@@ -412,12 +413,18 @@ internal sealed class WindowStateRegistry
             return _windows.TryGetValue(bufferId, out var state) && state.Unread.Count > 0;
     }
 
-    public void MarkUnread(BufferId bufferId, SessionEventKind kind)
+    public void MarkUnread(
+        BufferId bufferId,
+        SessionEventKind kind,
+        bool isHighlighted = false)
     {
         lock (_gate)
         {
             EnsureUnsafe(bufferId).Unread.Add(
-                new WindowActivityKind(kind, SessionEventSubtype.None));
+                new WindowActivityKind(
+                    kind,
+                    SessionEventSubtype.None,
+                    IsHighlighted: isHighlighted));
         }
     }
 
@@ -582,7 +589,8 @@ internal sealed class WindowStateRegistry
     internal readonly record struct WindowActivityKind(
         SessionEventKind Kind,
         SessionEventSubtype Subtype,
-        bool IsSelfKick = false);
+        bool IsSelfKick = false,
+        bool IsHighlighted = false);
 
     internal sealed record WindowActivity(
         BufferId BufferId,

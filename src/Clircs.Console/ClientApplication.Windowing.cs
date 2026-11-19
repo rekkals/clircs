@@ -579,7 +579,11 @@ internal sealed partial class ClientApplication
             .Select(entry =>
             {
                 var highest = entry.Kinds.OrderByDescending(ActivityPriority).First();
-                return new StatusActivity(entry.Number, highest.Kind, highest.IsSelfKick);
+                return new StatusActivity(
+                    entry.Number,
+                    highest.Kind,
+                    highest.IsSelfKick,
+                    highest.IsHighlighted);
             })
             .OrderBy(entry => entry.Number)
             .ToArray();

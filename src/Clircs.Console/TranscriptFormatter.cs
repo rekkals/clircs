@@ -26,7 +26,7 @@ internal static class TranscriptFormatter
                 $"<-- {semantics.Nick}{Identity(semantics, showHosts)} quit{Reason(semantics.Reason)}",
             SessionEventKind.Part when semantics.Nick is not null && semantics.Subtype != SessionEventSubtype.Kick =>
                 $"<-- {semantics.Nick}{Identity(semantics, showHosts)} left {semantics.Channel}{Reason(semantics.Reason)}",
-            SessionEventKind.Message or SessionEventKind.Highlight
+            SessionEventKind.Message
                 when semantics.Nick is not null && semantics.Message is not null =>
                 $"<{semantics.NickPrefix}{semantics.Nick}> {semantics.Message}",
             _ => sessionEvent.Text

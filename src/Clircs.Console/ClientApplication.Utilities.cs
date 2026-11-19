@@ -231,7 +231,7 @@ internal sealed partial class ClientApplication
         {
         SessionEventKind.Error => 100,
         SessionEventKind.Part when activity.IsSelfKick => 96,
-        SessionEventKind.Highlight => 95,
+        _ when activity.IsHighlighted => 95,
         SessionEventKind.Message => 90,
         SessionEventKind.Action => 80,
         SessionEventKind.Notice => 70,
@@ -249,6 +249,7 @@ internal sealed partial class ClientApplication
         {
             SessionEventSubtype.Quit => "quit",
             SessionEventSubtype.Kick => "kick",
+            _ when activity.IsHighlighted => "highlight",
             _ => activity.Kind.ToString().ToLowerInvariant()
         };
 

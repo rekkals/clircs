@@ -1038,6 +1038,7 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
                 var payload = CreatePayload(new
                 {
                     kind = eventName,
+                    highlighted = sessionEvent.IsHighlighted,
                     text = sessionEvent.Text,
                     networkId = sessionEvent.NetworkSessionId.Value.ToString(),
                     bufferId = sessionEvent.BufferId.Value.ToString(),

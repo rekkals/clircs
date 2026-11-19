@@ -1525,22 +1525,24 @@ public sealed class IrcSessionProcessor
             ? _state.GetOrCreateBuffer(BufferKind.Channel, target)
             : AutomaticQueryBuffer(selfMessage ? target : sender);
 
-        var kind = isChannel && !selfMessage && ContainsNickname(plainText, CurrentNickname)
-            ? SessionEventKind.Highlight
-            : SessionEventKind.Message;
+        var isHighlighted = isChannel && !selfMessage &&
+            ContainsNickname(plainText, CurrentNickname);
         string? nickPrefix = null;
         if (Features.IsChannel(target) && _state.TryGetChannel(target, out var messageChannel) &&
             messageChannel!.TryGetMember(sender, out var messageMember))
         {
             nickPrefix = Features.HighestPrefix(messageMember!.PrefixModes)?.ToString();
         }
-        events.Add(Event(buffer, kind, $"<{nickPrefix}{sender}> {plainText}", now,
+        events.Add(Event(buffer, SessionEventKind.Message, $"<{nickPrefix}{sender}> {plainText}", now,
             Fields(("nick", sender), ("self", selfMessage ? "true" : null),
                 ("username", ParsePrefix(message.Prefix).Username),
                 ("host", ParsePrefix(message.Prefix).Host), ("nickPrefix", nickPrefix), ("message", plainText),
                 ("channel", isChannel ? target : null), ("private", isChannel ? null : "true"),
                 ("controlCount", text.Count(character => char.IsControl(character)).ToString())),
-            formattedContent: formattedText));
+            formattedContent: formattedText) with
+        {
+            IsHighlighted = isHighlighted
+        });
     }
 
     private BufferState AutomaticQueryBuffer(string sender)

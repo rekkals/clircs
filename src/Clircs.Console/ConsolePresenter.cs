@@ -325,7 +325,8 @@ internal sealed class ConsolePresenter
             return;
         }
 
-        if (sessionEvent.Kind == SessionEventKind.Highlight &&
+        if (sessionEvent.IsHighlighted &&
+            sessionEvent.Kind == SessionEventKind.Message &&
             semantics.Nick is { } highlightedNick && semantics.Message is { } highlightedMessage)
         {
             WriteHighlightEvent(
@@ -983,7 +984,7 @@ internal sealed class ConsolePresenter
         {
             var text = FormatSemanticEvent(sessionEvent);
             var eventPrefix = EventPrefix(sessionEvent, bufferName);
-            if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Highlight &&
+            if (sessionEvent.Kind == SessionEventKind.Message &&
                 semantics.Nick is { } nick && semantics.Message is { } message)
             {
                 var nickPrefix = _theme.ShowNickPrefix ? semantics.NickPrefix : null;
@@ -1279,7 +1280,7 @@ internal sealed class ConsolePresenter
                     : $"{_theme.PartMarker} {partedNick}{identity} left {semantics.Channel}{reason}";
         }
 
-        if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Highlight &&
+        if (sessionEvent.Kind == SessionEventKind.Message &&
             semantics.Nick is { } messageNick && semantics.Message is { } messageText)
         {
             var nickPrefix = _theme.ShowNickPrefix ? semantics.NickPrefix : null;
@@ -2095,7 +2096,8 @@ internal sealed class ConsolePresenter
                 var entry = status.Activity[index];
                 segments.Add((
                     entry.Number.ToString(),
-                    ReadableActivityColor(theme, entry.Kind, entry.IsSelfKick)));
+                    ReadableActivityColor(
+                        theme, entry.Kind, entry.IsSelfKick, entry.IsHighlighted)));
             }
 
             if (activityLayout.HiddenCount > 0)
@@ -2203,8 +2205,13 @@ internal sealed class ConsolePresenter
     internal static ConsoleColor ReadableActivityColor(
         TerminalTheme theme,
         SessionEventKind kind,
-        bool isSelfKick = false) =>
-        ReadableStatusColor(theme, isSelfKick ? theme.Kick : theme.EventColor(kind));
+        bool isSelfKick = false,
+        bool isHighlighted = false) =>
+        ReadableStatusColor(
+            theme,
+            isSelfKick ? theme.Kick :
+            isHighlighted ? theme.Highlight :
+            theme.EventColor(kind));
 
     internal static ConsoleColor ReadableStatusColor(TerminalTheme theme, ConsoleColor color)
     {

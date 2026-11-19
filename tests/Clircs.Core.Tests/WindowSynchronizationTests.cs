@@ -76,7 +76,7 @@ internal static class WindowSynchronizationTests
             second, active, SessionEventKind.Message, "retained", DateTimeOffset.UtcNow);
         windows.AppendHistory(message);
         windows.SetScrollOffset(active, 24);
-        windows.MarkUnread(unread, SessionEventKind.Highlight);
+        windows.MarkUnread(unread, SessionEventKind.Message, isHighlighted: true);
 
         Assert.True(windows.TryRemoveInactiveEmpty(closing));
         Assert.True(
@@ -99,7 +99,8 @@ internal static class WindowSynchronizationTests
         var activity = windows.ChromeState(active).Activity.Single();
         Assert.Equal(unread, activity.BufferId);
         Assert.Equal(3, activity.Number);
-        Assert.Equal(SessionEventKind.Highlight, activity.Kinds.Single().Kind);
+        Assert.Equal(SessionEventKind.Message, activity.Kinds.Single().Kind);
+        Assert.True(activity.Kinds.Single().IsHighlighted);
     }
 
     private static void ReplacementPreservesConnectionPosition()

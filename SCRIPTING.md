@@ -395,7 +395,7 @@ clircs.on("message", event => {
 Requires `events`. Use `"*"` to observe every semantic event kind. Current event names are:
 
 ```text
-status server message highlight notice action join part nick topic
+status server message notice action join part nick topic
 channelinfo channelsync callerid mode protection error diagnostic
 ```
 
@@ -403,14 +403,17 @@ Each event contains:
 
 ```javascript
 {
-  kind,       // lowercase semantic event name
-  text,       // safe plain-text representation
-  networkId,  // stable network-session ID
-  bufferId,   // stable destination-buffer ID
-  timestamp,  // ISO 8601 timestamp
-  fields      // event-specific semantic object, or null
+  kind,        // lowercase semantic event name
+  highlighted, // boolean highlight status
+  text,        // safe plain-text representation
+  networkId,   // stable network-session ID
+  bufferId,    // stable destination-buffer ID
+  timestamp,   // ISO 8601 timestamp
+  fields       // event-specific semantic object, or null
 }
 ```
+
+Messages retain their normal event kind when highlighted. `highlighted` is false when `/set highlight` is off or the event is replayed. Foreground highlight copies are not delivered to scripts.
 
 When present, `fields` is an object whose names depend on the event. IRC events commonly provide values such as `nick`, `user`, `host`, `channel`, `actor`, `reason`, `modes`, or request-routing identifiers. Field values are strings or `null`; scripts should check that `fields` and the particular field exist before using them.
 

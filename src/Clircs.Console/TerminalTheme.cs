@@ -64,7 +64,6 @@ internal sealed record TerminalTheme(
     public ConsoleColor EventColor(SessionEventKind kind) => kind switch
     {
         SessionEventKind.Message => Message,
-        SessionEventKind.Highlight => Highlight,
         SessionEventKind.Action => Action,
         SessionEventKind.Notice => Notice,
         SessionEventKind.Join => Join,
@@ -138,7 +137,8 @@ internal sealed record TerminalTheme(
 internal sealed record StatusActivity(
     int Number,
     SessionEventKind Kind,
-    bool IsSelfKick = false);
+    bool IsSelfKick = false,
+    bool IsHighlighted = false);
 
 internal sealed record StatusWarning(
     int Start,

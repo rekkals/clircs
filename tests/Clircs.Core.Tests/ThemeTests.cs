@@ -1697,7 +1697,10 @@ internal static class ThemeTests
         const string context = "EFNet[Lag:1.2]";
         var status = new StatusBarModel(
             [context],
-            [new(2, SessionEventKind.Message), new(3, SessionEventKind.Highlight)],
+            [
+                new(2, SessionEventKind.Message),
+                new(3, SessionEventKind.Message, IsHighlighted: true)
+            ],
             new StatusWarning(context.IndexOf("1.2", StringComparison.Ordinal), 3));
 
         var row = ConsolePresenter.FormatStatusBarRow(status, theme, 60);
@@ -2010,7 +2013,7 @@ internal static class ThemeTests
             session, second, SessionEventKind.Message, "second", DateTimeOffset.Now));
         states.Activate(session, first);
         states.MarkUnread(first, SessionEventKind.Message);
-        states.MarkUnread(second, SessionEventKind.Highlight);
+        states.MarkUnread(second, SessionEventKind.Message, isHighlighted: true);
         states.SetScrollOffset(first, 24);
         states.SetScrollOffset(second, 48);
 
@@ -2033,7 +2036,23 @@ internal static class ThemeTests
         var session = NetworkSessionId.New();
         var buffer = BufferId.New();
         var number = states.AssignNumber(buffer);
-        states.MarkUnread(buffer, SessionEventKind.Highlight);
+        var message = new SessionEvent(
+            session, buffer, SessionEventKind.Message, "hello", DateTimeOffset.Now)
+        {
+            IsHighlighted = true
+        };
+        states.StoreEvent(
+            message,
+            incomingRows: 1,
+            measureRows: _ => 1,
+            isReplay: false,
+            trackUnread: true);
+
+        var activity = states.UnreadActivities(buffer).Single();
+        Assert.Equal(SessionEventKind.Message, activity.Kind);
+        Assert.True(activity.IsHighlighted);
+        Assert.Equal("highlight", ClientApplication.ActivityName(activity));
+        Assert.Equal(message, states.HistorySnapshot(buffer).Single());
         states.SetScrollOffset(buffer, 48);
 
         states.Activate(session, buffer);

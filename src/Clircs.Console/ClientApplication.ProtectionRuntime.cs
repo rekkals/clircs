@@ -209,7 +209,6 @@ internal sealed partial class ClientApplication
     private static bool IsPermanentIgnoreCandidate(SessionEvent sessionEvent) =>
         sessionEvent.Kind is
             SessionEventKind.Message or
-            SessionEventKind.Highlight or
             SessionEventKind.Notice or
             SessionEventKind.Action ||
         sessionEvent.Fields?.GetValueOrDefault("event") == "dcc.invalid";
@@ -377,7 +376,7 @@ internal sealed partial class ClientApplication
                 Add(ProtectionDetector.Ctcp);
             else if (fields.GetValueOrDefault("event") == "invite") Add(ProtectionDetector.Invite);
             else if (sessionEvent.Kind == SessionEventKind.Notice) Add(ProtectionDetector.PrivateNotice);
-            else if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Highlight or SessionEventKind.Action)
+            else if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Action)
                 Add(ProtectionDetector.PrivateMessage);
             return evidence;
         }
@@ -389,7 +388,7 @@ internal sealed partial class ClientApplication
             return evidence;
         }
 
-        if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Highlight or SessionEventKind.Action or SessionEventKind.Notice)
+        if (sessionEvent.Kind is SessionEventKind.Message or SessionEventKind.Action or SessionEventKind.Notice)
         {
             Add(ProtectionDetector.Text);
             if (!string.IsNullOrWhiteSpace(text)) Add(ProtectionDetector.Repeat);
