@@ -63,7 +63,7 @@ internal static class SessionTests
         suite.Add("STATS u preserves server uptime text and suppresses its terminator", StatsUptimePreservesServerText);
         suite.Add("MOTD replies render without numeric prefixes", MotdNumericsAreHidden);
         suite.Add("WHOIS WHO and CTCP replies carry semantic routing fields", ResultRepliesAreTagged);
-        suite.Add("WHOIS away field contains only the away message", WhoisAwayFieldContainsMessage);
+        suite.Add("away replies suppress duplicates while preserving WHOIS and resetting on disconnect", WhoisAwayFieldContainsMessage);
         suite.Add("nickname WHO uses the labeled table without totals", NicknameWhoUsesTable);
         suite.Add("WHO formatting follows the requested input kind", WhoFormattingFollowsInputKind);
         suite.Add("WHO caps retained rows and resets while applying overflow rows to channel state", WhoCapsAndResets);
@@ -2500,13 +2500,40 @@ internal static class SessionTests
     private static void WhoisAwayFieldContainsMessage()
     {
         var (_, processor) = CreateProcessor();
+        var away = IrcMessageParser.Parse(":server 301 me Alice :out to lunch");
+
+        var first = processor.Process(away);
+        Assert.Equal(1, first.Count);
+        Assert.Equal("Alice is away: out to lunch", first[0].Text);
+        Assert.Equal(0, processor.Process(away).Count);
+        Assert.Equal(0, processor.Process(
+            IrcMessageParser.Parse(":server 301 me ALICE :out to lunch")).Count);
+
+        var changed = IrcMessageParser.Parse(":server 301 me Alice :out to dinner");
+        Assert.Equal(1, processor.Process(changed).Count);
+        Assert.Equal(0, processor.Process(changed).Count);
+
+        var otherAway = IrcMessageParser.Parse(":server 301 me Bob :out to lunch");
+        Assert.Equal(1, processor.Process(otherAway).Count);
+        Assert.Equal(1, processor.Process(away).Count);
+        Assert.Equal(0, processor.Process(away).Count);
+
+        var (_, otherProcessor) = CreateProcessor();
+        Assert.Equal(1, otherProcessor.Process(away).Count);
+
+        processor.BeginWhoisRequest("Alice", includeIdle: false);
         processor.Process(IrcMessageParser.Parse(":server 311 me Alice user host * :Alice Person"));
-        processor.Process(IrcMessageParser.Parse(":server 301 me Alice :out to lunch"));
+        processor.Process(away);
         var whois = processor.Process(IrcMessageParser.Parse(":server 318 me Alice :End of WHOIS"));
 
         Assert.Equal("out to lunch",
             whois[0].Presentation!.Fields!.Single(field => field.Label == "Away").Value);
         Assert.False(whois[0].Presentation!.Fields!.Any(field => field.Label == "Status"));
+        Assert.Equal(0, processor.Process(away).Count);
+
+        processor.ResetPendingQueries();
+        Assert.Equal(1, processor.Process(away).Count);
+        Assert.Equal(0, processor.Process(away).Count);
     }
 
     private static async ValueTask OutboundNoticesDoNotCreateBuffers()

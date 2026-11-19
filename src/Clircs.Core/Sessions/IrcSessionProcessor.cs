@@ -21,6 +21,8 @@ public sealed class IrcSessionProcessor
     private AutomaticVersionProbeState _automaticVersionProbeState;
     private bool _automaticUserModeQueryPending;
     private bool _operAttemptPending;
+    private string? _lastAwayReplyNickname;
+    private string? _lastAwayReplyMessage;
 
     public IrcSessionProcessor(NetworkSessionState state, string initialNickname)
     {
@@ -58,6 +60,8 @@ public sealed class IrcSessionProcessor
         _automaticVersionProbeState = AutomaticVersionProbeState.None;
         _automaticUserModeQueryPending = false;
         _operAttemptPending = false;
+        _lastAwayReplyNickname = null;
+        _lastAwayReplyMessage = null;
     }
 
     public Guid BeginWhoRequest(IReadOnlyList<string> arguments, bool automatic = false)
@@ -387,13 +391,24 @@ public sealed class IrcSessionProcessor
                 if (message.Parameters.Count >= 3)
                 {
                     var awayTarget = message.Parameters[1];
+                    var awayMessage = message.Parameters[2];
+                    if (_lastAwayReplyNickname is not null &&
+                        NameComparer().Equals(_lastAwayReplyNickname, awayTarget) &&
+                        string.Equals(_lastAwayReplyMessage, awayMessage, StringComparison.Ordinal))
+                    {
+                        break;
+                    }
+
+                    _lastAwayReplyNickname = awayTarget;
+                    _lastAwayReplyMessage = awayMessage;
+
                     var hasAwayQuery =
                         _state.TryGetBuffer(awayTarget, out var awayQuery) &&
                         awayQuery!.Kind == BufferKind.Query;
                     events.Add(Event(
                         hasAwayQuery ? awayQuery! : _state.StatusBuffer,
                         SessionEventKind.Notice,
-                        $"{awayTarget} is away: {message.Parameters[2]}",
+                        $"{awayTarget} is away: {awayMessage}",
                         now,
                         Fields(
                             ("event", "away.reply"),
