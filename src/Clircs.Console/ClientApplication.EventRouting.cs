@@ -1,3 +1,4 @@
+using Clircs.Commands;
 using Clircs.Identity;
 using Clircs.Networking;
 using Clircs.Sessions;
@@ -279,9 +280,15 @@ internal sealed partial class ClientApplication
         if (context.ReturnedFromAway && context.EventSession is not null)
         {
             var network = AwayNetwork(context.EventSession);
-            if (_awayMessageStore.ForNetwork(network.Key).Any(entry => !entry.Read))
+            var unreadCount = _awayMessageStore.ForNetwork(network.Key).Count(entry => !entry.Read);
+            if (unreadCount > 0)
             {
-                DisplayCommandResult(OpenAwayMessageIndex(context.EventSession, network.Key, network.Name));
+                var message = unreadCount == 1
+                    ? "1 unread away message. Use /messages to read it"
+                    : $"{unreadCount} unread away messages. Use /messages to read them";
+                DisplayCommandResult(
+                    CommandResult.Success(message),
+                    new CommandContext(context.Event.NetworkSessionId, context.Event.BufferId));
             }
         }
         TryAutoAcceptXdcc(context.Event);
