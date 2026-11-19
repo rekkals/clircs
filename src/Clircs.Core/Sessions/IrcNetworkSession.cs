@@ -671,14 +671,14 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         string text,
         CancellationToken cancellationToken = default,
         bool echoLocally = true,
-        IrcOutboundPriority priority = IrcOutboundPriority.Interactive)
+        IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
+        BufferId? echoBufferId = null)
     {
         var segments = IrcTextSegmenter.Split(
             text,
             MaximumRelayTextBytes(
                 "NOTICE",
                 target));
-        var buffer = ResolveNoticeBuffer(target);
 
         foreach (var segment in segments)
         {
@@ -708,11 +708,23 @@ public sealed class IrcNetworkSession : IAsyncDisposable
 
             if (echoLocally)
             {
-                Raise(
-                    buffer,
-                    SessionEventKind.Notice,
-                    $"->{target}<- {segment}");
+                BufferState? buffer;
+                if (echoBufferId is { } issuingBufferId)
+                {
+                    State.TryGetBuffer(issuingBufferId, out buffer);
+                }
+                else
+                {
+                    buffer = ResolveNoticeBuffer(target);
+                }
 
+                if (buffer is not null)
+                {
+                    Raise(
+                        buffer,
+                        SessionEventKind.Notice,
+                        $"->{target}<- {segment}");
+                }
             }
         }
     }

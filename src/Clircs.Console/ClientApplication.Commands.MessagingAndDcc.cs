@@ -56,15 +56,11 @@ internal sealed partial class ClientApplication
             return failure;
         }
 
-        await session.SendNoticeAsync(target, text, cancellationToken);
-        var destination = session.Features.IsChannel(target) && session.State.TryGetBuffer(target, out var existing)
-            ? existing!
-            : session.State.StatusBuffer;
-        EchoInActiveBuffer(
-            session,
-            SessionEventKind.Notice,
-            $"->{target}<- {text}",
-            destination.Id);
+        await session.SendNoticeAsync(
+            target,
+            text,
+            cancellationToken,
+            echoBufferId: context.BufferId);
 
         return CommandResult.Success();
     }
