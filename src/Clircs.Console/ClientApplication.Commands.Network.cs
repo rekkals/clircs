@@ -1342,9 +1342,9 @@ internal sealed partial class ClientApplication
         if (session is null) return ValueTask.FromResult(failure);
         try
         {
-            var network = AwayNetwork(session);
-            var networkKey = network.Key;
-            var networkName = network.Name;
+            var inbox = AwayInbox(session);
+            var inboxKey = inbox.Key;
+            var inboxName = inbox.Name;
             var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
             switch (operation)
             {
@@ -1355,7 +1355,8 @@ internal sealed partial class ClientApplication
                         return ValueTask.FromResult(CommandResult.Failure(
                             "Usage: /messages [list|read <nick>|delete <nick>|clear]"));
                     }
-                    return ValueTask.FromResult(OpenAwayMessageIndex(session, networkKey, networkName));
+                    return ValueTask.FromResult(
+                        OpenAwayMessageIndex(session, inbox.Store, inboxKey, inboxName));
                 }
                 case "read":
                 {
@@ -1364,15 +1365,15 @@ internal sealed partial class ClientApplication
                         return ValueTask.FromResult(CommandResult.Failure("Usage: /messages read <nick>"));
                     }
                     var nickname = input.Arguments[1];
-                    var entries = _awayMessageStore.ForNetwork(networkKey)
+                    var entries = inbox.Store.ForInbox(inboxKey)
                         .Where(entry => entry.Nickname.Equals(nickname, StringComparison.OrdinalIgnoreCase))
                         .ToArray();
                     if (entries.Length == 0)
                     {
                         return ValueTask.FromResult(CommandResult.Failure(
-                            $"No saved away messages from {nickname} on {networkName}."));
+                            $"No saved away messages from {nickname} on {inboxName}."));
                     }
-                    _awayMessageStore.MarkRead(networkKey, nickname);
+                    inbox.Store.MarkRead(inboxKey, nickname);
                     SwitchTo(session, AwayMessagesBuffer(session));
                     var rows = entries.Select(entry => (IReadOnlyList<string>)new[]
                     {
@@ -1394,7 +1395,7 @@ internal sealed partial class ClientApplication
                     {
                         return ValueTask.FromResult(CommandResult.Failure("Usage: /messages delete <nick>"));
                     }
-                    var removed = _awayMessageStore.Delete(networkKey, input.Arguments[1]);
+                    var removed = inbox.Store.Delete(inboxKey, input.Arguments[1]);
                     return ValueTask.FromResult(CommandResult.Success(removed == 0
                         ? $"No saved away messages from {input.Arguments[1]}."
                         : $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} from {input.Arguments[1]}."));
@@ -1405,10 +1406,10 @@ internal sealed partial class ClientApplication
                     {
                         return ValueTask.FromResult(CommandResult.Failure("Usage: /messages clear"));
                     }
-                    var removed = _awayMessageStore.Delete(networkKey);
+                    var removed = inbox.Store.Delete(inboxKey);
                     return ValueTask.FromResult(CommandResult.Success(
-                        removed == 0 ? $"No saved away messages for {networkName}." :
-                        $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} for {networkName}."));
+                        removed == 0 ? $"No saved away messages for {inboxName}." :
+                        $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} for {inboxName}."));
                 }
                 default:
                     return ValueTask.FromResult(CommandResult.Failure(
@@ -1421,12 +1422,16 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private CommandResult OpenAwayMessageIndex(IrcNetworkSession session, string networkKey, string networkName)
+    private CommandResult OpenAwayMessageIndex(
+        IrcNetworkSession session,
+        AwayMessageStore store,
+        string inboxKey,
+        string inboxName)
     {
-        var entries = _awayMessageStore.ForNetwork(networkKey);
+        var entries = store.ForInbox(inboxKey);
         if (entries.Count == 0)
         {
-            return CommandResult.Success($"No saved away messages for {networkName}.");
+            return CommandResult.Success($"No saved away messages for {inboxName}.");
         }
         SwitchTo(session, AwayMessagesBuffer(session));
         var rows = entries
@@ -1440,7 +1445,7 @@ internal sealed partial class ClientApplication
                 group.Max(entry => entry.ReceivedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
             }).ToArray();
         return CommandResult.Success(new PresentationBlock(
-            $"AWAY MESSAGES: {networkName}",
+            $"AWAY MESSAGES: {inboxName}",
             Table: new PresentationTable(["Nick", "Messages", "Unread", "Last received"], rows),
             Summary: "Use /messages read <nick>, /messages delete <nick>, or /messages clear."));
     }
@@ -1448,12 +1453,23 @@ internal sealed partial class ClientApplication
     private static BufferState AwayMessagesBuffer(IrcNetworkSession session) =>
         session.State.GetOrCreateBuffer(BufferKind.Results, "=messages");
 
-    private (string Key, string Name) AwayNetwork(IrcNetworkSession session)
+    private (AwayMessageStore Store, string Key, string Name) AwayInbox(
+        IrcNetworkSession session)
     {
-        var profile = ProfileFor(session);
-        var name = session.Features.NetworkName ?? profile?.NetworkName ?? profile?.DisplayName ??
-            session.State.DisplayName;
-        return ($"network:{name.Trim().ToLowerInvariant()}", name);
+        var runtime = _liveSessions.Runtime(session)
+            ?? throw new InvalidOperationException("The network session is closed.");
+
+        if (runtime.ProfileId is { } profileId)
+        {
+            var name = _profileStore.Find(profileId)?.DisplayName
+                ?? session.State.DisplayName;
+            return (_awayMessageStore, $"profile:{profileId}", name);
+        }
+
+        return (
+            runtime.TemporaryAwayMessages,
+            $"session:{session.State.Id}",
+            session.State.DisplayName);
     }
 
     private void RecordAwayMessage(SessionEvent sessionEvent)
@@ -1471,11 +1487,11 @@ internal sealed partial class ClientApplication
         }
         try
         {
-            var network = AwayNetwork(session);
-            _awayMessageStore.Add(new AwayMessageEntry(
+            var inbox = AwayInbox(session);
+            inbox.Store.Add(new AwayMessageEntry(
                 Guid.NewGuid(),
-                network.Key,
-                network.Name,
+                inbox.Key,
+                inbox.Name,
                 nickname,
                 sessionEvent.Fields.GetValueOrDefault("username"),
                 sessionEvent.Fields.GetValueOrDefault("host"),

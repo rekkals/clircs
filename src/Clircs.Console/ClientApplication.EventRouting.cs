@@ -279,8 +279,8 @@ internal sealed partial class ClientApplication
         }
         if (context.ReturnedFromAway && context.EventSession is not null)
         {
-            var network = AwayNetwork(context.EventSession);
-            var unreadCount = _awayMessageStore.ForNetwork(network.Key).Count(entry => !entry.Read);
+            var inbox = AwayInbox(context.EventSession);
+            var unreadCount = inbox.Store.ForInbox(inbox.Key).Count(entry => !entry.Read);
             if (unreadCount > 0)
             {
                 var message = unreadCount == 1

@@ -20,6 +20,8 @@ internal sealed class LiveNetworkSession(
 
     public NetworkProfileId? ProfileId { get; set; } = profileId;
 
+    public AwayMessageStore TemporaryAwayMessages { get; } = new();
+
     public CancellationTokenSource? ReconnectCancellation { get; set; }
 
     public SessionWorkTracker Work { get; } = new(applicationToken);
