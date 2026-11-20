@@ -111,31 +111,6 @@ internal sealed class AwayMessageStore
         }
     }
 
-    public int MarkRead(string inboxKey, string nickname)
-    {
-        lock (_gate)
-        {
-            EnsureWritable();
-            var candidate = new List<AwayMessageEntry>(_entries);
-            var changed = 0;
-            for (var index = 0; index < candidate.Count; index++)
-            {
-                var entry = candidate[index];
-                if (!entry.InboxKey.Equals(inboxKey, StringComparison.OrdinalIgnoreCase) ||
-                    !entry.Nickname.Equals(nickname, StringComparison.OrdinalIgnoreCase) ||
-                    entry.Read) continue;
-                candidate[index] = entry with { Read = true };
-                changed++;
-            }
-            if (changed > 0)
-            {
-                SaveUnsafe(candidate, _sequences);
-                _entries = candidate;
-            }
-            return changed;
-        }
-    }
-
     public int Delete(
         string inboxKey,
         string? nickname = null,

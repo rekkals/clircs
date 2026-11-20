@@ -284,8 +284,8 @@ internal sealed partial class ClientApplication
             if (unreadCount > 0)
             {
                 var message = unreadCount == 1
-                    ? "1 unread away message. Use /messages to read it"
-                    : $"{unreadCount} unread away messages. Use /messages to read them";
+                    ? "1 unread away message. Use /messages list or /messages window."
+                    : $"{unreadCount} unread away messages. Use /messages list or /messages window.";
                 DisplayCommandResult(
                     CommandResult.Success(message),
                     new CommandContext(context.Event.NetworkSessionId, context.Event.BufferId));

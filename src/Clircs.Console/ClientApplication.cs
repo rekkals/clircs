@@ -42,7 +42,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["nick"] = "/nick <nickname>",
             ["away"] = "/away [message]",
             ["back"] = "/back",
-            ["messages"] = "/messages [list|read <nick>|delete <nick>|clear]",
+            ["messages"] = "/messages [list|read|delete|clear|window] [arguments]",
             ["window"] = "/window [number|name]",
             ["clear"] = "/clear [activity]",
             ["close"] = "/close [--force]",

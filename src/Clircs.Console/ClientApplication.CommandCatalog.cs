@@ -24,7 +24,7 @@ internal sealed partial class ClientApplication
         Register("nick", [], "Change your nickname, or set it before connecting.", NickAsync);
         Register("away", [], "Set yourself as away.", AwayAsync);
         Register("back", [], "Set yourself as back.", BackAsync);
-        Register("messages", [], "Read or remove messages logged while away.", AwayMessagesAsync);
+        Register("messages", ["inbox"], "Read or remove messages logged while away.", AwayMessagesAsync);
         Register("window", ["win"], "List windows or switch to window [number|name].", BufferAsync);
         Register("next", ["wn"], "Switch to the next window.", NextBufferAsync);
         Register("previous", ["wp"], "Switch to the previous window.", PreviousBufferAsync);
@@ -199,6 +199,19 @@ internal sealed partial class ClientApplication
             new("--new", "Open a new network session instead of replacing active."),
             new("--password", "Prompt securely for a server/bouncer password; overrides the value for this session without saving it."),
             new("Example", "/server EFNet 2 --new")
+        ],
+        "messages" =>
+        [
+            new("List senders", "/messages [list]"),
+            new("List previews", "/messages list <nick>"),
+            new("Read message", "/messages read <nick> <number>"),
+            new("Delete message", "/messages delete <nick> <number>"),
+            new("Delete sender", "/messages delete <nick> all"),
+            new("Clear inbox", "/messages clear"),
+            new("Open window", "/messages window"),
+            new("Read status", "Listing preserves read status; reading marks only the selected message read."),
+            new("Profiles", "Messages are saved per profile and survive restarts."),
+            new("Profile-less", "Messages survive reconnects; closing the session or clircs discards them.")
         ],
         "network" =>
         [

@@ -1349,71 +1349,114 @@ internal sealed partial class ClientApplication
             switch (operation)
             {
                 case "list":
-                {
-                    if (input.Arguments.Count != 0 && input.Arguments.Count != 1)
                     {
-                        return ValueTask.FromResult(CommandResult.Failure(
-                            "Usage: /messages [list|read <nick>|delete <nick>|clear]"));
+                        if (input.Arguments.Count > 2)
+                        {
+                            return ValueTask.FromResult(CommandResult.Failure(
+                                "Usage: /messages list [nick]"));
+                        }
+
+                        var entries = inbox.Store.ForInbox(inboxKey);
+                        return ValueTask.FromResult(input.Arguments.Count == 2
+                            ? BuildAwaySenderIndex(entries, inboxName, input.Arguments[1])
+                            : BuildAwayMessageIndex(entries, inboxName));
                     }
-                    return ValueTask.FromResult(
-                        OpenAwayMessageIndex(session, inbox.Store, inboxKey, inboxName));
-                }
+                case "window":
+                    {
+                        if (input.Arguments.Count != 1)
+                        {
+                            return ValueTask.FromResult(CommandResult.Failure(
+                                "Usage: /messages window"));
+                        }
+
+                        if (session.State.TryGetBuffer("=messages", out var existing) &&
+                            existing is not null)
+                        {
+                            return ValueTask.FromResult(SwitchTo(session, existing));
+                        }
+
+                        var result = BuildAwayMessageIndex(
+                            inbox.Store.ForInbox(inboxKey), inboxName);
+                        if (result.Presentation is null)
+                        {
+                            return ValueTask.FromResult(result);
+                        }
+
+                        var buffer = AwayMessagesBuffer(session);
+                        SwitchTo(session, buffer);
+                        DisplayCommandResult(
+                            result, new CommandContext(session.State.Id, buffer.Id));
+                        return ValueTask.FromResult(CommandResult.Success());
+                    }
                 case "read":
-                {
-                    if (input.Arguments.Count != 2)
                     {
-                        return ValueTask.FromResult(CommandResult.Failure("Usage: /messages read <nick>"));
+                        if (input.Arguments.Count != 3 ||
+                            !long.TryParse(input.Arguments[2], NumberStyles.None,
+                                CultureInfo.InvariantCulture, out var number) ||
+                            number < 1)
+                        {
+                            return ValueTask.FromResult(CommandResult.Failure(
+                                "Usage: /messages read <nick> <number>"));
+                        }
+
+                        var nickname = input.Arguments[1];
+                        var entry = inbox.Store.Read(inboxKey, nickname, number);
+                        if (entry is null)
+                        {
+                            return ValueTask.FromResult(CommandResult.Failure(
+                                $"No saved away message {number} from {nickname} for {inboxName}."));
+                        }
+
+                        DisplayAwayMessage(session, context, entry);
+                        return ValueTask.FromResult(CommandResult.Success());
                     }
-                    var nickname = input.Arguments[1];
-                    var entries = inbox.Store.ForInbox(inboxKey)
-                        .Where(entry => entry.Nickname.Equals(nickname, StringComparison.OrdinalIgnoreCase))
-                        .ToArray();
-                    if (entries.Length == 0)
-                    {
-                        return ValueTask.FromResult(CommandResult.Failure(
-                            $"No saved away messages from {nickname} on {inboxName}."));
-                    }
-                    inbox.Store.MarkRead(inboxKey, nickname);
-                    SwitchTo(session, AwayMessagesBuffer(session));
-                    var rows = entries.Select(entry => (IReadOnlyList<string>)new[]
-                    {
-                        entry.ReceivedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                        entry.Type,
-                        entry.Text
-                    }).ToArray();
-                    var address = entries[^1].Username is null && entries[^1].Host is null
-                        ? nickname
-                        : $"{nickname}!{entries[^1].Username ?? "*"}@{entries[^1].Host ?? "*"}";
-                    return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
-                        $"MESSAGES: {nickname}",
-                        [new PresentationField("Address", address)],
-                        new PresentationTable(["Received", "Type", "Message"], rows))));
-                }
                 case "delete":
-                {
-                    if (input.Arguments.Count != 2)
                     {
-                        return ValueTask.FromResult(CommandResult.Failure("Usage: /messages delete <nick>"));
+                        const string usage = "Usage: /messages delete <nick> <number|all>";
+                        if (input.Arguments.Count != 3)
+                        {
+                            return ValueTask.FromResult(CommandResult.Failure(usage));
+                        }
+
+                        var nickname = input.Arguments[1];
+                        long? number = null;
+                        if (!input.Arguments[2].Equals("all", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!long.TryParse(input.Arguments[2], NumberStyles.None,
+                                    CultureInfo.InvariantCulture, out var parsedNumber) ||
+                                parsedNumber < 1)
+                            {
+                                return ValueTask.FromResult(CommandResult.Failure(usage));
+                            }
+                            number = parsedNumber;
+                        }
+
+                        var removed = inbox.Store.Delete(inboxKey, nickname, number);
+                        if (number is { } selected)
+                        {
+                            return ValueTask.FromResult(CommandResult.Success(removed == 0
+                                ? $"No saved away message {selected} from {nickname} for {inboxName}."
+                                : $"Deleted saved away message {selected} from {nickname}."));
+                        }
+
+                        return ValueTask.FromResult(CommandResult.Success(removed == 0
+                            ? $"No saved away messages from {nickname} for {inboxName}."
+                            : $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} from {nickname}."));
                     }
-                    var removed = inbox.Store.Delete(inboxKey, input.Arguments[1]);
-                    return ValueTask.FromResult(CommandResult.Success(removed == 0
-                        ? $"No saved away messages from {input.Arguments[1]}."
-                        : $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} from {input.Arguments[1]}."));
-                }
                 case "clear":
-                {
-                    if (input.Arguments.Count != 1)
                     {
-                        return ValueTask.FromResult(CommandResult.Failure("Usage: /messages clear"));
+                        if (input.Arguments.Count != 1)
+                        {
+                            return ValueTask.FromResult(CommandResult.Failure("Usage: /messages clear"));
+                        }
+                        var removed = inbox.Store.Delete(inboxKey);
+                        return ValueTask.FromResult(CommandResult.Success(
+                            removed == 0 ? $"No saved away messages for {inboxName}." :
+                            $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} for {inboxName}."));
                     }
-                    var removed = inbox.Store.Delete(inboxKey);
-                    return ValueTask.FromResult(CommandResult.Success(
-                        removed == 0 ? $"No saved away messages for {inboxName}." :
-                        $"Deleted {removed} saved away message{(removed == 1 ? string.Empty : "s")} for {inboxName}."));
-                }
                 default:
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /messages [list|read <nick>|delete <nick>|clear]"));
+                        "Usage: /messages [list|read|delete|clear|window] [arguments]"));
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -1422,32 +1465,132 @@ internal sealed partial class ClientApplication
         }
     }
 
-    private CommandResult OpenAwayMessageIndex(
-        IrcNetworkSession session,
-        AwayMessageStore store,
-        string inboxKey,
+    private static CommandResult BuildAwayMessageIndex(
+        IReadOnlyList<AwayMessageEntry> entries,
         string inboxName)
     {
-        var entries = store.ForInbox(inboxKey);
         if (entries.Count == 0)
         {
             return CommandResult.Success($"No saved away messages for {inboxName}.");
         }
-        SwitchTo(session, AwayMessagesBuffer(session));
+
         var rows = entries
             .GroupBy(entry => entry.Nickname, StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
             .Select(group => (IReadOnlyList<string>)new[]
             {
                 group.Key,
-                group.Count().ToString(),
-                group.Count(entry => !entry.Read).ToString(),
-                group.Max(entry => entry.ReceivedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                group.Count().ToString(CultureInfo.InvariantCulture),
+                group.Count(entry => !entry.Read).ToString(CultureInfo.InvariantCulture),
+                group.Max(entry => entry.ReceivedAt).ToLocalTime()
+                    .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             }).ToArray();
+
         return CommandResult.Success(new PresentationBlock(
-            $"AWAY MESSAGES: {inboxName}",
-            Table: new PresentationTable(["Nick", "Messages", "Unread", "Last received"], rows),
-            Summary: "Use /messages read <nick>, /messages delete <nick>, or /messages clear."));
+            $"Messages: {inboxName}",
+            Table: new PresentationTable(
+                ["Nick", "Messages", "Unread", "Last received"], rows)));
+    }
+
+    private static CommandResult BuildAwaySenderIndex(
+        IReadOnlyList<AwayMessageEntry> entries,
+        string inboxName,
+        string nickname)
+    {
+        var messages = entries
+            .Where(entry => entry.Nickname.Equals(nickname, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (messages.Length == 0)
+        {
+            return CommandResult.Failure(
+                $"No saved away messages from {nickname} for {inboxName}.");
+        }
+
+        var rows = messages.Select(entry => (IReadOnlyList<string>)new[]
+        {
+            entry.Number.ToString(CultureInfo.InvariantCulture),
+            entry.ReceivedAt.ToLocalTime()
+                .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            entry.Read ? "no" : "yes",
+            entry.Type,
+            entry.Text
+        }).ToArray();
+
+        var last = messages[^1];
+        var address = last.Username is null && last.Host is null
+            ? last.Nickname
+            : $"{last.Nickname}!{last.Username ?? "*"}@{last.Host ?? "*"}";
+
+        return CommandResult.Success(new PresentationBlock(
+            $"Messages: {inboxName}/{last.Nickname}",
+            [new PresentationField("Address", address)],
+            new PresentationTable(
+                ["No.", "Received", "Unread", "Type", "Preview"],
+                rows,
+                PreserveColumns: new HashSet<int> { 4 },
+                KeepAllColumns: true)));
+    }
+
+    private void DisplayAwayMessage(
+        IrcNetworkSession session,
+        CommandContext context,
+        AwayMessageEntry entry)
+    {
+        _applicationEvents.Dispatch(() =>
+        {
+            var buffer = BufferFor(session, context.BufferId) ?? session.State.StatusBuffer;
+            const string source = "[Messages] ";
+            var received = entry.ReceivedAt.ToLocalTime().ToString("F");
+            var suffix = $" ({received})";
+            var isAction = entry.Type == "action";
+            var body = TerminalTextSanitizer.Sanitize(isAction
+                ? $"* {entry.Nickname} {entry.Text}"
+                : $"<{entry.Nickname}> {entry.Text}");
+
+            var formatted = new IrcFormattedText(source + body + suffix,
+            [
+                new IrcTextRun(source,
+                    new IrcTextStyle { ForegroundRole = TextColorRole.Accent }),
+                new IrcTextRun(body,
+                    new IrcTextStyle
+                    {
+                        ForegroundRole = isAction ? TextColorRole.Action : TextColorRole.Normal
+                    }),
+                new IrcTextRun(suffix,
+                    new IrcTextStyle { ForegroundRole = TextColorRole.Dim })
+            ]);
+
+            var sessionEvent = new SessionEvent(
+                session.State.Id,
+                buffer.Id,
+                SessionEventKind.Server,
+                formatted.PlainText,
+                DateTimeOffset.Now,
+                new Dictionary<string, string?>
+                {
+                    ["event"] = "messages.read",
+                    ["clientResult"] = "true"
+                },
+                FormattedContent: formatted);
+
+            StoredWindowEvent stored;
+            lock (_windowTransactionGate)
+            {
+                if (_liveSessions.Find(session.State.Id) != session ||
+                    !session.State.TryGetBuffer(buffer.Id, out _)) return;
+
+                stored = StoreWindowEventUnsafe(
+                    sessionEvent, buffer.Name, isReplay: false, trackUnread: false);
+            }
+
+            if (!stored.Stored) return;
+            if (stored.IsActive && !stored.IsScrolled)
+            {
+                if (stored.Replaced) RedrawActiveBuffer();
+                else PresentWindowEvent(sessionEvent, buffer.Name, stored.DateChange);
+            }
+            if (stored.IsActive) RefreshWindowChrome();
+        });
     }
 
     private static BufferState AwayMessagesBuffer(IrcNetworkSession session) =>

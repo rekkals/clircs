@@ -65,7 +65,8 @@ internal static class AwayMessageStoreTests
         Assert.True(store.Read(inboxKey, "Alice", 2) is null);
         store.Add(Message(inboxKey, "EFnet", "alice", "four"));
         Assert.Equal(3L, store.ForInbox(inboxKey).Last().Number);
-        Assert.Equal(2, store.MarkRead(inboxKey, "alice"));
+        Assert.True(store.Read(inboxKey, "alice", 1)!.Read);
+        Assert.True(store.Read(inboxKey, "alice", 3)!.Read);
         Assert.True(store.ForInbox(inboxKey)
             .Where(entry => entry.Nickname.Equals("Alice", StringComparison.OrdinalIgnoreCase))
             .All(entry => entry.Read));
