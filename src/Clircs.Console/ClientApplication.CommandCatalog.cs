@@ -126,6 +126,7 @@ internal sealed partial class ClientApplication
         Register("userwall", ["uwall"], "Notice active-channel operators who are not marked as bots.", UserWallAsync);
         Register("names", [], "Request a channel's nickname list; defaults to the active channel.", NamesAsync);
         Register("who", [], "Performs a WHO on the active window or specified [channel|nickname|mask].", WhoAsync);
+        Register("ircops", [], "List visible IRC operators in a channel.", IrcOpsAsync);
         Register("whois", ["wi", "w"], "Performs a WHOIS on <nickname>.", WhoisAsync);
         Register("iwhois", ["wii"], "Performs WHOIS on <nickname> with idle and sign-on information.", IdleWhoisAsync);
         Register("whowas", ["ww"], "Performs WHOWAS on <nickname>.", WhowasAsync);

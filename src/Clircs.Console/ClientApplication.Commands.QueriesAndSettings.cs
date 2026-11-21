@@ -31,6 +31,32 @@ internal sealed partial class ClientApplication
     private ValueTask<CommandResult> WhoAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken) =>
         SendWhoAsync(input.Arguments.Count == 0 && ActiveChannel() is { } channel ? [channel] : input.Arguments, cancellationToken);
 
+    private ValueTask<CommandResult> IrcOpsAsync(
+        CommandContext context,
+        CommandInput input,
+        CancellationToken cancellationToken)
+    {
+        const string usage = "Usage: /ircops [channel]";
+        if (input.Arguments.Count > 1)
+        {
+            return ValueTask.FromResult(CommandResult.Failure(usage));
+        }
+
+        var session = RequireSession(out var failure);
+        if (session is null) return ValueTask.FromResult(failure);
+
+        var channelName = input.Arguments.Count == 1
+            ? input.Arguments[0]
+            : ActiveChannel();
+        if (string.IsNullOrWhiteSpace(channelName) ||
+            !session.Features.IsChannel(channelName))
+        {
+            return ValueTask.FromResult(CommandResult.Failure(usage));
+        }
+
+        return SendWhoAsync([channelName], cancellationToken, operatorsOnly: true);
+    }
+
     private async ValueTask<CommandResult> ClonesAsync(
         CommandContext context,
         CommandInput input,
@@ -1189,7 +1215,8 @@ internal sealed partial class ClientApplication
 
     private async ValueTask<CommandResult> SendWhoAsync(
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool operatorsOnly = false)
     {
         var session = RequireSession(out var failure);
         if (session is null) return failure;
@@ -1199,7 +1226,11 @@ internal sealed partial class ClientApplication
         TrackOutputRequest(session, "who", requestId);
         try
         {
-            await session.SendWhoAsync(requestId, arguments, cancellationToken: cancellationToken);
+            await session.SendWhoAsync(
+                requestId,
+                arguments,
+                cancellationToken: cancellationToken,
+                operatorsOnly: operatorsOnly);
             return CommandResult.Success();
         }
         catch

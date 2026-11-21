@@ -64,13 +64,21 @@ public sealed class IrcSessionProcessor
         _lastAwayReplyMessage = null;
     }
 
-    public Guid BeginWhoRequest(IReadOnlyList<string> arguments, bool automatic = false)
+    public Guid BeginWhoRequest(
+        IReadOnlyList<string> arguments,
+        bool automatic = false,
+        bool operatorsOnly = false)
     {
-        return _identityQueries.BeginWho(arguments, automatic);
+        return _identityQueries.BeginWho(
+            arguments, automatic, operatorsOnly: operatorsOnly);
     }
 
-    internal void BeginWhoRequest(Guid requestId, IReadOnlyList<string> arguments, bool automatic) =>
-        _identityQueries.BeginWho(arguments, automatic, requestId);
+    internal void BeginWhoRequest(
+        Guid requestId,
+        IReadOnlyList<string> arguments,
+        bool automatic,
+        bool operatorsOnly = false) =>
+        _identityQueries.BeginWho(arguments, automatic, requestId, operatorsOnly);
 
     public void CancelWhoRequest(Guid requestId)
     {

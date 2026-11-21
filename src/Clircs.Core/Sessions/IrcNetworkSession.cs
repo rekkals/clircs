@@ -346,14 +346,16 @@ public sealed class IrcNetworkSession : IAsyncDisposable
         IReadOnlyList<string> arguments,
         IrcOutboundPriority priority = IrcOutboundPriority.Interactive,
         CancellationToken cancellationToken = default,
-        bool automatic = false)
+        bool automatic = false,
+        bool operatorsOnly = false)
     {
         var whoArguments = arguments.ToArray();
         try
         {
             await _connection.SendAsync(
                 "WHO", whoArguments, priority, cancellationToken,
-                beforeWrite: () => _processor.BeginWhoRequest(requestId, whoArguments, automatic),
+                beforeWrite: () => _processor.BeginWhoRequest(
+                    requestId, whoArguments, automatic, operatorsOnly),
                 cancelBeforeSend: true).ConfigureAwait(false);
         }
         catch

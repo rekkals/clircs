@@ -75,6 +75,7 @@ internal static class ScriptCommandRequestPolicy
 
         "names",
         "who",
+        "ircops",
         "whois",
         "iwhois",
         "whowas",

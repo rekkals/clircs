@@ -35,7 +35,11 @@ internal sealed class IdentityQueryResponseProcessor
         _whowasResults = new Dictionary<string, WhowasHistory>(NameComparer());
     }
 
-    public Guid BeginWho(IReadOnlyList<string> arguments, bool automatic, Guid? requestId = null)
+    public Guid BeginWho(
+        IReadOnlyList<string> arguments,
+        bool automatic,
+        Guid? requestId = null,
+        bool operatorsOnly = false)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         var target = arguments.Count == 0 ? "*" : arguments[0];
@@ -45,7 +49,10 @@ internal sealed class IdentityQueryResponseProcessor
             : target.Equals("0", StringComparison.Ordinal) || target.IndexOfAny(['*', '?']) >= 0
                 ? WhoRequestKind.Broad
                 : WhoRequestKind.Single;
-        var request = new WhoRequest(requestId ?? Guid.NewGuid(), input, target, kind, automatic);
+        var request = new WhoRequest(requestId ?? Guid.NewGuid(), input, target, kind, automatic)
+        {
+            OperatorsOnly = operatorsOnly
+        };
         lock (_whoGate) _whoRequests.Enqueue(request);
         return request.Id;
     }
@@ -214,6 +221,44 @@ internal sealed class IdentityQueryResponseProcessor
             responseTarget.Equals("0", StringComparison.Ordinal) || responseTarget.IndexOfAny(['*', '?']) >= 0
                 ? WhoRequestKind.Broad : WhoRequestKind.Single,
             Automatic: false);
+        if (request.OperatorsOnly)
+        {
+            var noun = rows.Length == 1 ? "IRC operator" : "IRC operators";
+            var summary = truncated
+                ? $"Showing {rows.Length:N0} IRC operators (partial result)"
+                : $"{rows.Length} {noun}";
+
+            results.Add(_events.Status(
+                SessionEventKind.Server,
+                rows.Length == 0
+                    ? $"No visible IRC operators in {request.Target}"
+                    : $"IRC operators in {request.Target}: {summary}",
+                now,
+                SessionEventBuilder.Fields(
+                    ("outputFamily", "who"), ("outputTarget", request.Target),
+                    ("outputRequestId", request.Id == Guid.Empty ? null : request.Id.ToString("D")),
+                    ("numeric", "315"), ("outputEnd", "true"),
+                    ("clientResult", rows.Length == 0 ? "true" : null),
+                    ("automatic", request.Automatic ? "true" : null)),
+                rows.Length == 0 ? null : new PresentationBlock(
+                    "IRC operators:",
+                    Table: new PresentationTable(
+                        ["Nick", "Address", "Server"],
+                        rows.Select(row => (IReadOnlyList<string>)new[]
+                        {
+                            row.Nick, row.UserHost, row.Server
+                        }).ToArray(),
+                        KeepAllColumns: true,
+                        MaximumWidths:
+                        [
+                            24,
+                            PresentationTable.UnboundedWidth,
+                            PresentationTable.UnboundedWidth
+                        ]),
+                    Summary: summary,
+                    TitleHighlight: request.Target)));
+            return;
+        }
         var partialSummary = truncated ? $"Showing {rows.Length:N0} users (partial result)" : null;
         var here = rows.Count(row => row.Status.StartsWith("here", StringComparison.Ordinal));
         var away = rows.Length - here;
@@ -255,6 +300,9 @@ internal sealed class IdentityQueryResponseProcessor
         lock (_whoGate)
         {
             _whoRequests.TryPeek(out var request);
+            var flags = message.Parameters[6];
+            if (request?.OperatorsOnly == true && !flags.Contains('*')) return;
+
             var rows = request?.Rows ?? _untrackedWhoResults;
             if (rows.Count >= MaximumWhoRows)
             {
@@ -264,7 +312,6 @@ internal sealed class IdentityQueryResponseProcessor
             }
 
             var target = message.Parameters[1];
-            var flags = message.Parameters[6];
             var status = flags.Contains('G') ? "away" : "here";
             if (flags.Contains('*')) status += "*";
             var privilege = new string(flags.Where(symbol => _features.TryGetPrefixMode(symbol, out _)).ToArray());
@@ -680,6 +727,7 @@ internal sealed class IdentityQueryResponseProcessor
     private sealed record WhoRequest(
         Guid Id, string Input, string Target, WhoRequestKind Kind, bool Automatic)
     {
+        public bool OperatorsOnly { get; init; }
         public List<WhoResultRow> Rows { get; } = [];
         public bool Truncated { get; set; }
     }

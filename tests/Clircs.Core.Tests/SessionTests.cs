@@ -66,6 +66,7 @@ internal static class SessionTests
         suite.Add("away replies suppress duplicates while preserving WHOIS and resetting on disconnect", WhoisAwayFieldContainsMessage);
         suite.Add("nickname WHO uses the labeled table without totals", NicknameWhoUsesTable);
         suite.Add("WHO formatting follows the requested input kind", WhoFormattingFollowsInputKind);
+        suite.Add("IRC operator WHO filters display while preserving state and later WHO", IrcOpsFiltersDisplayOnly);
         suite.Add("WHO caps retained rows and resets while applying overflow rows to channel state", WhoCapsAndResets);
         suite.Add("WHOIS idle host and TLS fields are concise", WhoisFieldsAreConcise);
         suite.Add("overlapping WHOIS replies retain their request identities", OverlappingWhoisRequestsRetainIdentity);
@@ -1776,6 +1777,51 @@ internal static class SessionTests
         var empty = processor.Process(IrcMessageParser.Parse(":server 315 me Nobody :End of WHO"))[0].Presentation!;
         Assert.Equal("Nobody", empty.TitleHighlight!);
         Assert.Equal("No matching users.", empty.Summary!);
+    }
+
+    private static void IrcOpsFiltersDisplayOnly()
+    {
+        var (state, processor) = CreateProcessor();
+        var channel = state.GetOrCreateChannel("#clirc");
+        var regular = IrcMessageParser.Parse(
+            ":server 352 me #clirc user host irc.example Alice H@ :0 Alice Person");
+        var oper = IrcMessageParser.Parse(
+            ":server 352 me #clirc oper staff.example irc.staff.example Oper G*+ :0 Oper Person");
+        var end = IrcMessageParser.Parse(":server 315 me #clirc :End of WHO");
+
+        processor.BeginWhoRequest(["#clirc"], operatorsOnly: true);
+        processor.Process(regular);
+        processor.Process(oper);
+        var result = processor.Process(end).Single().Presentation!;
+
+        Assert.Equal("IRC operators:", result.Title);
+        Assert.True(result.Table!.Columns.SequenceEqual(
+            new[] { "Nick", "Address", "Server" }));
+        Assert.True(result.Table.Rows.Single().SequenceEqual(
+            new[] { "Oper", "oper@staff.example", "irc.staff.example" }));
+        Assert.Equal("1 IRC operator", result.Summary!);
+
+        Assert.Equal(2, channel.Members.Count);
+        Assert.True(channel.TryGetMember("Alice", out var alice));
+        Assert.Equal("Alice!user@host", alice!.FullMask!);
+        Assert.Equal("Alice Person", alice.RealName!);
+        Assert.True(alice.PrefixModes.Contains('o'));
+
+        processor.BeginWhoRequest(["#clirc"], operatorsOnly: true);
+        processor.Process(regular);
+        var empty = processor.Process(end).Single();
+
+        Assert.True(empty.Presentation is null);
+        Assert.Equal("No visible IRC operators in #clirc", empty.Text);
+
+        processor.BeginWhoRequest(["#clirc"]);
+        processor.Process(regular);
+        processor.Process(oper);
+        var ordinary = processor.Process(end).Single().Presentation!;
+
+        Assert.Equal("WHO:", ordinary.Title);
+        Assert.Equal(2, ordinary.Table!.Rows.Count);
+        Assert.Equal("@Alice", ordinary.Table.Rows[0][0]);
     }
 
     private static void WhoCapsAndResets()
