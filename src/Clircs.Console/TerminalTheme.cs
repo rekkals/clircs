@@ -101,7 +101,7 @@ internal sealed record TerminalTheme(
         {
             new TerminalTheme(
                 "clircs", ConsoleColor.Gray, ConsoleColor.DarkGray, ConsoleColor.Cyan, ConsoleColor.DarkCyan,
-                ConsoleColor.Gray, ConsoleColor.Yellow, ConsoleColor.Magenta, ConsoleColor.Yellow, ConsoleColor.Cyan, ConsoleColor.DarkCyan,
+                ConsoleColor.Gray, ConsoleColor.Yellow, ConsoleColor.Gray, ConsoleColor.Yellow, ConsoleColor.Cyan, ConsoleColor.DarkCyan,
                 ConsoleColor.Green, ConsoleColor.Cyan, ConsoleColor.Yellow, ConsoleColor.Red,
                 ConsoleColor.Black, ConsoleColor.DarkCyan, "-->", "<--", "┌─ ", "│ ", "└─", " | ", false, true),
             new TerminalTheme(

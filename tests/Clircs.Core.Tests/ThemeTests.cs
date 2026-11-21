@@ -820,7 +820,7 @@ internal static class ThemeTests
         Assert.Equal(ConsoleColor.DarkCyan, TerminalTheme.BuiltIns["clircs"].StatusBackground);
         Assert.Equal(ConsoleColor.Black, TerminalTheme.BuiltIns["clircs"].StatusForeground);
         Assert.Equal(ConsoleColor.Cyan, TerminalTheme.BuiltIns["clircs"].Mode);
-        Assert.Equal(ConsoleColor.Magenta, TerminalTheme.BuiltIns["clircs"].Action);
+        Assert.Equal(ConsoleColor.Gray, TerminalTheme.BuiltIns["clircs"].Action);
         Assert.Equal(ConsoleColor.Green, TerminalTheme.BuiltIns["clircs"].Nick);
         Assert.Equal(ConsoleColor.Red, TerminalTheme.BuiltIns["clircs"].Kick);
     }
