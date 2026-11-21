@@ -583,10 +583,9 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        if (input.Arguments.Count > 1 ||
-            input.Arguments.Count == 1 && !input.Arguments[0].Equals("path", StringComparison.OrdinalIgnoreCase))
+        if (input.Arguments.Count != 0)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /config [path]"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /config"));
         }
         return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
             "Configuration",
