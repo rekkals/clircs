@@ -62,7 +62,7 @@ internal sealed partial class ClientApplication
         Register("deop", ["dop"], "Remove channel operator status.", DeopAsync);
         Register("voice", ["v"], "Grant channel voice status.", VoiceAsync);
         Register("devoice", ["dv"], "Remove channel voice status.", DevoiceAsync);
-        Register("kick", ["k"], "Kick a user from the active channel.", KickAsync);
+        Register("kick", ["k"], "Kick a user from a channel.", KickAsync);
         Register("ban", [], "Set a ban in the active channel. A nickname must have a known user and host.", BanAsync);
         Register("kickban", ["kb", "bk"], "Kick and ban a user from the active channel.", KickBanAsync);
         Register("tban", [], "Apply a ban and remove it after a <duration>.", TimedBanAsync);

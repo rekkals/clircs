@@ -352,18 +352,43 @@ internal sealed partial class ClientApplication
 
     private async ValueTask<CommandResult> KickAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
-        if (!TryGetOperatorChannel(out var session, out var channel, out var failure))
+        var requestedChannel = input.Arguments.Count > 0 &&
+            ActiveSession()?.Features.IsChannel(input.Arguments[0]) == true
+                ? input.Arguments[0]
+                : null;
+
+        if (!TryGetOperatorChannel(
+            out var session,
+            out var channel,
+            out var failure,
+            requestedChannel))
         {
             return failure;
         }
 
-        if (input.Arguments.Count == 0)
+        var nicknameIndex = requestedChannel is null ? 0 : 1;
+        if (input.Arguments.Count <= nicknameIndex)
         {
-            return CommandResult.Failure("Usage: /kick <nick> [reason]");
+            return CommandResult.Failure("Usage: /kick [channel] <nick> [reason]");
         }
 
-        var reason = ResolveKickMessage(TrySplitFirst(input.RawArguments, out _, out var suppliedReason) ? suppliedReason : null);
-        await session!.SendAsync("KICK", [channel!.Name, input.Arguments[0], reason ?? input.Arguments[0]], cancellationToken: cancellationToken);
+        var rawArguments = input.RawArguments;
+        if (requestedChannel is not null)
+        {
+            TrySplitFirst(rawArguments, out _, out var remaining);
+            rawArguments = remaining;
+        }
+
+        var nickname = input.Arguments[nicknameIndex];
+        var reason = ResolveKickMessage(
+            TrySplitFirst(rawArguments, out _, out var suppliedReason)
+                ? suppliedReason
+                : null);
+
+        await session!.SendAsync(
+            "KICK",
+            [channel!.Name, nickname, reason ?? nickname],
+            cancellationToken: cancellationToken);
         return CommandResult.Success();
     }
 
@@ -758,7 +783,8 @@ internal sealed partial class ClientApplication
     private bool TryGetOperatorChannel(
         out IrcNetworkSession? session,
         out ChannelState? channel,
-        out CommandResult failure)
+        out CommandResult failure,
+        string? requestedChannel = null)
     {
         session = ActiveSession();
         channel = null;
@@ -768,10 +794,12 @@ internal sealed partial class ClientApplication
             return false;
         }
 
-        var channelName = ActiveChannel();
+        var channelName = requestedChannel ?? ActiveChannel();
         if (channelName is null || !session.State.TryGetChannel(channelName, out channel))
         {
-            failure = CommandResult.Failure("This command requires an active joined channel.");
+            failure = CommandResult.Failure(requestedChannel is null
+                ? "This command requires an active joined channel."
+                : $"You are not on {requestedChannel}.");
             return false;
         }
 

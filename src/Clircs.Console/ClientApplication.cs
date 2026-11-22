@@ -72,7 +72,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["deop"] = "/deop <nick> [nick ...]",
             ["voice"] = "/voice <nick> [nick ...]",
             ["devoice"] = "/devoice <nick> [nick ...]",
-            ["kick"] = "/kick <nick> [reason]",
+            ["kick"] = "/kick [channel] <nick> [reason]",
             ["ban"] = "/ban <nick|hostmask>",
             ["banlist"] = "/banlist [channel]",
             ["addban"] = "/addban <nick|hostmask> <channel[,channel...]|*> [reason]",
