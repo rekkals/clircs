@@ -1456,7 +1456,7 @@ internal sealed partial class ClientApplication
                     }
                 default:
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /messages [list|read|delete|clear|window] [arguments]"));
+                        "Usage: /messages [command] [arguments]"));
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)

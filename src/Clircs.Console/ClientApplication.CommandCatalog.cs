@@ -169,6 +169,7 @@ internal sealed partial class ClientApplication
         {
             "set" => SettingHelp,
             "dcc" => DccHelp,
+            "messages" => MessagesHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -206,12 +207,11 @@ internal sealed partial class ClientApplication
         ],
         "messages" =>
         [
-            new("List senders", "/messages [list]"),
-            new("List previews", "/messages list <nick>"),
-            new("Read message", "/messages read <nick> <number>"),
-            new("Delete", "/messages delete <nick> <number|all>"),
+            new("View list", "/messages list [nick]"),
+            new("Read messages", "/messages read <nick> <number>"),
+            new("Delete messages", "/messages delete <nick> <number|all>"),
             new("Clear inbox", "/messages clear"),
-            new("Open window", "/messages window")
+            new("Inbox window", "/messages window")
         ],
         "network" =>
         [
@@ -324,6 +324,44 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? MessagesHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/messages list [nick]",
+                "List senders or preview a sender's messages"),
+            "read" => (
+                "/messages read <nick> <number>",
+                "Read one saved message"),
+            "delete" => (
+                "/messages delete <nick> <number|all>",
+                "Delete one message or all from a sender"),
+            "clear" => (
+                "/messages clear",
+                "Clear all messages from the inbox"),
+            "window" => (
+                "/messages window",
+                "Open a dedicated window for managing messages"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+        if (topic is "read" or "delete")
+        {
+            fields.Add(new("Number", "Message number from /messages list <nick>"));
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/messages {topic}");
+    }
 
     // DCC operations have substantially different syntax, so each operation
     // receives its own topic help instead of one misleading top-level usage line.
@@ -539,7 +577,9 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name == "dcc" ? "Use /help dcc <command> for details." : null,
+                Summary: command.Name is "dcc" or "messages"
+                    ? $"Use /help {command.Name} <command> for details."
+                    : null,
                 TitleHighlight: $"/{command.Name}")));
         }
 
