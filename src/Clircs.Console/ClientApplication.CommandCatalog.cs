@@ -171,6 +171,7 @@ internal sealed partial class ClientApplication
             "dcc" => DccHelp,
             "messages" => MessagesHelp,
             "network" => NetworkHelp,
+            "autojoin" => AutojoinHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -189,6 +190,14 @@ internal sealed partial class ClientApplication
 
     private static IReadOnlyList<PresentationField> ExtendedHelpFields(string command) => command.ToLowerInvariant() switch
     {
+        "autojoin" =>
+        [
+            new("View list", "/autojoin list"),
+            new("Add channel", "/autojoin add [channel]"),
+            new("Remove channel", "/autojoin remove [channel]"),
+            new("Join channels", "/autojoin run"),
+            new("Clear list", "/autojoin clear")
+        ],
         "backup" =>
         [
             new("Restore file", "Use a filename from /backup list or a quoted full path")
@@ -326,6 +335,39 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? AutojoinHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/autojoin list",
+                "List autojoin channels"),
+            "add" => (
+                "/autojoin add [channel]",
+                "Add a channel to autojoin and join it if connected"),
+            "remove" => (
+                "/autojoin remove [channel]",
+                "Remove a channel from autojoin"),
+            "run" => (
+                "/autojoin run",
+                "Join the channels in the autojoin list"),
+            "clear" => (
+                "/autojoin clear",
+                "Clear the autojoin list"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        return new PresentationBlock(
+            "HELP:",
+            [
+                new("Usage", detail.Item1),
+                new("Description", detail.Item2)
+            ],
+            TitleHighlight: $"/autojoin {topic}");
+    }
 
     private static PresentationBlock? MessagesHelp(string requested)
     {
@@ -681,7 +723,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));

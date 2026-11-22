@@ -46,7 +46,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["window"] = "/window [number|name]",
             ["clear"] = "/clear [activity]",
             ["close"] = "/close [--force]",
-            ["autojoin"] = "/autojoin [list|add [channel]|remove [channel]|run|clear]",
+            ["autojoin"] = "/autojoin [command] [arguments]",
             ["aj"] = "/aj [channel]",
             ["rj"] = "/rj [channel]",
             ["say"] = "/say <message>",

@@ -2086,7 +2086,7 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        const string usage = "Usage: /autojoin [list|add [channel]|remove [channel]|run|clear]";
+        const string usage = "Usage: /autojoin [command] [arguments]";
         var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
         if (operation is not ("list" or "add" or "remove" or "run" or "clear"))
         {
