@@ -325,7 +325,7 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkPassword(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network [list|profiles|add|server|username|usermodes|getnick|remove|status|sasl|password] [arguments]"));
+                    "Usage: /network [command] [arguments]"));
         }
     }
 

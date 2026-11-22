@@ -170,6 +170,7 @@ internal sealed partial class ClientApplication
             "set" => SettingHelp,
             "dcc" => DccHelp,
             "messages" => MessagesHelp,
+            "network" => NetworkHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -215,6 +216,7 @@ internal sealed partial class ClientApplication
         ],
         "network" =>
         [
+            new("Connections", "/network list"),
             new("Profiles", "/network profiles"),
             new("Status", "/network status [name|number]"),
             new("Create profile", "/network add <name> <host> [port] [--tls]"),
@@ -361,6 +363,108 @@ internal sealed partial class ClientApplication
 
         return new PresentationBlock(
             "HELP:", fields, TitleHighlight: $"/messages {topic}");
+    }
+
+    private static PresentationBlock? NetworkHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/network list",
+                "List network connections"),
+            "profiles" => (
+                "/network profiles",
+                "List saved network profiles"),
+            "status" => (
+                "/network status [name|number]",
+                "Show network or profile status"),
+            "add" => (
+                "/network add <name> <host> [port] [--tls]",
+                "Create a network profile"),
+            "remove" => (
+                "/network remove <profile>",
+                "Remove a saved network profile"),
+            "server" => (
+                "/network server <add|remove> [arguments]",
+                "Add or remove servers from a profile"),
+            "username" => (
+                "/network username [profile [username]]",
+                "Show or change a profile's username"),
+            "usermodes" => (
+                "/network usermodes [profile [modes]]",
+                "Show or change a profile's user modes"),
+            "getnick" => (
+                "/network getnick <profile> [nick]",
+                "Show or change automatic nickname recovery"),
+            "password" => (
+                "/network password <profile> [set|clear]",
+                "Show, save, or clear a server or bouncer password"),
+            "sasl" => (
+                "/network sasl <profile> [arguments]",
+                "Show or configure SASL authentication"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+
+        switch (topic)
+        {
+            case "status":
+                fields.Add(new("Name", "Connection, network, or saved profile name"));
+                fields.Add(new("Number", "Connection number from /network list"));
+                break;
+
+            case "add":
+                fields.Add(new("--tls", "Use TLS for this server"));
+                break;
+
+            case "server":
+                fields.Add(new("Add server",
+                    "/network server add <profile> <host> [port] [--tls]"));
+                fields.Add(new("Remove server",
+                    "/network server remove <profile> <number>"));
+                fields.Add(new("Number", "Server number from /network profiles"));
+                fields.Add(new("--tls", "Use TLS for the added server"));
+                break;
+
+            case "username":
+                fields.Add(new("Use global", "/network username <profile> global"));
+                break;
+
+            case "usermodes":
+                fields.Add(new("Use global", "/network usermodes <profile> global"));
+                break;
+
+            case "getnick":
+                fields.Add(new("Disable", "/network getnick <profile> off"));
+                break;
+
+            case "password":
+                fields.Add(new("set", "Prompt for the password"));
+                break;
+
+            case "sasl":
+                fields.Add(new("Status", "/network sasl <profile>"));
+                fields.Add(new("PLAIN",
+                    "/network sasl <profile> [plain] <account> [required|optional]"));
+                fields.Add(new("EXTERNAL",
+                    "/network sasl <profile> external <certificate.pfx> [required|optional]"));
+                fields.Add(new("Disable", "/network sasl <profile> off"));
+                fields.Add(new("required", "Disconnect if authentication fails (default)"));
+                fields.Add(new("optional", "Continue unidentified if authentication fails"));
+                fields.Add(new("Password", "Passwords are entered through a prompt"));
+                fields.Add(new("TLS", "All profile servers must use TLS to enable SASL"));
+                break;
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/network {topic}");
     }
 
     // DCC operations have substantially different syntax, so each operation
@@ -577,7 +681,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages"
+                Summary: command.Name is "dcc" or "messages" or "network"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
