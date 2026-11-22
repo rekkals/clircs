@@ -698,9 +698,9 @@ internal sealed partial class ClientApplication
         return new PresentationBlock("HELP:",
         [
             new("Usage", $"/{command} {name} <events> <within> [scope]"),
-            new("Disable/reset", $"/{command} {name} off|default [scope]"),
-            new("Description", $"Configures how many {name} events within a duration trigger detection."),
-            new("Time", "A bare number means seconds; suffixes s, m, and h are accepted."),
+            new("Disable/reset", $"/{command} {name} <off|default> [scope]"),
+            new("Description", $"Set the {name} detection threshold."),
+            new("Time", "A bare number means seconds (suffixes s, m, and h are accepted)."),
             new("Scopes", scopes),
             new("Example", example)
         ], TitleHighlight: $"/{command} {name}");

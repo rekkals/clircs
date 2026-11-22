@@ -294,7 +294,7 @@ internal sealed partial class ClientApplication
             case "remove":
                 if (input.Arguments.Count != 2)
                 {
-                    return ValueTask.FromResult(CommandResult.Failure("Usage: /network remove <name>"));
+                    return ValueTask.FromResult(CommandResult.Failure("Usage: /network remove <profile>"));
                 }
 
                 var removeProfile = _profileStore.Find(input.Arguments[1]);
@@ -325,7 +325,7 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkPassword(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network list|profiles|add|server|username|usermodes|getnick|remove|status|sasl|password"));
+                    "Usage: /network [list|profiles|add|server|username|usermodes|getnick|remove|status|sasl|password] [arguments]"));
         }
     }
 
@@ -630,7 +630,7 @@ internal sealed partial class ClientApplication
 
     private CommandResult ConfigureNetworkGetnick(CommandInput input)
     {
-        const string usage = "Usage: /network getnick <profile> [nickname|off]";
+        const string usage = "Usage: /network getnick <profile> [nick|off]";
         if (input.Arguments.Count is < 2 or > 3)
             return CommandResult.Failure(usage);
 
@@ -1238,7 +1238,7 @@ internal sealed partial class ClientApplication
     {
         if (input.Arguments.Count != 1)
         {
-            return CommandResult.Failure("Usage: /nick <nickname>");
+            return CommandResult.Failure("Usage: /nick <nick>");
         }
 
         var session = ActiveSession();
@@ -2115,7 +2115,7 @@ internal sealed partial class ClientApplication
                 var addChannel = input.Arguments.Count > 1 ? input.Arguments[1] : ActiveChannel();
                 if (input.Arguments.Count > 2 || addChannel is null || !session.Features.IsChannel(addChannel))
                 {
-                    return CommandResult.Failure("Usage: /autojoin add [channel] or /aj [channel]");
+                    return CommandResult.Failure("Usage: /autojoin add [channel]");
                 }
 
                 var alreadySaved = profile.AutojoinChannels.Contains(addChannel, StringComparer.OrdinalIgnoreCase);
@@ -2146,7 +2146,7 @@ internal sealed partial class ClientApplication
                 var removeChannel = input.Arguments.Count > 1 ? input.Arguments[1] : ActiveChannel();
                 if (input.Arguments.Count > 2 || removeChannel is null)
                 {
-                    return CommandResult.Failure("Usage: /autojoin remove [channel] or /rj [channel]");
+                    return CommandResult.Failure("Usage: /autojoin remove [channel]");
                 }
 
                 if (!profile.AutojoinChannels.Contains(removeChannel, StringComparer.OrdinalIgnoreCase))

@@ -1108,9 +1108,8 @@ internal static class ThemeTests
                     Assert.Equal(
                         "window",
                         fields.Single(field => field.Label == "Currently").Value);
-                    Assert.False(
-                        fields.Single(field => field.Label == "Example").Value
-                            .Contains("dedicated", StringComparison.OrdinalIgnoreCase));
+                    Assert.False(fields.Any(field =>
+                        field.Value.Contains("dedicated", StringComparison.OrdinalIgnoreCase)));
                 }
             }
         }

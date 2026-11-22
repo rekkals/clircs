@@ -76,8 +76,8 @@ internal static class NetworkProfileStoreTests
 
     private static void AddUserUsageIsConcise()
     {
-        Assert.Equal("Usage: /adduser <handle> [hostmask|nickname]", ClientApplication.AddUserUsage(UserRole.None));
-        Assert.Equal("Usage: /addbot <handle> [hostmask|nickname]", ClientApplication.AddUserUsage(UserRole.Bot));
+        Assert.Equal("Usage: /adduser <handle> [hostmask|nick]", ClientApplication.AddUserUsage(UserRole.None));
+        Assert.Equal("Usage: /addbot <handle> [hostmask|nick]", ClientApplication.AddUserUsage(UserRole.Bot));
     }
 
     private static void ChangingIdentityPreservesNetworkSettings()

@@ -321,7 +321,7 @@ internal sealed partial class ClientApplication
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            return CommandResult.Failure($"Usage: /{(action ? "ame" : "amsg")} <text>");
+            return CommandResult.Failure($"Usage: /{(action ? "ame" : "amsg")} <{(action ? "action" : "message")}>");
         }
 
         var channels = session.State.Channels.Select(channel => channel.Name).ToArray();
@@ -417,8 +417,8 @@ internal sealed partial class ClientApplication
         CancellationToken cancellationToken)
     {
         const string usage =
-            "Usage: /xdcc list <bot>, /xdcc <get|sget> <bot> <pack>, " +
-            "/xdcc pending, or /xdcc cancel <bot>";
+            "Usage: /xdcc list <bot> | /xdcc <get|sget> <bot> <pack> | " +
+            "/xdcc pending | /xdcc cancel <bot>";
 
         var operation = input.Arguments.Count > 0
             ? input.Arguments[0].ToLowerInvariant()

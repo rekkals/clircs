@@ -300,7 +300,7 @@ internal sealed partial class ClientApplication
             }
 
             return ValueTask.FromResult(CommandResult.Failure(
-                "Usage: /set <setting> <value>. Use /help set for the available settings."));
+                "Usage: /set [setting [value]]. Use /help set for the available settings."));
         }
 
         var value = input.RawArguments[(input.RawArguments.IndexOf(' ') + 1)..];
@@ -710,7 +710,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Failure($"No theme named '{requested}'. Use /theme list."));
         }
 
-        return ValueTask.FromResult(CommandResult.Failure("Usage: /theme load <name> | /theme reload | /theme list"));
+        return ValueTask.FromResult(CommandResult.Failure("Usage: /theme [load <name>|reload|list]"));
     }
 
     internal static PresentationBlock ThemeOverview(string current, IEnumerable<string> themes)
@@ -926,7 +926,7 @@ internal sealed partial class ClientApplication
         }
 
         return CommandResult.Failure(
-            "Usage: /script list|load <id>|unload <id>|reload <id>|errors|permissions [id [permission on|off]]");
+            "Usage: /script list | load <id> | unload <id> | reload <id> | errors | permissions [id [permission <on|off>]]");
     }
 
     private static string FormatPermissions(IReadOnlyList<ScriptPermission> permissions) =>
@@ -1220,7 +1220,7 @@ internal sealed partial class ClientApplication
     {
         var session = RequireSession(out var failure);
         if (session is null) return failure;
-        if (arguments.Count == 0) return CommandResult.Failure("Usage: /who <mask-or-channel>");
+        if (arguments.Count == 0) return CommandResult.Failure("Usage: /who [channel|nick|mask]");
 
         var requestId = Guid.NewGuid();
         TrackOutputRequest(session, "who", requestId);

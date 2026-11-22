@@ -63,8 +63,8 @@ internal sealed partial class ClientApplication
 
     internal static string AddUserUsage(UserRole initialRoles) =>
         initialRoles == UserRole.Bot
-            ? "Usage: /addbot <handle> [hostmask|nickname]"
-            : "Usage: /adduser <handle> [hostmask|nickname]";
+            ? "Usage: /addbot <handle> [hostmask|nick]"
+            : "Usage: /adduser <handle> [hostmask|nick]";
 
     private ValueTask<CommandResult> RemoveUserAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
@@ -96,7 +96,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count != 2)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /addhost <handle> <mask-or-visible-nick>"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /addhost <handle> <hostmask|nick>"));
         }
 
         try
@@ -128,7 +128,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count != 2)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /remhost <handle> <mask>"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /remhost <handle> <hostmask>"));
         }
 
         var user = directory!.Find(input.Arguments[0]);
@@ -234,7 +234,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count < 2)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /chinfo <handle> [channel] <text>"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /chinfo <handle> [channel] <text|off>"));
         }
 
         var user = directory!.Find(input.Arguments[0]);
@@ -367,7 +367,7 @@ internal sealed partial class ClientApplication
         if (input.Arguments.Count != 1)
         {
             return ValueTask.FromResult(
-                CommandResult.Failure("Usage: /ignore [nickname|nick!user@host]"));
+                CommandResult.Failure("Usage: /ignore [nick|hostmask]"));
         }
 
         try
@@ -402,7 +402,7 @@ internal sealed partial class ClientApplication
         if (input.Arguments.Count != 1)
         {
             return ValueTask.FromResult(
-                CommandResult.Failure("Usage: /unignore <nickname|nick!user@host>"));
+                CommandResult.Failure("Usage: /unignore <nick|hostmask>"));
         }
 
         var network = ProfileFor(session!)?.DisplayName
@@ -584,7 +584,7 @@ internal sealed partial class ClientApplication
 
             if (tail.Length == 0)
                 return ValueTask.FromResult(CommandResult.Failure(
-                    $"Usage: /cprot {operation} <events> <within>|off|default [scope]"));
+                    $"Usage: /cprot {operation} <events> <within> [scope] | /cprot {operation} <off|default> [scope]"));
 
             if (tail[0].Equals("off", StringComparison.OrdinalIgnoreCase))
             {
@@ -771,7 +771,7 @@ internal sealed partial class ClientApplication
                     "Unknown personal protection operation or rule. Use /help pprot."));
             if (tail.Length == 0)
                 return ValueTask.FromResult(CommandResult.Failure(
-                    $"Usage: /pprot {operation} <events> <within>|off|default [scope]"));
+                    $"Usage: /pprot {operation} <events> <within> [scope] | /pprot {operation} <off|default> [scope]"));
 
             if (tail[0].Equals("off", StringComparison.OrdinalIgnoreCase))
             {
@@ -822,7 +822,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count != 1)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /uwhois <handle-or-visible-nick>"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /uwhois <handle|nick>"));
         }
 
         var user = directory!.Find(input.Arguments[0]);
@@ -861,7 +861,7 @@ internal sealed partial class ClientApplication
         var channelName = input.Arguments.Count == 1 ? input.Arguments[0] : ActiveChannel();
         if (channelName is null || !session!.State.TryGetChannel(channelName, out var channel))
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /ufind [joined-channel]"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /ufind [channel]"));
         }
 
         var lines = channel!.Members.Select(member =>
@@ -886,7 +886,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count < 2)
         {
-            return CommandResult.Failure("Usage: /addban <nick-or-mask> <channel[,channel...]|*> [reason]");
+            return CommandResult.Failure("Usage: /addban <nick|hostmask> <channel[,channel...]|*> [reason]");
         }
 
         try
@@ -935,7 +935,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count != 1)
         {
-            return ValueTask.FromResult(CommandResult.Failure("Usage: /remban <mask-or-id>"));
+            return ValueTask.FromResult(CommandResult.Failure("Usage: /remban <hostmask|id>"));
         }
 
         try
@@ -1109,7 +1109,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count == 0)
         {
-            return CommandResult.Failure($"Usage: /{(op ? "cop" : ban && kick ? "ckb" : ban ? "cban" : "ckick")} <nick> [reason]");
+            return CommandResult.Failure($"Usage: /{(op ? "cop" : ban && kick ? "ckb" : ban ? "cban" : "ckick")} <nick>{(kick ? " [reason]" : string.Empty)}");
         }
 
         if (!TryGetUserDirectory(out _, out var directory, out failure))
@@ -1291,7 +1291,7 @@ internal sealed partial class ClientApplication
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            return CommandResult.Failure($"Usage: /{command} <text>");
+            return CommandResult.Failure($"Usage: /{command} <message>");
         }
 
         if (!channel!.NamesSynchronized)
@@ -1333,7 +1333,7 @@ internal sealed partial class ClientApplication
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            return CommandResult.Failure($"Usage: /{(notice ? "wall" : "wallmsg")} <text>");
+            return CommandResult.Failure($"Usage: /{(notice ? "wall" : "wallmsg")} <message>");
         }
 
         if (!channel!.NamesSynchronized)

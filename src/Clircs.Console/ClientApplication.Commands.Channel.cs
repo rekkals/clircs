@@ -305,7 +305,7 @@ internal sealed partial class ClientApplication
         }
         if (parameters.Length == 0)
         {
-            return CommandResult.Failure("Usage: /mode <target> [modes] [parameters]");
+            return CommandResult.Failure("Usage: /mode [target] [modes] [arguments]");
         }
 
         if (parameters.Length != 1 ||
@@ -401,7 +401,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count == 0 || !channel!.TryGetMember(input.Arguments[0], out var member))
         {
-            return CommandResult.Failure("Usage: /kickban <channel-member> [reason]");
+            return CommandResult.Failure("Usage: /kickban <nick> [reason]");
         }
 
         if ((string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host)) &&
@@ -425,7 +425,7 @@ internal sealed partial class ClientApplication
         }
         if (input.Arguments.Count != 1)
         {
-            return CommandResult.Failure("Usage: /ban <nick|mask>");
+            return CommandResult.Failure("Usage: /ban <nick|hostmask>");
         }
 
         var target = input.Arguments[0];
@@ -460,7 +460,7 @@ internal sealed partial class ClientApplication
             input.Arguments.Count == 3 ||
             (input.Arguments.Count > 2 && !input.Arguments[2].Equals("--reason", StringComparison.OrdinalIgnoreCase)))
         {
-            return CommandResult.Failure("Usage: /tban <nick-or-mask> <duration> [--reason <text>]");
+            return CommandResult.Failure("Usage: /tban <nick|hostmask> <duration> [--reason <text>]");
         }
 
         var target = input.Arguments[0];
@@ -651,7 +651,7 @@ internal sealed partial class ClientApplication
 
         if (input.Arguments.Count != 1)
         {
-            return CommandResult.Failure("Usage: /unban <mask>");
+            return CommandResult.Failure("Usage: /unban <hostmask>");
         }
 
         await session!.SendAsync("MODE", [channel!.Name, "-b", input.Arguments[0]], cancellationToken: cancellationToken);

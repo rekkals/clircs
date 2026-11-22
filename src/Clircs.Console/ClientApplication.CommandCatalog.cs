@@ -11,62 +11,62 @@ internal sealed partial class ClientApplication
 {
     private void RegisterCommands()
     {
-        Register("help", ["?"], "Show a list of commands or help for [command].", HelpAsync);
-        Register("about", [], "Display the clircs startup presentation.", AboutAsync);
+        Register("help", ["?"], "Show the command list or help for a command.", HelpAsync);
+        Register("about", [], "Show clircs startup information.", AboutAsync);
         Register("config", [], "Show where clircs stores configuration and user data.", ConfigAsync);
-        Register("backup", [], "Create or restore user-data backups.", BackupAsync);
-        Register("logging", ["log"], "Start, stop, and manage channel and query logs.", LoggingAsync);
+        Register("backup", [], "Create or restore backups.", BackupAsync);
+        Register("logging", ["log"], "Manage channel and query logging.", LoggingAsync);
         Register("server", ["connect"], "Connect to an IRC server or saved network profile.", ServerAsync);
         Register("network", ["net"], "Show network status, list connections, or manage saved network profiles.", NetworkAsync);
         Register("disconnect", [], "Disconnect, but leave clircs running.", DisconnectAsync);
-        Register("reconnect", [], "Reconnect the active offline session, cancel an automatic retry, or tolerate improperly tagged CAP messages once.", ReconnectAsync);
+        Register("reconnect", [], "Reconnect to the server.", ReconnectAsync);
         Register("quit", ["exit"], "Disconnect and exit clircs.", QuitAsync);
         Register("nick", [], "Change your nickname, or set it before connecting.", NickAsync);
-        Register("away", [], "Set yourself as away.", AwayAsync);
-        Register("back", [], "Set yourself as back.", BackAsync);
-        Register("messages", ["inbox"], "Read or remove messages logged while away.", AwayMessagesAsync);
-        Register("window", ["win"], "List windows or switch to window [number|name].", BufferAsync);
+        Register("away", [], "Mark yourself as away.", AwayAsync);
+        Register("back", [], "Mark yourself as back.", BackAsync);
+        Register("messages", ["inbox"], "Manage messages logged while away.", AwayMessagesAsync);
+        Register("window", ["win"], "List windows or switch to another window.", BufferAsync);
         Register("next", ["wn"], "Switch to the next window.", NextBufferAsync);
         Register("previous", ["wp"], "Switch to the previous window.", PreviousBufferAsync);
         Register("close", [], "Close the active window.", CloseBufferAsync);
-        Register("clear", [], "Clear the visible terminal or window activity.", ClearAsync);
-        Register("autojoin", ["ajoin"], "List or manage autojoin channels for the active network profile.", AutojoinAsync);
+        Register("clear", [], "Clear the visible window or activity.", ClearAsync);
+        Register("autojoin", ["ajoin"], "Manage autojoin channels for the active network profile.", AutojoinAsync);
         Register("aj", [], "Add a channel to the active network profile's autojoin list.", AutojoinAddAliasAsync);
         Register("rj", [], "Remove a channel from the active network profile's autojoin list.", AutojoinRemoveAliasAsync);
         Register("msg", ["m"], "Send a message to a nickname or channel.", MessageAsync);
         Register("notice", ["n"], "Send a notice to a nickname or channel.", NoticeAsync);
-        Register("wallops", [], "Send a message to all IRC operators.", WallopsAsync);
-        Register("say", [], "Send text to the active channel/query.", SayCommandAsync);
+        Register("wallops", [], "Send a WALLOPS message.", WallopsAsync);
+        Register("say", [], "Send text to the active channel, query, or DCC chat.", SayCommandAsync);
         Register("stop", [], "Stop queued chat in the current channel or query.", StopAsync);
-        Register("me", [], "Send an action to the active channel/query.", MeAsync);
+        Register("me", [], "Send an action to the active channel, query, or DCC chat.", MeAsync);
         Register("describe", [], "Send an action to a nickname or channel.", DescribeAsync);
         Register("ame", [], "Send an action to every joined channel on this network.", AllChannelActionAsync);
         Register("amsg", [], "Send a message to every joined channel on this network.", AllChannelMessageAsync);
-        Register("query", ["q"], "Open a private query window, optionally sending a message.", QueryAsync);
+        Register("query", ["q"], "Open a private query window.", QueryAsync);
         Register("ctcp", [], "Send a CTCP request to a nickname.", CtcpAsync);
         Register("dcc", [], "Start and manage DCC chats, file transfers, and requests.", DccAsync);
         Register("xdcc", [], "List and request file packs from XDCC bots.", XdccAsync);
-        Register("sv", [], "Send the current clircs version to the active window.", ShowVersionAsync);
+        Register("sv", [], "Send the clircs version to the active channel or query.", ShowVersionAsync);
         Register("time", ["date"], "Show the local date and time.", TimeAsync);
-        Register("uptime", [], "Show clircs runtime locally, or say it in the active conversation.", UptimeAsync);
+        Register("uptime", [], "Show how long clircs has been running.", UptimeAsync);
         Register("raw", ["quote"], "Send an IRC command directly to the server.", RawAsync, argumentMode: CommandArgumentMode.Text);
         Register("oper", [], "Authenticate as an IRC operator.", OperAsync);
-        Register("join", ["j"], "Join one or more channels; separate multiple channels and keys with commas.", JoinAsync);
+        Register("join", ["j"], "Join one or more channels (separate multiple channels and keys with commas).", JoinAsync);
         Register("part", ["p"], "Part a channel.", PartAsync);
         Register("cycle", [], "Part and rejoin a channel.", CycleAsync);
-        Register("invite", ["i"], "Invite a nickname to a channel; defaults to the active channel.", InviteAsync);
+        Register("invite", ["i"], "Invite a nickname to a channel.", InviteAsync);
         Register("topic", ["t"], "Show or set a channel topic.", TopicAsync);
-        Register("rt", [], "Set the topic to a random quote from quotes.txt.", RandomTopicAsync);
+        Register("rt", [], "Set the topic to a random quote.", RandomTopicAsync);
         Register("mode", [], "Show or change modes.", ModeAsync);
         Register("op", [], "Grant channel operator status.", OpAsync);
         Register("deop", ["dop"], "Remove channel operator status.", DeopAsync);
         Register("voice", ["v"], "Grant channel voice status.", VoiceAsync);
         Register("devoice", ["dv"], "Remove channel voice status.", DevoiceAsync);
         Register("kick", ["k"], "Kick a user from a channel.", KickAsync);
-        Register("ban", [], "Set a ban in the active channel. A nickname must have a known user and host.", BanAsync);
+        Register("ban", [], "Set a ban in the active channel.", BanAsync);
         Register("kickban", ["kb", "bk"], "Kick and ban a user from the active channel.", KickBanAsync);
-        Register("tban", [], "Apply a ban and remove it after a <duration>.", TimedBanAsync);
-        Register("mop", [], "Op every non-opped member in the active channel.", MassOpAsync);
+        Register("tban", [], "Set a temporary ban in the active channel.", TimedBanAsync);
+        Register("mop", [], "Op all non-operators in the active channel.", MassOpAsync);
         Register("mdop", [], "Deop every operator except yourself in the active channel.", MassDeopAsync);
         Register("mv", [], "Voice every regular member in the active channel.", MassVoiceAsync);
         Register("mdv", [], "Devoice every voiced member except yourself in the active channel.", MassDevoiceAsync);
@@ -85,12 +85,12 @@ internal sealed partial class ClientApplication
         Register("addhost", [], "Add a hostmask to a user.", AddHostAsync);
         Register("remhost", [], "Remove a hostmask from a user.", RemoveHostAsync);
         Register("chattr", [], "Change userlist flags.", ChangeAttributesAsync);
-        Register("addchan", [], "Add a channel to the user policy entry.", AddUserChannelAsync);
-        Register("remchan", [], "Remove a channel from the user policy entry.", RemoveUserChannelAsync);
+        Register("addchan", [], "Add a channel to a user record.", AddUserChannelAsync);
+        Register("remchan", [], "Remove a channel from a user record.", RemoveUserChannelAsync);
         Register("chinfo", [], "Set a global or channel-specific JOIN infoline for a user.", ChangeUserInfoAsync);
-        Register("uwhois", [], "Show a user record or match a visible nickname.", UserWhoisAsync);
+        Register("uwhois", [], "Show a user record or match a nickname.", UserWhoisAsync);
         Register("users", [], "List saved user records for the active network profile.", UsersAsync);
-        Register("usersum", [], "Summarize active network's user flags.", UserSummaryAsync);
+        Register("usersum", [], "Summarize userlist flags for the active network.", UserSummaryAsync);
         Register("ignore", [], "List or add entries ignored on the active network.", IgnoreAsync);
         Register("unignore", [], "Remove an exact ignore entry from the active network.", UnignoreAsync);
         Register("notify", [], "Manage the active network's notify list.", NotifyAsync);
@@ -98,10 +98,10 @@ internal sealed partial class ClientApplication
         Register("unaccept", [], "Remove entries from the server-side accept list.", AcceptAsync);
         Register("cprot", [], "Configure channel protection.", ChannelProtectionAsync);
         Register("pprot", [], "Configure personal protection.", PersonalProtectionAsync);
-        Register("clones", [], "Find channel users sharing the same visible host.", ClonesAsync);
-        Register("ufind", [], "Show which visible channel members match saved user records.", UserFindAsync);
-        Register("addban", [], "Save a network policy ban and apply it in eligible joined channels.", AddPolicyBanAsync);
-        Register("remban", [], "Remove a saved policy ban; existing channel bans stay in place.", RemovePolicyBanAsync);
+        Register("clones", [], "Find channel users sharing the same host.", ClonesAsync);
+        Register("ufind", [], "Show which channel members match saved user records.", UserFindAsync);
+        Register("addban", [], "Add a network policy ban.", AddPolicyBanAsync);
+        Register("remban", [], "Remove a saved policy ban.", RemovePolicyBanAsync);
         Register("bans", [], "List saved network policy bans.", PolicyBansAsync);
         Register("umop", [], "Op eligible users in the active channel.", UserMassOpAsync);
         Register("umdop", [], "Deop non-eligible users in the active channel.", UserMassDeopAsync);
@@ -111,7 +111,7 @@ internal sealed partial class ClientApplication
         Register("filterkickban", ["fkb"], "Ban a hostmask and kick matching non-friends from the active channel.", FilterKickBanAsync);
         Register("findnickkick", ["fnk"], "Kick active-channel members whose nicknames match a wildcard, except friends.", FindNickKickAsync);
         Register("kicknonops", ["knop"], "Kick non-operators from the active channel, except friends.", KickNonOperatorsAsync);
-        Register("cop", [], "Op a nickname in every common channel where you can do so.", CommonOpAsync);
+        Register("cop", [], "Op a nickname in eligible common channels.", CommonOpAsync);
         Register("cban", [], "Ban and deop a nickname in eligible common channels.", CommonBanAsync);
         Register("ckick", [], "Kick a nickname from eligible common channels.", CommonKickAsync);
         Register("ckb", [], "Ban and kick a nickname in eligible common channels.", CommonKickBanAsync);
@@ -124,12 +124,12 @@ internal sealed partial class ClientApplication
         Register("nonopnotice", ["nnotice"], "Notice non-operators in the active channel.", NonOperatorNoticeAsync);
         Register("nonopmsg", ["nmsg"], "Message non-operators in the active channel.", NonOperatorMessageAsync);
         Register("userwall", ["uwall"], "Notice active-channel operators who are not marked as bots.", UserWallAsync);
-        Register("names", [], "Request a channel's nickname list; defaults to the active channel.", NamesAsync);
-        Register("who", [], "Performs a WHO on the active window or specified [channel|nickname|mask].", WhoAsync);
-        Register("ircops", [], "List visible IRC operators in a channel.", IrcOpsAsync);
-        Register("whois", ["wi", "w"], "Performs a WHOIS on <nickname>.", WhoisAsync);
-        Register("iwhois", ["wii"], "Performs WHOIS on <nickname> with idle and sign-on information.", IdleWhoisAsync);
-        Register("whowas", ["ww"], "Performs WHOWAS on <nickname>.", WhowasAsync);
+        Register("names", [], "Request a channel's nickname list.", NamesAsync);
+        Register("who", [], "Request WHO information for a channel, nickname, or mask.", WhoAsync);
+        Register("ircops", [], "List IRC operators in a channel.", IrcOpsAsync);
+        Register("whois", ["wi", "w"], "Request WHOIS information for a nickname.", WhoisAsync);
+        Register("iwhois", ["wii"], "Request WHOIS information, including idle and sign-on times.", IdleWhoisAsync);
+        Register("whowas", ["ww"], "Request nickname history.", WhowasAsync);
         Register("motd", [], "Request a server's message of the day.", MotdAsync);
         Register("links", [], "Request server links.", LinksAsync);
         Register("stats", [], "Request server statistics.", StatsAsync);
@@ -145,8 +145,8 @@ internal sealed partial class ClientApplication
         Register("set", [], "Inspect or change client settings.", SetAsync);
         Register("theme", [], "Show, list, load, or reload themes.", ThemeAsync);
         Register("tls", [], "Show connection TLS status or manage saved certificate pins.", TlsAsync);
-        Register("script", [], "Manage third party scripts.", ScriptAsync);
-        Register("debug", [], "Open raw IRC traffic for the active network.", DebugAsync);
+        Register("script", [], "Load and manage scripts.", ScriptAsync);
+        Register("debug", [], "Open a raw IRC traffic window for the active network.", DebugAsync);
     }
 
     private void Register(
@@ -189,30 +189,29 @@ internal sealed partial class ClientApplication
     {
         "backup" =>
         [
-            new("Restore file", "Use a filename from /backup list or a quoted full path"),
-            new("Restore behavior", "Replaces current user data after confirmation, then exits; restart clircs to complete the process")
+            new("Restore file", "Use a filename from /backup list or a quoted full path")
         ],
         "server" =>
         [
             new("Direct", "/server <host> [port] [--tls] [--new] [--password]"),
             new("Profile", "/server <profile> [number] [--new] [--password]"),
-            new("--tls", "Encrypt a direct server connection with TLS."),
-            new("--new", "Open a new network session instead of replacing active."),
-            new("--password", "Prompt securely for a server/bouncer password; overrides the value for this session without saving it."),
-            new("Example", "/server EFNet 2 --new")
+            new("--tls", "Use TLS for a direct server connection."),
+            new("--new", "Open a new connection alongside the current one."),
+            new("--password", "Prompt for a server or bouncer password.")
+        ],
+        "reconnect" =>
+        [
+            new("cancel", "Cancel a pending automatic reconnect."),
+            new("tolerate", "Allow improperly tagged CAP messages during this reconnect.")
         ],
         "messages" =>
         [
             new("List senders", "/messages [list]"),
             new("List previews", "/messages list <nick>"),
             new("Read message", "/messages read <nick> <number>"),
-            new("Delete message", "/messages delete <nick> <number>"),
-            new("Delete sender", "/messages delete <nick> all"),
+            new("Delete", "/messages delete <nick> <number|all>"),
             new("Clear inbox", "/messages clear"),
-            new("Open window", "/messages window"),
-            new("Read status", "Listing preserves read status; reading marks only the selected message read."),
-            new("Profiles", "Messages are saved per profile and survive restarts."),
-            new("Profile-less", "Messages survive reconnects; closing the session or clircs discards them.")
+            new("Open window", "/messages window")
         ],
         "network" =>
         [
@@ -227,7 +226,7 @@ internal sealed partial class ClientApplication
             new("User modes", "/network usermodes [profile]"),
             new("Set user modes", "/network usermodes <profile> <modes>"),
             new("Use global user modes", "/network usermodes <profile> global"),
-            new("Getnick", "/network getnick <profile> [nickname|off]"),
+            new("Getnick", "/network getnick <profile> [nick|off]"),
             new("Remove profile", "/network remove <profile>"),
             new("Password status", "/network password <profile>"),
             new("Save password", "/network password <profile> set"),
@@ -238,7 +237,7 @@ internal sealed partial class ClientApplication
             new("Disable SASL", "/network sasl <profile> off")
         ],
         "chattr" =>
-[
+        [
             new("Flags", "Use + to add and - to remove. Separate changes with commas."),
             new("b", "Bot: excluded from /userwall"),
             new("o", "Op: eligible for /umop"),
@@ -249,18 +248,14 @@ internal sealed partial class ClientApplication
             new("d", "Deop: automatically remove channel operator status"),
             new("k", "Kick: kick on join"),
             new("Example", "/chattr alice +oa,-v #clircs")
-],
+        ],
         "ignore" =>
         [
-            new("List", "/ignore"),
-            new("Nickname", "/ignore <nickname>"),
-            new("Address", "/ignore <nick!user@host>"),
-            new("Wildcards", "Address entries support * and ?.")
+            new("Wildcards", "Hostmask entries support * and ?.")
         ],
         "unignore" =>
         [
-            new("Remove", "/unignore <nickname|nick!user@host>"),
-            new("Matching", "Removes one exact stored entry; wildcards are not expanded.")
+            new("Matching", "Match the stored entry exactly, including wildcard characters.")
         ],
         "dcc" =>
         [
@@ -278,10 +273,9 @@ internal sealed partial class ClientApplication
             new("List", "/xdcc list <bot>"),
             new("Download", "/xdcc get <bot> <pack>"),
             new("Secure download", "/xdcc sget <bot> <pack>"),
-            new("Auto-accept", "Enable /set xdcc.auto on before requesting packs"),
+            new("Auto-accept", "/set xdcc.auto on"),
             new("Pending", "/xdcc pending"),
-            new("Cancel", "/xdcc cancel <bot> (waiting requests only)"),
-            new("Incoming", "Other offers require /dcc accept <id> or /dcc reject <id>")
+            new("Cancel waiting", "/xdcc cancel <bot>")
         ],
         "set" =>
         [
@@ -297,14 +291,14 @@ internal sealed partial class ClientApplication
         "cprot" =>
         [
             new("Status", "/cprot, /cprot status [scope]"),
-            new("Protection", "/cprot on|off [scope]"),
+            new("Protection", "/cprot <on|off> [scope]"),
             new("Set rule", "/cprot <rule> <events> <within> [scope]"),
-            new("Disable/reset", "/cprot <rule> off|default [scope]"),
+            new("Disable/reset", "/cprot <rule> <off|default> [scope]"),
             new("Action", "/cprot action <monitor|kick|kickban> [scope]"),
             new("Ban time", "/cprot bantime <duration|permanent> [scope]"),
             new("Exemptions", "/cprot exempt <chanops|friends> <on|off> [scope]"),
             new("Reset", "/cprot reset [scope]"),
-            new("Tools", "/cprot audit|counters"),
+            new("Tools", "/cprot <audit|counters>"),
             new("Rules", "text, repeat, join, nick, kick, deop, caps, controls, ctcp"),
             new("Scopes", "<channel>, <network> <channel>, <network> *, --global"),
             new("Example", "/cprot text 10 5s EFnet #clircs")
@@ -312,14 +306,14 @@ internal sealed partial class ClientApplication
         "pprot" =>
         [
             new("Status", "/pprot, /pprot status [scope]"),
-            new("Protection", "/pprot on|off [scope]"),
+            new("Protection", "/pprot <on|off> [scope]"),
             new("Set rule", "/pprot <rule> <events> <within> [scope]"),
-            new("Disable/reset", "/pprot <rule> off|default [scope]"),
+            new("Disable/reset", "/pprot <rule> <off|default> [scope]"),
             new("Action", "/pprot action <monitor|ignore> [scope]"),
             new("Ignore time", "/pprot ignoretime <duration> [scope]"),
             new("Exemption", "/pprot exempt friends <on|off> [scope]"),
             new("Reset", "/pprot reset [scope]"),
-            new("Tools", "/pprot audit|counters"),
+            new("Tools", "/pprot <audit|counters>"),
             new("Rules", "message, notice, ctcp, invite"),
             new("Scopes", "<network>, --global"),
             new("Example", "/pprot message 6 5s EFnet")
@@ -341,23 +335,23 @@ internal sealed partial class ClientApplication
             "chat" => DccTypeHelp(
                 "chat",
                 "/dcc chat <nick> [--passive]",
-                "Start an ordinary plaintext DCC chat",
-                "With --passive, the other client listens and clircs connects back"),
+                "Start a plaintext DCC chat",
+                "Ask the target to listen for the connection."),
             "schat" => DccTypeHelp(
                 "schat",
                 "/dcc schat <nick> [--passive]",
-                "Start a DCC chat protected by TLS",
-                "SCHAT never falls back to plaintext; --passive reverses which client listens"),
+                "Start a TLS-encrypted DCC chat",
+                "Ask the target to listen for the connection."),
             "send" => DccTypeHelp(
                 "send",
                 "/dcc send <nick> <file> [--passive]",
-                "Send a file over ordinary plaintext DCC",
-                "With --passive, the receiving client listens and clircs connects back"),
+                "Send a file using plaintext DCC",
+                "Ask the target to listen for the connection."),
             "ssend" => DccTypeHelp(
                 "ssend",
                 "/dcc ssend <nick> <file> [--passive]",
-                "Send a file over DCC protected by TLS",
-                "SSEND never falls back to plaintext; --passive reverses which client listens"),
+                "Send a file using TLS-encrypted DCC",
+                "Ask the target to listen for the connection."),
             "list" => DccTypeHelp("list", "/dcc list", "List active DCC requests and connections", null),
             "show" => DccTypeHelp("show", "/dcc show <id>", "Show one DCC request or connection", null),
             "accept" => DccTypeHelp("accept", "/dcc accept <id>", "Accept an incoming DCC request", null),
@@ -375,7 +369,7 @@ internal sealed partial class ClientApplication
             new("Usage", usage),
             new("Description", description)
         };
-        if (detail is not null) fields.Add(new PresentationField("Details", detail));
+        if (detail is not null) fields.Add(new PresentationField("--passive", detail));
         return new PresentationBlock("HELP:", fields, TitleHighlight: $"/dcc {type}");
     }
 
@@ -384,70 +378,70 @@ internal sealed partial class ClientApplication
         var setting = requested.ToLowerInvariant();
         var detail = setting switch
         {
-            "nickname" => ("[nickname]", "your current default", "Primary nickname used when connecting.", "/set nickname slakker"),
-            "altnick" => ("[nickname]", "primary nickname plus _", "Fallback nickname used if the primary nickname is unavailable.", "/set altnick slakker_"),
-            "username" => ("[username]", "your Windows user name", "Username sent during IRC registration.", "/set username slakker"),
-            "realname" => ("[name]", "default settings enthusiast", "Real name text sent during IRC registration.", "/set realname Definitely Not My Name"),
-            "awaymsg" => ("[message|random|default]", "default", "Away message. default uses 'default settings enthusiast'. random selects a quote.", "/set awaymsg doing IRL stuff"),
-            "kickmsg" => ("[message|random|default]", "default", "Kick reason. default uses the kicked nickname. random selects a quote.", "/set kickmsg lewser"),
-            "quitmsg" => ("[message|random|default]", "default", "Quit reason. default uses the clircs version and description. random selects a quote.", "/set quitmsg default"),
-            "banmask" => ("[nick|host|userhost|full|wildcard]", "host", "Hostmask style used when banning someone.", "/set banmask host"),
-            "clonedetect" => ("[on|off]", "on", "Detects channel users sharing one visible host; it never takes protection action.", "/set clonedetect on"),
-            "datechange" => ("[on|off]", "on", "Shows date changes in window output.", "/set datechange off"),
-            "startup" => ("[on|off]", "on", "Shows the startup presentation at launch and on new connections.", "/set startup off"),
-            "highlight" => ("[on|off]", "on", "Highlights mentions of your nickname and mirrors them into the active window.", "/set highlight on"),
+            "nickname" => ("[nick]", "your current default", "Primary nickname used when connecting.", string.Empty),
+            "altnick" => ("[nick]", "primary nickname plus _", "Fallback nickname used if the primary nickname is unavailable.", string.Empty),
+            "username" => ("[username]", "your Windows user name", "Username sent during IRC registration.", string.Empty),
+            "realname" => ("[name]", "default settings enthusiast", "Real name text sent during IRC registration.", string.Empty),
+            "awaymsg" => ("[message|random|default]", "default", "Message displayed when marking yourself as away.", string.Empty),
+            "kickmsg" => ("[message|random|default]", "default", "Reason used when kicking a user from a channel.", string.Empty),
+            "quitmsg" => ("[message|random|default]", "default", "Quit reason displayed when exiting clircs.", string.Empty),
+            "banmask" => ("[nick|host|userhost|full|wildcard]", "host", "Hostmask style used when banning someone.", string.Empty),
+            "clonedetect" => ("[on|off]", "on", "Detects channel users sharing the same host.", string.Empty),
+            "datechange" => ("[on|off]", "on", "Shows date changes in window output.", string.Empty),
+            "startup" => ("[on|off]", "on", "Shows the startup presentation at launch and on new connections.", string.Empty),
+            "highlight" => ("[on|off]", "on", "Highlights mentions of your nickname and mirrors them into the active window.", string.Empty),
             "awaylog" => ("[on|off]", "off", "Records incoming private messages and actions while you are away.", string.Empty),
-            "status.lagmeter" => ("[on|off]", "on", "Shows connection response time; off stops its extra probes.", "/set status.lagmeter off"),
-            "status.tls" => ("[on|off]", "on", "Shows TLS indicators for server and bouncer connections.", "/set status.tls off"),
-            "status.bouncer" => ("[on|off]", "on", "Shows bouncer identification beside the server name.", "/set status.bouncer off"),
-            "status.chanmodes" => ("[on|off]", "on", "Shows channel modes beside the channel name.", "/set status.chanmodes off"),
-            "status.usermodes" => ("[on|off]", "on", "Shows your user modes beside your nickname.", "/set status.usermodes off"),
-            "status.totals" => ("[on|off]", "on", "Shows channel member totals and rank counts.", "/set status.totals off"),
-            "joininfo" => ("[on|off]", "off", "Shows matching userlist infolines when someone joins.", "/set joininfo on"),
-            "onjoin.users" => ("[on|off]", "on", "Shows the user list when you join a channel.", "/set onjoin.users off"),
-            "onjoin.topic" => ("[on|off]", "on", "Shows topic information when you join a channel.", "/set onjoin.topic off"),
-            "onjoin.created" => ("[on|off]", "on", "Shows the channel's creation time when you join.", "/set onjoin.created off"),
-            "onjoin.modes" => ("[on|off]", "off", "Shows channel modes when you join.", "/set onjoin.modes on"),
-            "onjoin.sync" => ("[on|off]", "on", "Shows the join synchronization timing line.", "/set onjoin.sync off"),
-            "kickrejoin" => ("[on|off]", "off", "Automatically rejoins a channel after you are kicked.", "/set kickrejoin on"),
-            "usermodes" => ("[modes|none]", "+i", "User modes applied automatically after registration. Use none to clear the global setting.", "/set usermodes +iw"),
-            "reconnect.network" => ("[on|off]", "on", "Reconnects after an unrequested network or server disconnect.", "/set reconnect.network on"),
-            "reconnect.kill" => ("[on|off]", "off", "Reconnects after the server kills your current IRC connection.", "/set reconnect.kill on"),
-            "reconnect.limit" => ("[number]", "100", "Maximum automatic reconnect attempts per connection (set to 0 to disable).", "/set reconnect.limit 100"),
-            "floodcontrol" => ("[on|off]", "on", "Paces outgoing IRC traffic to reduce flood disconnects.", "/set floodcontrol off"),
-            "dcc.address" => ("[auto|IP|hostname]", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", "/set dcc.address 2603:8081:3000:48b3::20"),
-            "dcc.ports" => ("[random|port|first-last]", "random", "Listening port or range used by outgoing active DCC connections; fixed ports must be forwarded through NAT.", "/set dcc.ports 50000-50009"),
-            "dcc.downloads" => ("[folder]", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files. Existing files are never overwritten.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
-            "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", "/set xdcc.auto on"),
+            "status.lagmeter" => ("[on|off]", "on", "Shows connection response time in the status bar.", string.Empty),
+            "status.tls" => ("[on|off]", "on", "Shows TLS indicators for server and bouncer connections.", string.Empty),
+            "status.bouncer" => ("[on|off]", "on", "Shows bouncer identification beside the server name.", string.Empty),
+            "status.chanmodes" => ("[on|off]", "on", "Shows channel modes beside the channel name.", string.Empty),
+            "status.usermodes" => ("[on|off]", "on", "Shows your user modes beside your nickname.", string.Empty),
+            "status.totals" => ("[on|off]", "on", "Shows channel member totals and rank counts.", string.Empty),
+            "joininfo" => ("[on|off]", "off", "Shows matching userlist infolines when someone joins.", string.Empty),
+            "onjoin.users" => ("[on|off]", "on", "Shows the user list when you join a channel.", string.Empty),
+            "onjoin.topic" => ("[on|off]", "on", "Shows topic information when you join a channel.", string.Empty),
+            "onjoin.created" => ("[on|off]", "on", "Shows the channel's creation time when you join.", string.Empty),
+            "onjoin.modes" => ("[on|off]", "off", "Shows channel modes when you join.", string.Empty),
+            "onjoin.sync" => ("[on|off]", "on", "Shows how long channel join synchronization took.", string.Empty),
+            "kickrejoin" => ("[on|off]", "off", "Automatically rejoins a channel after you are kicked.", string.Empty),
+            "usermodes" => ("[modes|none]", "+i", "User modes applied automatically after registration.", string.Empty),
+            "reconnect.network" => ("[on|off]", "on", "Automatically reconnects after an unexpected disconnect.", string.Empty),
+            "reconnect.kill" => ("[on|off]", "off", "Automatically reconnects after receiving a KILL.", string.Empty),
+            "reconnect.limit" => ("[number]", "100", "Maximum automatic reconnect attempts per connection (set to 0 to disable).", string.Empty),
+            "floodcontrol" => ("[on|off]", "on", "Paces outgoing IRC traffic to reduce flood disconnects.", string.Empty),
+            "dcc.address" => ("[auto|IP|hostname]", "auto", "Public IPv6 or IPv4 address advertised for outgoing active DCC connections.", string.Empty),
+            "dcc.ports" => ("[random|port|first-last]", "random", "Listening port or range used for outgoing active DCC connections.", string.Empty),
+            "dcc.downloads" => ("[folder]", DefaultDccDownloadDirectory(_dataDirectory), "Folder used for received DCC files.", "/set dcc.downloads %USERPROFILE%\\Downloads"),
+            "xdcc.auto" => ("[on|off]", "off", "Automatically accepts files requested through /xdcc.", string.Empty),
             "showhosts" => ("[on|off]", "on", "Shows user@host on joins, parts, and quits.", string.Empty),
             "notice.output" =>
-                ("[active|status|window]", "active", "Selects the window used for notices from users.", "/set notice.output window"),
+                ("[active|status|window]", "active", "Selects the window used for notices from users.", string.Empty),
             "snotice.output" =>
-                ("[active|status|window]", "status", "Selects the window used for server notices.", "/set snotice.output window"),
+                ("[active|status|window]", "status", "Selects the window used for server notices.", string.Empty),
             "notify.output" =>
-                ("[active|status|window]", "status", "Selects the window used for notify online/offline announcements.", "/set notify.output window"),
+                ("[active|status|window]", "status", "Selects the window used for notify online/offline announcements.", string.Empty),
             "wallops.output" =>
-                ("[active|status|window]", "active", "Selects the window used for incoming WALLOPS messages.", "/set wallops.output window"),
+                ("[active|status|window]", "active", "Selects the window used for incoming WALLOPS messages.", string.Empty),
             "callerid.output" =>
-                ("[active|status|window]", "active", "Selects the window used for caller-ID notifications.", "/set callerid.output window"),
+                ("[active|status|window]", "active", "Selects the window used for caller-ID notifications.", string.Empty),
             "list.output" =>
-                ("[active|status|window]", "window", "Selects the window used for channel-list results.", "/set list.output window"),
+                ("[active|status|window]", "window", "Selects the window used for channel-list results.", string.Empty),
             "who.output" =>
-                ("[active|status|window]", "active", "Selects the window used for WHO results.", "/set who.output window"),
+                ("[active|status|window]", "active", "Selects the window used for /who and /ircops results.", string.Empty),
             "whois.output" =>
-                ("[active|status|window]", "active", "Selects the window used for WHOIS results.", "/set whois.output window"),
+                ("[active|status|window]", "active", "Selects the window used for WHOIS results.", string.Empty),
             "whowas.output" =>
-                ("[active|status|window]", "active", "Selects the window used for WHOWAS results.", "/set whowas.output window"),
+                ("[active|status|window]", "active", "Selects the window used for WHOWAS results.", string.Empty),
             "names.output" =>
-                ("[active|status|window]", "active", "Selects the window used for /names results.", "/set names.output window"),
+                ("[active|status|window]", "active", "Selects the window used for /names results.", string.Empty),
             "ctcp.output" =>
-                ("[active|status|window]", "active", "Selects the window used for CTCP requests and replies.", "/set ctcp.output window"),
+                ("[active|status|window]", "active", "Selects the window used for CTCP requests and replies.", string.Empty),
             "invite.output" =>
-                ("[active|status|window]", "active", "Selects the window used for channel invitations and confirmations.", "/set invite.output window"),
+                ("[active|status|window]", "active", "Selects the window used for channel invitations and confirmations.", string.Empty),
             "links.output" =>
-                ("[active|status|window]", "status", "Selects the window used for server-link listings.", "/set links.output window"),
+                ("[active|status|window]", "status", "Selects the window used for server-link listings.", string.Empty),
             "dns.output" =>
-                ("[active|status|window]", "active", "Selects the window used for DNS lookup results.", "/set dns.output window"),
+                ("[active|status|window]", "active", "Selects the window used for DNS lookup results.", string.Empty),
             _ => default
         };
         if (detail == default) return null;
@@ -793,7 +787,7 @@ internal sealed partial class ClientApplication
         if (operation is not ("on" or "off") || input.Arguments.Count > 3)
         {
             return ValueTask.FromResult(CommandResult.Failure(
-                "Usage: /logging <on|off|status|list|path> [network] [target]"));
+                "Usage: /logging [on|off|status|list|path] [network] [target]"));
         }
 
         var enabled = operation == "on";
