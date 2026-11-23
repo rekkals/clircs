@@ -176,6 +176,7 @@ internal sealed partial class ClientApplication
             "logging" => LoggingHelp,
             "tls" => TlsHelp,
             "xdcc" => XdccHelp,
+            "notify" => NotifyHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -309,6 +310,12 @@ internal sealed partial class ClientApplication
             new("Pending", "/xdcc pending"),
             new("Cancel waiting", "/xdcc cancel <bot>")
         ],
+        "notify" =>
+        [
+            new("View list", "/notify list"),
+            new("Add nicknames", "/notify add <nick...>"),
+            new("Remove nicknames", "/notify remove <nick...>")
+        ],
         "set" =>
         [
             new("Identity", "nickname, altnick, username, realname"),
@@ -356,6 +363,33 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? NotifyHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/notify list",
+                "Show notify nicknames and their online status"),
+            "add" => (
+                "/notify add <nick...>",
+                "Add nicknames to the notify list"),
+            "remove" => (
+                "/notify remove <nick...>",
+                "Remove nicknames from the notify list"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        return new PresentationBlock(
+            "HELP:",
+            [
+                new("Usage", detail.Item1),
+                new("Description", detail.Item2)
+            ],
+            TitleHighlight: $"/notify {topic}");
+    }
 
     private static PresentationBlock? XdccHelp(string requested)
     {
@@ -881,7 +915,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging" or "tls" or "xdcc"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging" or "tls" or "xdcc" or "notify"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));

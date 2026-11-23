@@ -121,7 +121,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["uwhois"] = "/uwhois <handle|nick>",
             ["ignore"] = "/ignore [nick|hostmask]",
             ["unignore"] = "/unignore <nick|hostmask>",
-            ["notify"] = "/notify [list|add <nick...>|remove <nick...>]",
+            ["notify"] = "/notify [command] [arguments]",
             ["accept"] = "/accept [nick,...]",
             ["unaccept"] = "/unaccept <nick,...>",
             ["cprot"] = "/cprot [operation|rule] [arguments]",
