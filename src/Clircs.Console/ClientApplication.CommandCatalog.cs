@@ -174,6 +174,7 @@ internal sealed partial class ClientApplication
             "autojoin" => AutojoinHelp,
             "backup" => BackupHelp,
             "logging" => LoggingHelp,
+            "tls" => TlsHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -206,6 +207,12 @@ internal sealed partial class ClientApplication
             new("View list", "/backup list"),
             new("Backup folder", "/backup path"),
             new("Restore backup", "/backup restore <file>")
+        ],
+        "tls" =>
+        [
+            new("TLS status", "/tls"),
+            new("View certificates", "/tls list"),
+            new("Forget certificate", "/tls forget <host> <port>")
         ],
         "logging" =>
         [
@@ -348,6 +355,30 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? TlsHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/tls list",
+                "List saved certificate pins"),
+            "forget" => (
+                "/tls forget <host> <port>",
+                "Forget a saved certificate pin"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        return new PresentationBlock(
+            "HELP:",
+            [
+                new("Usage", detail.Item1),
+                new("Description", detail.Item2)
+            ],
+            TitleHighlight: $"/tls {topic}");
+    }
 
     private static PresentationBlock? LoggingHelp(string requested)
     {
@@ -816,7 +847,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging" or "tls"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
