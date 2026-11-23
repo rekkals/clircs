@@ -177,6 +177,7 @@ internal sealed partial class ClientApplication
             "tls" => TlsHelp,
             "xdcc" => XdccHelp,
             "notify" => NotifyHelp,
+            "script" => ScriptHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -316,6 +317,16 @@ internal sealed partial class ClientApplication
             new("Add nicknames", "/notify add <nick...>"),
             new("Remove nicknames", "/notify remove <nick...>")
         ],
+        "script" =>
+        [
+            new("View list", "/script list"),
+            new("Load script", "/script load <id>"),
+            new("Unload script", "/script unload <id>"),
+            new("Reload script", "/script reload <id>"),
+            new("View errors", "/script errors"),
+            new("Permissions", "/script permissions [id]"),
+            new("Set permission", "/script permissions <id> <permission> <on|off>")
+        ],
         "set" =>
         [
             new("Identity", "nickname, altnick, username, realname"),
@@ -363,6 +374,53 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? ScriptHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/script list",
+                "List installed scripts"),
+            "load" => (
+                "/script load <id>",
+                "Load a script"),
+            "unload" => (
+                "/script unload <id>",
+                "Unload a script"),
+            "reload" => (
+                "/script reload <id>",
+                "Reload a script"),
+            "errors" => (
+                "/script errors",
+                "Show recent script errors"),
+            "permissions" => (
+                "/script permissions [id]",
+                "Show or change script permissions"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+        if (topic == "permissions")
+        {
+            fields.Add(new(
+                "Set permission",
+                "/script permissions <id> <permission> <on|off>"));
+        }
+        if (topic is "load" or "unload" or "reload" or "permissions")
+        {
+            fields.Add(new("ID", "Script ID from /script list"));
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/script {topic}");
+    }
 
     private static PresentationBlock? NotifyHelp(string requested)
     {
@@ -915,7 +973,8 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging" or "tls" or "xdcc" or "notify"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin"
+                    or "backup" or "logging" or "tls" or "xdcc" or "notify" or "script"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));

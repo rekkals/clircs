@@ -150,7 +150,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["set"] = "/set [setting [value]]",
             ["theme"] = "/theme [load <name>|reload|list]",
             ["tls"] = "/tls [command] [arguments]",
-            ["script"] = "/script <list|load|unload|reload|errors|permissions> [arguments]"
+            ["script"] = "/script <command> [arguments]"
         };
     private readonly long _startedTimestamp = Stopwatch.GetTimestamp();
     private readonly CommandRegistry _commands = new();

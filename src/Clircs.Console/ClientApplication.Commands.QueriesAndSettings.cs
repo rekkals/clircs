@@ -926,7 +926,7 @@ internal sealed partial class ClientApplication
         }
 
         return CommandResult.Failure(
-            "Usage: /script list | load <id> | unload <id> | reload <id> | errors | permissions [id [permission <on|off>]]");
+            "Usage: /script <list|load|unload|reload|errors|permissions> [arguments]");
     }
 
     private static string FormatPermissions(IReadOnlyList<ScriptPermission> permissions) =>
