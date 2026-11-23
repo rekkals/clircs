@@ -33,7 +33,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["help"] = "/help [command]",
             ["about"] = "/about",
             ["config"] = "/config",
-            ["backup"] = "/backup <create|list|path|restore> [file]",
+            ["backup"] = "/backup <command> [arguments]",
             ["logging"] = "/logging [on|off|status|list|path] [network] [target]",
             ["network"] = "/network [command] [arguments]",
             ["disconnect"] = "/disconnect [reason]",

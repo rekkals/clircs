@@ -172,6 +172,7 @@ internal sealed partial class ClientApplication
             "messages" => MessagesHelp,
             "network" => NetworkHelp,
             "autojoin" => AutojoinHelp,
+            "backup" => BackupHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -200,7 +201,10 @@ internal sealed partial class ClientApplication
         ],
         "backup" =>
         [
-            new("Restore file", "Use a filename from /backup list or a quoted full path")
+            new("Create backup", "/backup create"),
+            new("View list", "/backup list"),
+            new("Backup folder", "/backup path"),
+            new("Restore backup", "/backup restore <file>")
         ],
         "server" =>
         [
@@ -335,6 +339,43 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? BackupHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "create" => (
+                "/backup create",
+                "Create a backup"),
+            "list" => (
+                "/backup list",
+                "List available backups"),
+            "path" => (
+                "/backup path",
+                "Show the backup folder"),
+            "restore" => (
+                "/backup restore <file>",
+                "Restore a backup"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+        if (topic == "restore")
+        {
+            fields.Add(new(
+                "File",
+                "Use a filename from /backup list or a quoted full path"));
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/backup {topic}");
+    }
 
     private static PresentationBlock? AutojoinHelp(string requested)
     {
@@ -723,7 +764,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
@@ -790,7 +831,7 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        const string usage = "Usage: /backup <create|list|path|restore> [file]";
+        const string usage = "Usage: /backup <command> [arguments]";
 
         if (input.Arguments.Count == 0)
         {
