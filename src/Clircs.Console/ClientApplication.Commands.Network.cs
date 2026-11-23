@@ -325,7 +325,8 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkPassword(input));
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
-                    "Usage: /network [command] [arguments]"));
+                    "Usage: /network [list|profiles|status|add|server|username|usermodes|" +
+                    "getnick|remove|password|sasl] [arguments]"));
         }
     }
 
@@ -1456,7 +1457,7 @@ internal sealed partial class ClientApplication
                     }
                 default:
                     return ValueTask.FromResult(CommandResult.Failure(
-                        "Usage: /messages [command] [arguments]"));
+                        "Usage: /messages [list|read|delete|clear|window] [arguments]"));
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -2086,7 +2087,8 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        const string usage = "Usage: /autojoin [command] [arguments]";
+        const string usage =
+            "Usage: /autojoin [list|add|remove|run|clear] [arguments]";
         var operation = input.Arguments.Count == 0 ? "list" : input.Arguments[0].ToLowerInvariant();
         if (operation is not ("list" or "add" or "remove" or "run" or "clear"))
         {

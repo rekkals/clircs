@@ -1094,7 +1094,8 @@ internal sealed partial class ClientApplication
         CommandInput input,
         CancellationToken cancellationToken)
     {
-        const string usage = "Usage: /backup <command> [arguments]";
+        const string usage =
+            "Usage: /backup <create|list|path|restore> [arguments]";
 
         if (input.Arguments.Count == 0)
         {
