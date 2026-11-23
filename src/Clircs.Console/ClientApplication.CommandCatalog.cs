@@ -178,6 +178,7 @@ internal sealed partial class ClientApplication
             "xdcc" => XdccHelp,
             "notify" => NotifyHelp,
             "script" => ScriptHelp,
+            "theme" => ThemeHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -329,6 +330,13 @@ internal sealed partial class ClientApplication
             new("Permissions", "/script permissions [id]"),
             new("Set permission", "/script permissions <id> <permission> <on|off>")
         ],
+        "theme" =>
+        [
+            new("Current theme", "/theme"),
+            new("View list", "/theme list"),
+            new("Load theme", "/theme load <name>"),
+            new("Reload themes", "/theme reload")
+        ],
         "set" =>
         [
             new("Identity", "nickname, altnick, username, realname"),
@@ -378,6 +386,38 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? ThemeHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/theme list",
+                "List available themes"),
+            "load" => (
+                "/theme load <name>",
+                "Load a theme"),
+            "reload" => (
+                "/theme reload",
+                "Reload theme files and refresh the current theme"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+        if (topic == "load")
+        {
+            fields.Add(new("Name", "Theme name from /theme list"));
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/theme {topic}");
+    }
 
     private static PresentationBlock? ScriptHelp(string requested)
     {
@@ -987,7 +1027,7 @@ internal sealed partial class ClientApplication
                 fields,
                 Summary: command.Name is "dcc" or "messages" or "network" or "autojoin"
                     or "backup" or "logging" or "tls" or "xdcc" or "notify" or "script"
-                    or "cprot" or "pprot"
+                    or "cprot" or "pprot" or "theme"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
