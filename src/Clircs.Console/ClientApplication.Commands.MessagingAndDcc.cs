@@ -811,7 +811,7 @@ internal sealed partial class ClientApplication
     }
 
     private static string DccUsage() =>
-        "Usage: /dcc <chat|schat|send|ssend|list|show|accept|reject|resume|cancel>";
+        "Usage: /dcc <chat|schat|send|ssend|list|show|accept|reject|resume|cancel> [arguments]";
 
     private static string DccStateText(DccRequestState state) =>
         state == DccRequestState.Cancelled ? "canceled" : state.ToString().ToLowerInvariant();

@@ -297,8 +297,10 @@ internal sealed partial class ClientApplication
             new("Secure chat", "/dcc schat <nick> [--passive]"),
             new("Send", "/dcc send <nick> <file> [--passive]"),
             new("Secure send", "/dcc ssend <nick> <file> [--passive]"),
-            new("Requests", "/dcc list or /dcc show <id>"),
-            new("Incoming", "/dcc accept <id> or /dcc reject <id>"),
+            new("View list", "/dcc list"),
+            new("Show request", "/dcc show <id>"),
+            new("Accept request", "/dcc accept <id>"),
+            new("Reject request", "/dcc reject <id>"),
             new("Resume", "/dcc resume <id>"),
             new("Cancel", "/dcc cancel <id>")
         ],
@@ -791,7 +793,11 @@ internal sealed partial class ClientApplication
             "accept" => DccTypeHelp("accept", "/dcc accept <id>", "Accept an incoming DCC request", null),
             "reject" => DccTypeHelp("reject", "/dcc reject <id>", "Reject an incoming DCC request", null),
             "resume" => DccTypeHelp("resume", "/dcc resume <id>", "Resume an incomplete incoming file transfer", null),
-            "cancel" => DccTypeHelp("cancel", "/dcc cancel <id>", "Cancel an outgoing request or active DCC connection", null),
+            "cancel" => DccTypeHelp(
+                "cancel",
+                "/dcc cancel <id>",
+                "Cancel an outgoing request, file transfer, or active DCC chat",
+                null),
             _ => null
         };
     }
@@ -804,6 +810,10 @@ internal sealed partial class ClientApplication
             new("Description", description)
         };
         if (detail is not null) fields.Add(new PresentationField("--passive", detail));
+        if (type is "show" or "accept" or "reject" or "resume" or "cancel")
+        {
+            fields.Add(new PresentationField("ID", "DCC ID from /dcc list"));
+        }
         return new PresentationBlock("HELP:", fields, TitleHighlight: $"/dcc {type}");
     }
 
