@@ -173,6 +173,7 @@ internal sealed partial class ClientApplication
             "network" => NetworkHelp,
             "autojoin" => AutojoinHelp,
             "backup" => BackupHelp,
+            "logging" => LoggingHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -205,6 +206,14 @@ internal sealed partial class ClientApplication
             new("View list", "/backup list"),
             new("Backup folder", "/backup path"),
             new("Restore backup", "/backup restore <file>")
+        ],
+        "logging" =>
+        [
+            new("Status", "/logging [status]"),
+            new("Enable logging", "/logging on [profile|target] [target]"),
+            new("Disable logging", "/logging off [profile|target] [target]"),
+            new("View rules", "/logging list"),
+            new("Log folder", "/logging path")
         ],
         "server" =>
         [
@@ -339,6 +348,49 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? LoggingHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "on" => (
+                "/logging on [target]",
+                "Enable logging"),
+            "off" => (
+                "/logging off [target]",
+                "Disable logging"),
+            "status" => (
+                "/logging status",
+                "Show logging settings for the current window"),
+            "list" => (
+                "/logging list",
+                "List saved logging rules"),
+            "path" => (
+                "/logging path",
+                "Show the log folder"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+        if (topic is "on" or "off")
+        {
+            fields.Add(new(
+                "Profile",
+                $"/logging {topic} <profile> [target]"));
+            fields.Add(new(
+                "Target",
+                "Window name (use status for the Status window)"));
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/logging {topic}");
+    }
 
     private static PresentationBlock? BackupHelp(string requested)
     {
@@ -764,7 +816,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
