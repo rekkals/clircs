@@ -106,7 +106,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["exceptlist"] = "/exceptlist [channel]",
             ["invitelist"] = "/invitelist [channel]",
             ["quietlist"] = "/quietlist [channel]",
-            ["xdcc"] = "/xdcc list <bot> | /xdcc <get|sget> <bot> <pack> | /xdcc pending | /xdcc cancel <bot>",
+            ["xdcc"] = "/xdcc <command> [arguments]",
             ["unban"] = "/unban <hostmask>",
             ["appendtopic"] = "/appendtopic <text>",
             ["adduser"] = "/adduser <handle> [hostmask|nick]",

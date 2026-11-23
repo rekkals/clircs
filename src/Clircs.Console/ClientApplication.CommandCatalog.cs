@@ -175,6 +175,7 @@ internal sealed partial class ClientApplication
             "backup" => BackupHelp,
             "logging" => LoggingHelp,
             "tls" => TlsHelp,
+            "xdcc" => XdccHelp,
             "cprot" => requested => FriendlyProtectionHelp(requested, personal: false),
             "pprot" => requested => FriendlyProtectionHelp(requested, personal: true),
             _ => null
@@ -355,6 +356,39 @@ internal sealed partial class ClientApplication
         ],
         _ => []
     };
+
+    private static PresentationBlock? XdccHelp(string requested)
+    {
+        var topic = requested.TrimStart('/').ToLowerInvariant();
+        var detail = topic switch
+        {
+            "list" => (
+                "/xdcc list <bot>",
+                "Request a bot's pack list"),
+            "get" => (
+                "/xdcc get <bot> <pack>",
+                "Request a file pack"),
+            "sget" => (
+                "/xdcc sget <bot> <pack>",
+                "Request a file pack using secure DCC"),
+            "pending" => (
+                "/xdcc pending",
+                "List pending XDCC auto-accept requests"),
+            "cancel" => (
+                "/xdcc cancel <bot>",
+                "Request queue removal and clear pending auto-accept requests"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        return new PresentationBlock(
+            "HELP:",
+            [
+                new("Usage", detail.Item1),
+                new("Description", detail.Item2)
+            ],
+            TitleHighlight: $"/xdcc {topic}");
+    }
 
     private static PresentationBlock? TlsHelp(string requested)
     {
@@ -847,7 +881,7 @@ internal sealed partial class ClientApplication
             return ValueTask.FromResult(CommandResult.Success(new PresentationBlock(
                 "HELP:",
                 fields,
-                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging" or "tls"
+                Summary: command.Name is "dcc" or "messages" or "network" or "autojoin" or "backup" or "logging" or "tls" or "xdcc"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
