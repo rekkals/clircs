@@ -682,28 +682,89 @@ internal sealed partial class ClientApplication
         string requested,
         bool personal)
     {
-        var detector = ParseFriendlyProtectionDetector(requested, personal);
-        if (detector is null)
-            return null;
-
+        var topic = requested.TrimStart('/').ToLowerInvariant();
         var command = personal ? "pprot" : "cprot";
-        var name = DetectorName(detector.Value);
+        var protection = personal ? "personal" : "channel";
         var scopes = personal
             ? "<network>, --global"
             : "<channel>, <network> <channel>, <network> *, --global";
-        var example = personal
-            ? $"/{command} {name} 4 10s EFnet"
-            : $"/{command} {name} 4 10s EFnet #clircs";
 
-        return new PresentationBlock("HELP:",
-        [
-            new("Usage", $"/{command} {name} <events> <within> [scope]"),
-            new("Disable/reset", $"/{command} {name} <off|default> [scope]"),
-            new("Description", $"Set the {name} detection threshold."),
-            new("Time", "A bare number means seconds (suffixes s, m, and h are accepted)."),
-            new("Scopes", scopes),
-            new("Example", example)
-        ], TitleHighlight: $"/{command} {name}");
+        var detector = ParseFriendlyProtectionDetector(topic, personal);
+        if (detector is not null)
+        {
+            var name = DetectorName(detector.Value);
+            return new PresentationBlock(
+                "HELP:",
+                [
+                    new("Usage", $"/{command} {name} <events> <within> [scope]"),
+                    new("Description", $"Set the {name} detection threshold"),
+                    new("Disable/reset", $"/{command} {name} <off|default> [scope]"),
+                    new("Time", "Seconds or s/m/h/d; maximum 1h"),
+                    new("Scopes", scopes)
+                ],
+                TitleHighlight: $"/{command} {name}");
+        }
+
+        var detail = topic switch
+        {
+            "status" => (
+                $"/{command} status [scope]",
+                $"Show {protection} protection settings"),
+            "on" => (
+                $"/{command} on [scope]",
+                $"Enable {protection} protection"),
+            "off" => (
+                $"/{command} off [scope]",
+                $"Disable {protection} protection"),
+            "action" => (
+                personal
+                    ? "/pprot action <monitor|ignore> [scope]"
+                    : "/cprot action <monitor|kick|kickban> [scope]",
+                $"Set the {protection} protection action"),
+            "exempt" => (
+                personal
+                    ? "/pprot exempt friends <on|off> [scope]"
+                    : "/cprot exempt <chanops|friends> <on|off> [scope]",
+                $"Set {protection} protection exemptions"),
+            "reset" => (
+                $"/{command} reset [scope]",
+                $"Reset {protection} protection settings"),
+            "audit" => (
+                $"/{command} audit",
+                $"Open the {protection} protection audit window"),
+            "counters" => (
+                $"/{command} counters",
+                $"Show active {protection} protection counters"),
+            "bantime" when !personal => (
+                "/cprot bantime <duration|permanent> [scope]",
+                "Set how long protection bans last"),
+            "ignoretime" when personal => (
+                "/pprot ignoretime <duration> [scope]",
+                "Set how long protection ignores last"),
+            _ => default
+        };
+        if (detail == default) return null;
+
+        var fields = new List<PresentationField>
+        {
+            new("Usage", detail.Item1),
+            new("Description", detail.Item2)
+        };
+        if (topic == "bantime")
+        {
+            fields.Add(new("Duration", "Use s, m, h, or d; 1s through 30d"));
+        }
+        else if (topic == "ignoretime")
+        {
+            fields.Add(new("Duration", "Use s, m, h, or d; 1s through 1d"));
+        }
+        if (topic is not ("audit" or "counters"))
+        {
+            fields.Add(new("Scopes", scopes));
+        }
+
+        return new PresentationBlock(
+            "HELP:", fields, TitleHighlight: $"/{command} {topic}");
     }
 
     private static bool TryFriendlyProtectionDuration(string value, out TimeSpan duration)

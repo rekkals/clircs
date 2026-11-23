@@ -342,33 +342,35 @@ internal sealed partial class ClientApplication
         ],
         "cprot" =>
         [
-            new("Status", "/cprot, /cprot status [scope]"),
-            new("Protection", "/cprot <on|off> [scope]"),
+            new("Status", "/cprot status [scope]"),
+            new("Enable", "/cprot on [scope]"),
+            new("Disable", "/cprot off [scope]"),
             new("Set rule", "/cprot <rule> <events> <within> [scope]"),
             new("Disable/reset", "/cprot <rule> <off|default> [scope]"),
             new("Action", "/cprot action <monitor|kick|kickban> [scope]"),
             new("Ban time", "/cprot bantime <duration|permanent> [scope]"),
             new("Exemptions", "/cprot exempt <chanops|friends> <on|off> [scope]"),
             new("Reset", "/cprot reset [scope]"),
-            new("Tools", "/cprot <audit|counters>"),
+            new("Audit window", "/cprot audit"),
+            new("Counters", "/cprot counters"),
             new("Rules", "text, repeat, join, nick, kick, deop, caps, controls, ctcp"),
-            new("Scopes", "<channel>, <network> <channel>, <network> *, --global"),
-            new("Example", "/cprot text 10 5s EFnet #clircs")
+            new("Scopes", "<channel>, <network> <channel>, <network> *, --global")
         ],
         "pprot" =>
         [
-            new("Status", "/pprot, /pprot status [scope]"),
-            new("Protection", "/pprot <on|off> [scope]"),
+            new("Status", "/pprot status [scope]"),
+            new("Enable", "/pprot on [scope]"),
+            new("Disable", "/pprot off [scope]"),
             new("Set rule", "/pprot <rule> <events> <within> [scope]"),
             new("Disable/reset", "/pprot <rule> <off|default> [scope]"),
             new("Action", "/pprot action <monitor|ignore> [scope]"),
             new("Ignore time", "/pprot ignoretime <duration> [scope]"),
             new("Exemption", "/pprot exempt friends <on|off> [scope]"),
             new("Reset", "/pprot reset [scope]"),
-            new("Tools", "/pprot <audit|counters>"),
+            new("Audit window", "/pprot audit"),
+            new("Counters", "/pprot counters"),
             new("Rules", "message, notice, ctcp, invite"),
-            new("Scopes", "<network>, --global"),
-            new("Example", "/pprot message 6 5s EFnet")
+            new("Scopes", "<network>, --global")
         ],
         "debug" =>
         [
@@ -985,6 +987,7 @@ internal sealed partial class ClientApplication
                 fields,
                 Summary: command.Name is "dcc" or "messages" or "network" or "autojoin"
                     or "backup" or "logging" or "tls" or "xdcc" or "notify" or "script"
+                    or "cprot" or "pprot"
                     ? $"Use /help {command.Name} <command> for details."
                     : null,
                 TitleHighlight: $"/{command.Name}")));
