@@ -126,7 +126,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             ["unaccept"] = "/unaccept <nick,...>",
             ["cprot"] = "/cprot [command] [arguments]",
             ["pprot"] = "/pprot [command] [arguments]",
-            ["server"] = "/server <host> [port] [--tls] [--new] [--password] | /server <profile> [number] [--new] [--password]",
+            ["server"] = "/server <host|profile> [port|number] [--tls] [--new] [--password]",
             ["clones"] = "/clones [channel]",
             ["who"] = "/who [channel|nick|mask]",
             ["ircops"] = "/ircops [channel]",

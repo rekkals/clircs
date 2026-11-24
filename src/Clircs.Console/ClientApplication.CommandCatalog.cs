@@ -228,9 +228,8 @@ internal sealed partial class ClientApplication
         ],
         "server" =>
         [
-            new("Direct", "/server <host> [port] [--tls] [--new] [--password]"),
-            new("Profile", "/server <profile> [number] [--new] [--password]"),
-            new("--tls", "Use TLS for a direct server connection."),
+            new("Number", "Server number from /network profiles"),
+            new("--tls", "Connect to the server over TLS."),
             new("--new", "Open a new connection alongside the current one."),
             new("--password", "Prompt for a server or bouncer password.")
         ],

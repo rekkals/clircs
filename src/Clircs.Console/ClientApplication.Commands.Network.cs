@@ -17,8 +17,7 @@ internal sealed partial class ClientApplication
     private async ValueTask<CommandResult> ServerAsync(CommandContext context, CommandInput input, CancellationToken cancellationToken)
     {
         const string usage =
-            "Usage: /server <host> [port] [--tls] [--new] [--password] | " +
-            "/server <profile> [number] [--new] [--password]";
+            "Usage: /server <host|profile> [port|number] [--tls] [--new] [--password]";
 
         if (input.Arguments.Count == 0)
         {
@@ -1156,7 +1155,7 @@ internal sealed partial class ClientApplication
         }
         if (options is null)
         {
-            return CommandResult.Failure("No previous server is available. Use /server first.");
+            return CommandResult.Failure("No server to reconnect to. Use /server to connect.");
         }
 
         if (active is not null)
@@ -1668,7 +1667,7 @@ internal sealed partial class ClientApplication
         {
             await session.SendNoticeAsync(
                 nickname,
-                "Your message has been recorded; I am currently away.",
+                "I am away. Your message has been recorded.",
                 SessionWorkToken(session),
                 echoLocally: false,
                 priority: IrcOutboundPriority.Automation);
