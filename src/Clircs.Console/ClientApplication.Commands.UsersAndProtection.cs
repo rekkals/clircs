@@ -475,7 +475,7 @@ internal sealed partial class ClientApplication
                     ? "Global channel protection settings reset to factory defaults."
                     : changed
                         ? $"Channel protection settings reset for {label}."
-                        : $"Channel protection settings were already inherited for {label}.";
+                        : $"Channel protection settings are already using defaults for {label}.";
                 return ValueTask.FromResult(CommandResult.Success(message));
             }
 
@@ -603,8 +603,8 @@ internal sealed partial class ClientApplication
                 var message = scope!.Kind == ProtectionScopeKind.Global
                     ? $"{DetectorName(detector.Value)} reset to its factory default."
                     : changed
-                        ? $"{DetectorName(detector.Value)} now inherits its defaults for {label}."
-                        : $"{DetectorName(detector.Value)} was already inherited for {label}.";
+                        ? $"{DetectorName(detector.Value)} is now using defaults for {label}."
+                        : $"{DetectorName(detector.Value)} is already using defaults for {label}.";
                 return ValueTask.FromResult(CommandResult.Success(message));
             }
 
@@ -663,7 +663,7 @@ internal sealed partial class ClientApplication
                     ? "Global personal protection settings reset to factory defaults."
                     : changed
                         ? $"Personal protection settings reset for {label}."
-                        : $"Personal protection settings were already inherited for {label}.";
+                        : $"Personal protection settings are already using defaults for {label}.";
                 return ValueTask.FromResult(CommandResult.Success(message));
             }
             if (operation == "audit")
@@ -789,8 +789,8 @@ internal sealed partial class ClientApplication
                 var message = scope!.Kind == ProtectionScopeKind.Global
                     ? $"{DetectorName(detector.Value)} reset to its factory default."
                     : changed
-                        ? $"{DetectorName(detector.Value)} now inherits its defaults for {label}."
-                        : $"{DetectorName(detector.Value)} was already inherited for {label}.";
+                        ? $"{DetectorName(detector.Value)} is now using defaults for {label}."
+                        : $"{DetectorName(detector.Value)} is already using defaults for {label}.";
                 return ValueTask.FromResult(CommandResult.Success(message));
             }
             if (tail.Length < 2 || !int.TryParse(tail[0], out var count) ||
@@ -1470,7 +1470,7 @@ internal sealed partial class ClientApplication
         if (members.Length != 1 || members[0].Username is null || members[0].Host is null)
         {
             throw new InvalidOperationException(
-                $"'{maskOrNickname}' is not one unambiguous visible nick with known user and host; supply nick!user@host explicitly.");
+                $"Cannot determine a hostmask for '{maskOrNickname}'. Specify nick!user@host.");
         }
 
         return ($"*!{members[0].Username}@{members[0].Host}", $"Derived from {members[0].FullMask}.");
