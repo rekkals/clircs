@@ -259,7 +259,7 @@ internal sealed partial class ClientApplication
         if (activeBuffer?.Kind == BufferKind.DccChat)
         {
             return input.RawArguments.Length == 0
-                ? CommandResult.Failure("Usage in a DCC chat: /me <action>")
+                ? CommandResult.Failure("Usage: /me <action>")
                 : await SendDccChatAsync(activeBuffer, $"\u0001ACTION {input.RawArguments}\u0001", cancellationToken);
         }
         var session = RequireSession(out var failure);
@@ -271,7 +271,7 @@ internal sealed partial class ClientApplication
 
         if (target is null || input.RawArguments.Length == 0)
         {
-            return CommandResult.Failure("Usage in a channel/query: /me <action>");
+            return CommandResult.Failure("Usage: /me <action>");
         }
 
         if (_preferences.FloodControl && activeBuffer is not null)
@@ -417,8 +417,7 @@ internal sealed partial class ClientApplication
         CancellationToken cancellationToken)
     {
         const string usage =
-            "Usage: /xdcc list <bot> | /xdcc <get|sget> <bot> <pack> | " +
-            "/xdcc pending | /xdcc cancel <bot>";
+            "Usage: /xdcc <list|get|sget|pending|cancel> [arguments]";
 
         var operation = input.Arguments.Count > 0
             ? input.Arguments[0].ToLowerInvariant()
