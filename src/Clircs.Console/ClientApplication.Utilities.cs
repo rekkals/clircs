@@ -70,7 +70,7 @@ internal sealed partial class ClientApplication
 
         if (profile is not null)
         {
-            fields.Add(PresentationField.Section("Profile Settings", blankLineBefore: true));
+            fields.Add(PresentationField.Section("Network Profile", blankLineBefore: true));
             fields.Add(new PresentationField("Name", profile.DisplayName));
             fields.Add(new PresentationField(
                 "Getnick",
@@ -78,20 +78,28 @@ internal sealed partial class ClientApplication
                     profile.GetnickTarget,
                     RuntimeFor(session)?.Getnick.Snapshot().Paused == true)));
 
-            if (profile.UsernameOverride is { } usernameOverride)
-            {
-                fields.Add(new PresentationField("Username", usernameOverride));
-            }
-
+            var username = profile.UsernameOverride ?? _preferences.Username;
+            var usernameSource = profile.UsernameOverride is null ? "global" : "profile";
             var userModes = profile.UserModesOverride ?? _preferences.UserModes;
+            var displayedUserModes = userModes.Length == 0 ? "not set" : userModes;
+            var userModesSource = profile.UserModesOverride is null ? "global" : "profile";
+
+            fields.Add(new PresentationField(
+                "Username",
+                $"{username} ({usernameSource})"));
             fields.Add(new PresentationField(
                 "User modes",
-                userModes.Length == 0 ? "not set" : userModes));
+                $"{displayedUserModes} ({userModesSource})"));
             fields.Add(new PresentationField(
                 "Autojoin",
                 profile.AutojoinChannels.Count == 0
                     ? "none"
                     : string.Join(", ", profile.AutojoinChannels)));
+            fields.Add(new PresentationField(
+                "Notify",
+                profile.NotifyNicknames.Count == 0
+                    ? "none"
+                    : string.Join(", ", profile.NotifyNicknames)));
             fields.Add(new PresentationField(
                 "Saved password",
                 _networkCredentials.HasServerPassword(profile.Id) ? "yes" : "no"));
@@ -112,18 +120,18 @@ internal sealed partial class ClientApplication
             new("Servers", profile.IsConfigured ? string.Join(", ", profile.Endpoints) : "[unconfigured]")
         };
 
-        if (profile.UsernameOverride is { } usernameOverride)
-        {
-            fields.Add(new PresentationField("Username", usernameOverride));
-        }
-
+        var username = profile.UsernameOverride ?? _preferences.Username;
+        var usernameSource = profile.UsernameOverride is null ? "global" : "profile";
         var userModes = profile.UserModesOverride ?? _preferences.UserModes;
+        var displayedUserModes = userModes.Length == 0 ? "not set" : userModes;
+        var userModesSource = profile.UserModesOverride is null ? "global" : "profile";
 
         fields.AddRange(
         [
             new PresentationField("Getnick", FormatGetnickStatus(profile.GetnickTarget)),
+            new PresentationField("Username", $"{username} ({usernameSource})"),
+            new PresentationField("User modes", $"{displayedUserModes} ({userModesSource})"),
             new PresentationField("Autojoin", profile.AutojoinChannels.Count == 0 ? "none" : string.Join(", ", profile.AutojoinChannels)),
-            new PresentationField("User modes", userModes.Length == 0 ? "not set" : userModes),
             new PresentationField("Notify", profile.NotifyNicknames.Count == 0 ? "none" : string.Join(", ", profile.NotifyNicknames)),
             new PresentationField(
                 "Saved password",
