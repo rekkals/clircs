@@ -68,7 +68,7 @@ internal sealed partial class ClientApplication
         if (session is null) return failure;
         var channelName = input.Arguments.Count == 1 ? input.Arguments[0] : ActiveChannel();
         if (string.IsNullOrWhiteSpace(channelName) || !session.Features.IsChannel(channelName))
-            return CommandResult.Failure("Use /clones in a channel window, or specify a joined channel.");
+            return CommandResult.Failure("Usage: /clones [channel]");
         if (!session.State.TryGetChannel(channelName, out var channel))
             return CommandResult.Failure($"You are not joined to {channelName}.");
 
@@ -681,7 +681,7 @@ internal sealed partial class ClientApplication
                 SaveAppearanceSettings();
                 return ValueTask.FromResult(CommandResult.Success(
                     $"Reloaded themes from {_themeManager.DirectoryPath}." +
-                    (fellBack ? $" Theme '{currentName}' is unavailable; using clircs." : string.Empty) +
+                    (fellBack ? $" Theme '{currentName}' is unavailable, using clircs." : string.Empty) +
                     (_themeManager.Errors.Count == 0 ? string.Empty : $" {_themeManager.Errors.Count} theme(s) had errors:\n{string.Join('\n', _themeManager.Errors)}")));
             }
             catch (Exception exception) when (exception is InvalidDataException or IOException or UnauthorizedAccessException)
