@@ -499,18 +499,25 @@ internal sealed class IdentityQueryResponseProcessor
         if (result.ActualHost is not null && !result.ActualHost.Equals(result.Host, StringComparison.OrdinalIgnoreCase))
             Add("Actual host", result.ActualHost);
         foreach (var extra in result.Extra) Add(extra.Label, extra.Value);
+        var emptyResult = fields.Count == 0;
         var summary = result.ExtrasTruncated
             ? $"Showing {result.Extra.Count} extra fields (partial result)"
             : null;
         return _events.Status(
             SessionEventKind.Server,
-            summary is null ? $"WHOIS {result.Nick}" : $"WHOIS {result.Nick}: {summary}",
+            summary is null
+                ? $"WHOIS {result.Nick}"
+                : $"WHOIS {result.Nick}: {summary}",
             now,
             SessionEventBuilder.Fields(
                 ("outputFamily", "whois"), ("outputTarget", result.Nick),
                 ("outputRequestId", request?.Id.ToString("D")),
                 ("numeric", "318"), ("outputEnd", "true")),
-            new PresentationBlock("WHOIS:", fields, Summary: summary, TitleHighlight: result.Nick));
+            emptyResult ? null : new PresentationBlock(
+                "WHOIS:",
+                fields,
+                Summary: summary,
+                TitleHighlight: result.Nick));
 
         void Add(string label, string? value)
         {

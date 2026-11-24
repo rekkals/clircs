@@ -638,6 +638,14 @@ internal sealed partial class ClientApplication
             return sessionEvent;
         }
 
+        if (family.Equals("whois", StringComparison.OrdinalIgnoreCase) &&
+            sessionEvent.Fields.GetValueOrDefault("numeric") == "318" &&
+            sessionEvent.Presentation is null)
+        {
+            _outputRouting.TryResolve(sessionEvent, out _);
+            return null;
+        }
+
         if (family.Equals("who", StringComparison.OrdinalIgnoreCase) &&
             sessionEvent.Fields.GetValueOrDefault("automatic") == "true")
         {
