@@ -1152,23 +1152,27 @@ public sealed class IrcSessionProcessor
                     var buffer = _state.TryGetBuffer(channelName, out var channelBuffer)
                         ? channelBuffer!
                         : _state.StatusBuffer;
+                    var emptyResult = requestId is not null && names.Length == 0;
 
                     events.Add(Event(
                         buffer,
                         SessionEventKind.Server,
-                        $"NAMES {channelName}",
+                        emptyResult
+                            ? $"No names returned for {channelName}"
+                            : $"NAMES {channelName}",
                         now,
                         Fields(
                             ("numeric", "366"),
                             ("channel", channelName),
+                            ("clientResult", emptyResult ? "true" : null),
                             ("outputFamily", requestId is null ? null : "names"),
                             ("outputRequestId", requestId?.ToString("D")),
                             ("outputEnd", requestId is null ? null : "true")),
-                        presentation: new PresentationBlock(
+                        presentation: emptyResult ? null : new PresentationBlock(
                             requestId is null
                                 ? $"Users ({channelName}): Total: {members.Count}, Ops: {ops}, Voice: {voices}, Normal: {members.Count - ops - voices}"
                                 : $"NAMES: {channelName}",
-                           Summary: names.Length < members.Count
+                            Summary: names.Length < members.Count
                                 ? $"Showing {names.Length:N0} of {members.Count:N0} users (partial result)"
                                 : null,
                             Grid: names,
