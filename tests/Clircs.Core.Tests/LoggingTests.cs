@@ -313,21 +313,18 @@ internal static class LoggingTests
     {
         var channel = new BufferState(
             BufferId.New(), NetworkSessionId.New(), BufferKind.Channel, "#ereet");
-        var overridden = ClientApplication.LoggingStatusPresentation(
+        var overridden = ClientApplication.LoggingStatusText(
             "EFnet", channel, networkEnabled: false, windowOverride: true);
-        Assert.Equal("Logging: EFnet/#ereet", overridden.Title);
-        Assert.Equal("Network,off;Channel,on (channel override)", string.Join(';',
-            overridden.Fields!.Select(field => $"{field.Label},{field.Value}")));
+        Assert.Equal("Logging is enabled for #ereet (EFnet)", overridden);
 
-        var inherited = ClientApplication.LoggingStatusPresentation(
+        var inherited = ClientApplication.LoggingStatusText(
             "EFnet", channel, networkEnabled: true, windowOverride: null);
-        Assert.Equal("Network,on;Channel,on", string.Join(';',
-            inherited.Fields!.Select(field => $"{field.Label},{field.Value}")));
+        Assert.Equal("Network logging is enabled for EFnet", inherited);
 
         var query = channel with { Kind = BufferKind.Query, Name = "rekkals" };
-        var disabled = ClientApplication.LoggingStatusPresentation(
+        var disabled = ClientApplication.LoggingStatusText(
             "EFnet", query, networkEnabled: true, windowOverride: false);
-        Assert.Equal("Query,off (query override)", $"{disabled.Fields![1].Label},{disabled.Fields[1].Value}");
+        Assert.Equal("Logging is disabled for rekkals (EFnet)", disabled);
     }
 
     private static void SessionRulesAreTemporary()

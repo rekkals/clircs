@@ -1372,48 +1372,32 @@ internal sealed partial class ClientApplication
         var target = LoggingTarget(buffer);
         if (profile is null)
         {
-            return CommandResult.Success(new PresentationBlock(
-                $"Logging: session/{target}",
-                [
-                    new("Scope", "current session only"),
-                    new("Window", _sessionLogging.IsEnabled(session.State.Id, target) ? "on" : "off")
-                ]));
+            var status = _sessionLogging.IsEnabled(session.State.Id, target)
+                ? "enabled"
+                : "disabled";
+            return CommandResult.Success(
+                $"Logging is {status} for {target} in this session");
         }
         var networkDefault = _loggingStore.NetworkDefault(profile.Id);
         var targetOverride = _loggingStore.TargetOverride(profile.Id, target);
-        return CommandResult.Success(LoggingStatusPresentation(
+        return CommandResult.Success(LoggingStatusText(
             profile.DisplayName,
             buffer,
             networkDefault,
             targetOverride));
     }
 
-    internal static PresentationBlock LoggingStatusPresentation(
+    internal static string LoggingStatusText(
         string network,
         BufferState buffer,
         bool networkEnabled,
         bool? windowOverride)
     {
-        var windowLabel = buffer.Kind switch
-        {
-            BufferKind.Channel => "Channel",
-            BufferKind.Query => "Query",
-            BufferKind.Status => "Status",
-            BufferKind.Diagnostics => "Debug",
-            BufferKind.DccChat => "DCC",
-            BufferKind.DccTransfer => "DCC",
-            _ => "Window"
-        };
-        var effective = windowOverride ?? networkEnabled;
-        var overrideText = windowOverride is not null && windowOverride.Value != networkEnabled
-            ? $" ({windowLabel.ToLowerInvariant()} override)"
-            : string.Empty;
-        return new PresentationBlock(
-            $"Logging: {network}/{LoggingTarget(buffer)}",
-            [
-                new("Network", networkEnabled ? "on" : "off"),
-                new(windowLabel, (effective ? "on" : "off") + overrideText)
-            ]);
+        var enabled = windowOverride ?? networkEnabled;
+        var status = enabled ? "enabled" : "disabled";
+        return windowOverride is null
+            ? $"Network logging is {status} for {network}"
+            : $"Logging is {status} for {LoggingTarget(buffer)} ({network})";
     }
 
     private static bool CanLog(BufferState buffer) =>
