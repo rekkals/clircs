@@ -128,7 +128,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            return CommandResult.Failure("Usage outside a channel: /part <channel> [reason]");
+            return CommandResult.Failure("Usage: /part <channel> [reason]");
         }
 
         var parameters = reason is null ? new[] { channel } : [channel, reason];
@@ -164,7 +164,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            return CommandResult.Failure("Usage outside a channel: /cycle <channel> [reason]");
+            return CommandResult.Failure("Usage: /cycle <channel> [reason]");
         }
 
         if (!session.State.TryGetChannel(channel, out _))
@@ -229,7 +229,7 @@ internal sealed partial class ClientApplication
 
         if (channel is null)
         {
-            return CommandResult.Failure("Usage outside a channel: /topic <channel> [topic]");
+            return CommandResult.Failure("Usage: /topic <channel> [topic]");
         }
 
         if (text.Length != 0)
@@ -407,7 +407,7 @@ internal sealed partial class ClientApplication
         if ((string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host)) &&
             _preferences.BanmaskStyle != BanmaskStyle.Nick)
         {
-            return CommandResult.Failure($"{member.Nickname}'s host is not known; try /who {channel.Name} first.");
+            return CommandResult.Failure($"{member.Nickname}'s host is not known, try /who {channel.Name} first.");
         }
 
         var mask = BanmaskFormatter.Create(member, _preferences.BanmaskStyle);
@@ -442,7 +442,7 @@ internal sealed partial class ClientApplication
         }
         else
         {
-            return CommandResult.Failure($"{target}'s user and host is not known; supply nick!user@host explicitly.");
+            return CommandResult.Failure($"{target}'s user and host is not known, supply nick!user@host explicitly.");
         }
 
         await session!.SendAsync("MODE", [channel!.Name, "+b", mask], cancellationToken: cancellationToken);
@@ -470,7 +470,7 @@ internal sealed partial class ClientApplication
             if ((string.IsNullOrWhiteSpace(member!.Username) || string.IsNullOrWhiteSpace(member.Host)) &&
                 _preferences.BanmaskStyle != BanmaskStyle.Nick)
             {
-                return CommandResult.Failure($"{member.Nickname}'s host is not known; try /who {channel.Name} first.");
+                return CommandResult.Failure($"{member.Nickname}'s host is not known, try /who {channel.Name} first.");
             }
 
             mask = BanmaskFormatter.Create(member, _preferences.BanmaskStyle);
@@ -667,7 +667,7 @@ internal sealed partial class ClientApplication
 
         if (!channel!.BanListSynchronized)
         {
-            return CommandResult.Failure("The ban list has not been loaded; try /banlist first.");
+            return CommandResult.Failure("The ban list has not been loaded, try /banlist first.");
         }
 
         return await SendModeBatchesAsync(session!, channel, 'b', false, channel.Bans, cancellationToken);
