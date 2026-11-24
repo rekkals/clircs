@@ -501,7 +501,10 @@ internal sealed partial class ClientApplication
                     _preferences.StatusBouncer ? session.State.BouncerName : null,
                     _preferences.StatusTls && session.State.ClientTransportTls));
             }
-            fields.Add(buffer.Kind == BufferKind.Status ? "status" : buffer.Name);
+            if (buffer.Kind != BufferKind.Status)
+            {
+                fields.Add(buffer.Name);
+            }
             var displayedNickname = _preferences.StatusUserModes && session.State.UserModes.Length > 0
                 ? $"{session.CurrentNickname}({session.State.UserModes})"
                 : session.CurrentNickname;
@@ -510,9 +513,13 @@ internal sealed partial class ClientApplication
             {
                 fields.Add(DccChatStatus(buffer.Id));
             }
-            else if (session.ConnectionState != IrcConnectionState.Online)
+            else if (buffer.Kind == BufferKind.Status ||
+                     session.ConnectionState != IrcConnectionState.Online)
             {
-                fields.Add(ConnectionStatusLabel(session));
+                var connectionState = ConnectionStatusLabel(session);
+                fields.Add(buffer.Kind == BufferKind.Status && connectionState == "online"
+                    ? "connected"
+                    : connectionState);
             }
             if (buffer.Kind == BufferKind.Channel && session.State.TryGetChannel(buffer.Name, out var channel))
             {
