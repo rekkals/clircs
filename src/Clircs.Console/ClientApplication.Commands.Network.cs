@@ -2040,16 +2040,31 @@ internal sealed partial class ClientApplication
             return CommandResult.Success();
         }
 
-        if (entries.Any(entry => entry[0] == '-'))
-            return CommandResult.Failure(remove ? usage : "Use /unaccept <nick,...> to remove entries.");
-
-        if (entries.Length == 0 || entries.Any(entry =>
-                entry[0] == '*' || entry.Any(char.IsWhiteSpace) || !IsValidNotifyNickname(session, entry)))
+        if (entries.Length == 0)
             return CommandResult.Failure(usage);
 
-        var nicknames = remove
-            ? string.Join(',', entries.Select(entry => $"-{entry}"))
-            : string.Join(',', entries);
+        for (var index = 0; index < entries.Length; index++)
+        {
+            var entry = entries[index];
+            var hasPrefix = entry[0] is '+' or '-';
+            if (remove && hasPrefix)
+                return CommandResult.Failure(usage);
+
+            var nickname = hasPrefix ? entry[1..] : entry;
+            if (nickname.Length == 0 ||
+                nickname[0] is '*' or '+' or '-' ||
+                nickname.Any(char.IsWhiteSpace) ||
+                !IsValidNotifyNickname(session, nickname))
+            {
+                return CommandResult.Failure(usage);
+            }
+
+            entries[index] = remove || entry[0] == '-'
+                ? $"-{nickname}"
+                : nickname;
+        }
+
+        var nicknames = string.Join(',', entries);
         await session.SendAsync("ACCEPT", [nicknames], IrcOutboundPriority.Interactive, cancellationToken);
         return CommandResult.Success();
     }
