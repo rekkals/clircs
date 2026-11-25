@@ -1,5 +1,73 @@
 clircs Version History
 
+v0.9.2
+
+- Added /set floodcontrol on|off to pace outgoing IRC traffic and help prevent excess flood disconnects.
+- Added /stop to halt in-progress queued chats/pastes, and dropped unsent stuff when parting, being kicked, or disconnecting.
+- Reported queued-chat write failures once instead of repeating errors for the remaining discarded messages.
+- Added per-profile getnick to snag a preferred nickname when it becomes available.
+- Added a global reconnect.limit setting, replacing the older per-profile limits.
+- Restricted clircs to one running instance per data directory.
+- Cleared pending IRC queries and reply routes on disconnect, made reconnects wait for cleanup, and guarded against overlapping reconnect attempts.
+- Matched automatic and manual WHO and channel MODE replies in outbound send order.
+- Kept kicks and automatic rejoins from stealing focus, and gave self-kicks priority in window Activity.
+- Preserved IRC message tags supplied to /raw.
+- Honored an explicitly empty CHANTYPES value and corrected target handling when CHANTYPES and STATUSMSG prefixes overlap.
+- Corrected /mode targeting for +channels and cleared pending mode queries after 403 and 477 errors.
+- Skipped automatic MODE queries for modeless +channels so their join synchronization can finish normally.
+- Added CTCP CLIENTINFO replies.
+- Accepted incoming CTCP ACTION messages with an empty body or a missing closing delimiter.
+- Stopped echoed channel NOTICEs from opening windows for channels that have not been joined.
+- Kept automatic away acknowledgements quiet locally and made manual /notice echo only in the issuing window.
+- Suppressed duplicate 301 away announcements while preserving WHOIS information and resetting suppression on disconnect.
+- Bounded retained LIST, LINKS, STATS p, WHO, WHOWAS, WHOIS extra fields, and ACCEPT results, with partial-result summaries for capped output.
+- Limited untracked WHOIS results and unfinished WHOWAS nicknames, and prevented a discarded WHOWAS row's server reply from changing the last retained row.
+- Limited displayed NAMES and channel mode lists while retaining complete channel membership and mode-list state.
+- Corrected ACCEPT replies containing multiple nicknames and simplified ACCEPT list and empty-list output.
+- Added /unaccept but retained standard ACCEPT syntax compatibility.
+- Replaced empty manual NAMES boxes with a single informational line and suppressed empty WHOIS boxes after failed lookups.
+- Let the STATS p Idle column size itself appropriately.
+- Added Ctrl+Left and Ctrl+Right word navigation using the same whitespace boundaries as Ctrl+W.
+- Added onjoin.users, onjoin.topic, onjoin.created, onjoin.modes, and onjoin.sync to control automatic channel-join information.
+- Added names.output and notify.output routing settings.
+- Replaced hostmasks.join, hostmasks.part, and hostmasks.quit with one showhosts setting for either full hostmasks or nicknames-only.
+- Reordered /set and made more settings report their current values when issued without a new value.
+- Renamed network.reconnect and kill.reconnect to reconnect.network and reconnect.kill.
+- Added /set usermodes none to clear the global automatic user modes.
+- Standardized awaymsg, kickmsg, and quitmsg on custom text, random, or default, with default selected for fresh configurations and current-value queries for all three.
+- Removed topicmsg and made /rt always choose a random topic from quotes.txt.
+- Standardized banmask styles on nick, host, userhost, full, and wildcard, plus corrected wildcard username handling.
+- Added current-value queries for profile usernames and user modes, with a global setting and explicit profile names retained for setters.
+- Added /net as an alias for /network and made both bare commands show Network Status.
+- Expanded /network status selection by connection number, connection name, advertised network name, or profile name, and kept ambiguous matches explicit.
+- Numbered saved profile servers in /network profiles and added saved-password status to that list.
+- Made Network Status and saved-profile boxes consistently show configured usernames and user modes with their global or profile source, and added Notify to Network Status.
+- Made bare /theme show only the current theme and kept the full listing under /theme list.
+- Made bare /tls show the current connection's TLS status, including the bouncer hop when present, and renamed /tls pins to /tls list.
+- Made bare /autojoin list channels, made /aj [channel] add a channel, removed the implicit /autojoin #channel addition, and dropped --force from /autojoin clear.
+- Removed the +nick, -nick, and delete shortcuts from /notify.
+- Made /time local-only, added /date as an alias, and removed /ping.
+- Made /users list-only and removed its import and export operations.
+- Made bare /dcc show usage instead of listing requests.
+- Made /config take no arguments and corrected its usage text.
+- Added an optional channel argument to /kick while retaining the active-channel default and configured kick messages.
+- Added /ircops [channel] to list visible IRC operators with Nick, Address, and Server columns.
+- Added /set awaylog to replace /awaylog.
+- Reworked /messages, added /inbox as an alias, and made bare /messages list senders and their message counts.
+- Added numbered sender previews and individual read/delete commands, keeping numbers stable until all of a sender's messages are cleared.
+- Added compact message-read output with the normal display timestamp and the original received date and time.
+- Made /messages window optional, opened it with the sender index, and made an already-open window simply take focus without printing another index.
+- Saved persistent inboxes per profile and kept profile-less inboxes in memory through disconnects and reconnects, discarding them when their session closes or clircs exits (older network-based away messages are not migrated).
+- Made /back clear away status without changing windows, with a reminder when unread messages are available.
+- Extended nickname highlighting to incoming actions and changed default clircs-theme action text from magenta to regular message gray.
+- Kept highlighted messages and actions in their normal script event kinds and exposed the highlight state as event.highlighted instead of a separate highlight event.
+- Fixed delayed script commands and nested timers to retain their originating network and window, rejected originless command requests, and kept missing-destination failures visible.
+- Prevented foreground highlight copies from delivering the same underlying event to scripts twice.
+- Added help indexes and individual subcommand topics for command families, expanded /help chattr flag descriptions, and standardized command help, failure usage, confirmations, and errors.
+- Replaced /logging and /logging status boxes with one informational line identifying the applicable network or window setting.
+- Removed the redundant status label from Status-window status bars and kept their connection state visible.
+- Reduced topic-bar redraw flicker and removed the unnecessary full redraw after registration.
+
 v0.9.1
 
 - Made window numbers contiguous and grouped by connection, closing gaps and keeping newly opened channels with their network.
