@@ -61,11 +61,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ------------------------------------------------------------------------
 
-.NET Runtime 10.0.13
-Source: Microsoft.NETCore.App.Runtime.win-x64 10.0.13
+.NET Runtime 10.0.15
+Source: Microsoft.NETCore.App.Runtime.win-x64 10.0.15
 License: See DOTNET-LICENSE.txt
 
-The following notice is reproduced verbatim from the .NET 10.0.13
+The following notice is reproduced verbatim from the .NET 10.0.15
 Windows x64 runtime pack.
 
 ------------------------------------------------------------------------
