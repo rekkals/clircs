@@ -5,9 +5,49 @@ using Clircs.ConsoleClient;
 Console.InputEncoding = Encoding.UTF8;
 Console.OutputEncoding = Encoding.UTF8;
 
-if (args.Contains("--version", StringComparer.OrdinalIgnoreCase))
+if (args.Length == 1 && args[0].Equals("--version", StringComparison.OrdinalIgnoreCase))
 {
     Console.WriteLine(ProductInfo.DisplayName);
+    return;
+}
+
+if (args.Length == 1 && args[0].Equals("--help", StringComparison.OrdinalIgnoreCase))
+{
+    Console.WriteLine();
+    Console.WriteLine("""
+        Usage: clircs --server <host> [port] [--tls] [--password]
+                      --profile <name> [<name> ...]
+                      --config
+                      --version
+                      --help
+
+        Options:
+            --server <host> [port]    Connect to an IRC server.
+                                      Default port is 6667, or 6697 with --tls.
+            --tls                     Connect to a server over TLS.
+            --password                Prompt for the server password before connecting.
+            --profile <name> ...      Connect using one or more saved network profiles.
+            --config                  Show the data directory and exit.
+            --version                 Show the version and exit.
+            --help                    Show this help and exit.
+        """);
+    Console.WriteLine();
+    return;
+}
+
+var showConfig = args.Length == 1 &&
+    args[0].Equals("--config", StringComparison.OrdinalIgnoreCase);
+
+StartupConnectionRequest? startupRequest;
+try
+{
+    startupRequest = showConfig ? null : StartupConnectionRequest.Parse(args);
+}
+catch (ArgumentException exception)
+{
+    Console.Error.WriteLine(exception.Message);
+    Console.Error.WriteLine("Use clircs --help for launch syntax.");
+    Environment.ExitCode = 1;
     return;
 }
 
@@ -18,6 +58,13 @@ BackupRestorePhase? recoveredRestore;
 try
 {
     dataDirectory = ClientDataDirectory.Resolve();
+
+    if (startupRequest is null)
+    {
+        Console.WriteLine(dataDirectory);
+        return;
+    }
+
     lease = ClientDataDirectory.AcquireForStartup(
         dataDirectory, out recoveredRestore);
 }
@@ -37,7 +84,7 @@ try
     await using (var application = new ClientApplication(
         dataDirectory, recoveredRestore))
     {
-        await application.RunAsync();
+        await application.RunAsync(startupRequest);
         pendingRestore = application.TakePendingRestore();
     }
 

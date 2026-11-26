@@ -69,6 +69,20 @@ Automatic reconnect (after unintentional disconnection) can be enabled via the `
 
 Use `/set reconnect.limit <number>` to set the (global) maximum number of reconnect attempts. Older per-profile `reconnect_max_attempts` values no longer apply.
 
+### Command Line Startup
+
+You can connect clircs to a server automatically at launch from PowerShell. For example:
+
+```
+.\clircs.exe --server irc.efnet.org 9999 --tls
+```
+
+Or to multiple pre-configured profiles (more on this below) with something like:
+
+```
+.\clircs.exe --profile EFnet FXNet Libera Rizon
+```
+
 ### Network Profiles
 
 Profiles store network-specific settings, including server endpoints, TLS, SASL, username overrides, user modes, and autojoin.

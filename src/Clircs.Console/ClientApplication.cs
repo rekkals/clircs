@@ -298,8 +298,23 @@ internal sealed partial class ClientApplication : IAsyncDisposable
         RegisterCommands();
     }
 
-    public async Task RunAsync()
+    public async Task RunAsync(StartupConnectionRequest startupRequest)
     {
+        var startupProfiles = new List<NetworkProfile>(startupRequest.ProfileNames.Count);
+        foreach (var name in startupRequest.ProfileNames)
+        {
+            var profile = _profileStore.Find(name);
+            if (profile is null)
+            {
+                Console.Error.WriteLine(
+                    _profileStore.LoadError ?? $"No saved network profile matches '{name}'.");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            startupProfiles.Add(profile);
+        }
+
         _presenter.EnterFullScreen();
         _windowStates.ReplaceHistory(
             _localStatusBuffer.Id,
@@ -367,6 +382,11 @@ internal sealed partial class ClientApplication : IAsyncDisposable
 
         try
         {
+            if (!_exitRequested && !_lifetime.IsCancellationRequested &&
+                (startupRequest.Endpoint is not null || startupProfiles.Count > 0))
+            {
+                await StartRequestedConnectionsAsync(startupRequest, startupProfiles);
+            }
             _applicationWork.TryStart(
                 "window clock refresh",
                 () => RefreshWindowClockAsync(_applicationWork.Token),
