@@ -37,23 +37,7 @@ internal sealed partial class ClientApplication
             () => _quotes.Next(220),
             IsPermanentlyIgnored);
         certificateNoticeSessionId = session.State.Id;
-        lock (_windowTransactionGate)
-        {
-            _liveSessions.Add(session, connectionRoute ?? options, profileId, _lifetime.Token);
-            session.SetLagMeasurementEnabled(_preferences.LagMeter);
-            session.SetFloodControlEnabled(_preferences.FloodControl);
-
-            _windowStates.RegisterConnection(
-                session.State.Id,
-                session.State.StatusBuffer.Id,
-                preferredConnectionPosition);
-            _windowStates.Activate(session.State.Id, session.State.StatusBuffer.Id);
-            _windowStates.ReplaceHistory(
-                session.State.StatusBuffer.Id,
-                _preferences.Startup
-                    ? [StartupEvent(session, session.State.StatusBuffer)]
-                    : []);
-        }
+        RegisterSession(session, connectionRoute ?? options, profileId, preferredConnectionPosition);
 
         session.EventRaised += QueueInboundSessionEvent;
         session.StateChanged += OnSessionStateChanged;
@@ -79,6 +63,31 @@ internal sealed partial class ClientApplication
                 cancellationToken,
                 tolerateTaggedCapabilityMessages));
         return Task.CompletedTask;
+    }
+
+    internal void RegisterSession(
+        IrcNetworkSession session,
+        IrcConnectionOptions connectionRoute,
+        NetworkProfileId? profileId,
+        int? preferredConnectionPosition = null)
+    {
+        lock (_windowTransactionGate)
+        {
+            _liveSessions.Add(session, connectionRoute, profileId, _lifetime.Token);
+            session.SetLagMeasurementEnabled(_preferences.LagMeter);
+            session.SetFloodControlEnabled(_preferences.FloodControl);
+
+            _windowStates.RegisterConnection(
+                session.State.Id,
+                session.State.StatusBuffer.Id,
+                preferredConnectionPosition);
+            _windowStates.Activate(session.State.Id, session.State.StatusBuffer.Id);
+            _windowStates.ReplaceHistory(
+                session.State.StatusBuffer.Id,
+                _preferences.Startup
+                    ? [StartupEvent(session, session.State.StatusBuffer)]
+                    : []);
+        }
     }
 
     private async Task ConnectInitialSessionAsync(

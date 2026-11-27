@@ -603,7 +603,12 @@ public sealed class IrcSessionProcessor
 
                 if (nickChannels.Length == 0)
                 {
-                    events.Add(Status(SessionEventKind.Nick, $"{sender} is now known as {newNickname}", now));
+                    events.Add(Status(
+                        SessionEventKind.Nick,
+                        $"{sender} is now known as {newNickname}",
+                        now,
+                        Fields(("oldNick", sender), ("newNick", newNickname),
+                            ("username", senderIdentity.Username), ("host", senderIdentity.Host))));
                 }
                 else
                 {
@@ -1309,7 +1314,55 @@ public sealed class IrcSessionProcessor
         }
 
         AnnotateJoinInformation(message, events);
+        if (message.Command is "QUIT" or "NICK" or "043")
+        {
+            SetNetworkScriptDelivery(
+                events, message.Command == "QUIT" ? SessionEventKind.Part : SessionEventKind.Nick);
+        }
         return events;
+    }
+
+    private void SetNetworkScriptDelivery(List<SessionEvent> events, SessionEventKind kind)
+    {
+        var firstIndex = events.FindIndex(item => item.Kind == kind);
+        if (firstIndex < 0)
+        {
+            return;
+        }
+
+        var original = events[firstIndex];
+        var fields = original.Fields?.ToDictionary(pair => pair.Key, pair => pair.Value);
+        fields?.Remove("channel");
+
+        var affectedChannels = new List<SessionEventChannel>();
+        var lastIndex = firstIndex;
+        for (var index = firstIndex; index < events.Count; index++)
+        {
+            var copy = events[index];
+            if (copy.Kind != kind)
+            {
+                continue;
+            }
+
+            if (copy.Fields?.GetValueOrDefault("channel") is { } channel)
+            {
+                affectedChannels.Add(new SessionEventChannel(channel, copy.BufferId));
+            }
+
+            events[index] = copy with { ScriptDelivery = ScriptEventDelivery.DisplayOnly };
+            lastIndex = index;
+        }
+
+        var observation = original with
+        {
+            BufferId = _state.StatusBuffer.Id,
+            Fields = fields,
+            AffectedChannels = affectedChannels.ToArray()
+        };
+        events[lastIndex] = events[lastIndex] with
+        {
+            ScriptDelivery = new ScriptEventDelivery(observation)
+        };
     }
 
     private void AnnotateJoinInformation(
@@ -1402,9 +1455,13 @@ public sealed class IrcSessionProcessor
     {
         CurrentNickname = newNickname;
 
+        var affectedChannels = new HashSet<string>(new IrcNameComparer(_state.CaseMapping));
         foreach (var channel in _state.Channels)
         {
-            channel.RenameMember(oldNickname, newNickname);
+            if (channel.RenameMember(oldNickname, newNickname))
+            {
+                affectedChannels.Add(channel.Name);
+            }
         }
 
         var text = forcedByCollision
@@ -1422,6 +1479,9 @@ public sealed class IrcSessionProcessor
                 Fields(
                     ("oldNick", oldNickname),
                     ("newNick", newNickname),
+                    ("channel", buffer.Kind == BufferKind.Channel && affectedChannels.Contains(buffer.Name)
+                        ? buffer.Name
+                        : null),
                     ("self", "true"),
                     ("numeric", forcedByCollision ? "043" : null))));
         }

@@ -1,10 +1,13 @@
 using Clircs.Commands;
 using Clircs.ConsoleClient;
 using Clircs.Identity;
+using Clircs.Infrastructure;
+using Clircs.Networking;
 using Clircs.Protocol;
 using Clircs.Scripting;
 using Clircs.Sessions;
 using Clircs.State;
+using Clircs.Transport;
 
 namespace Clircs.Core.Tests;
 
@@ -25,6 +28,7 @@ internal static class ScriptWindowTests
         suite.Add("script output limits count all input before filtering", OutputLimitsCountAllInput);
         suite.Add("window host opens background windows without changing focus", HostOpensBackgroundWindowsAsync);
         suite.Add("application input preserves text and context while keeping commands native", HostInputPreservesTextAsync);
+        suite.Add("filtered quits reach scripts once with every affected channel", FilteredQuitReachesScriptsOnceAsync);
         suite.Add("window host stores output in its explicit destination", HostStoresTargetedOutputAsync);
         suite.Add("window host validates output before changing history", HostValidatesBeforeWritingAsync);
         suite.Add("window host rejects output after application shutdown", HostRejectsWritesAfterShutdownAsync);
@@ -496,6 +500,78 @@ internal static class ScriptWindowTests
             Assert.False((await application.ExecuteInputAsync(context, "closed target")).Succeeded);
             Assert.True(host.Active() == visible);
             Assert.Equal(cases.Length, seen.Count);
+        });
+
+    private static ValueTask FilteredQuitReachesScriptsOnceAsync() =>
+        WithWindowInputHostAsync(async (application, host, _) =>
+        {
+            var localContext = new CommandContext(null, host.Status(null)!.Value);
+            Assert.True((await application.ExecuteInputAsync(
+                localContext, "/network add TestNet example.test")).Succeeded);
+
+            Assert.False((await application.ExecuteInputAsync(
+                localContext, "/network hide #busy")).Succeeded);
+            Assert.False((await application.ExecuteInputAsync(
+                localContext, "/network show #busy")).Succeeded);
+
+            Assert.True((await application.ExecuteInputAsync(
+                localContext, "/network hide TestNet #BUSY join quit")).Succeeded);
+            var shown = await application.ExecuteInputAsync(
+                localContext, "/network show TestNet #busy join");
+            Assert.True(shown.Succeeded);
+            Assert.Equal("Hidden events in #busy on TestNet: quit", shown.Message!);
+
+            var config = await application.ExecuteInputAsync(localContext, "/config");
+            var profilePath = config.Presentation!.Fields!
+                .Single(field => field.Label == "Networks").Value;
+            var profile = new NetworkProfileStore(profilePath).Find("TestNet")!;
+
+            var options = profile.CreateConnectionOptions(new IrcIdentity(["me"], "me", "Test User"));
+            var session = new IrcNetworkSession("Test", options, new TcpIrcTransportFactory());
+            application.RegisterSession(session, options, profile.Id);
+
+            var state = session.State;
+            var context = new CommandContext(state.Id, state.StatusBuffer.Id);
+            var processor = new IrcSessionProcessor(state, "me");
+            processor.Process(IrcMessageParser.Parse(":me!user@host JOIN #busy"));
+            processor.Process(IrcMessageParser.Parse(":me!user@host JOIN #small"));
+
+            var busy = state.Buffers.Single(buffer => buffer.Name == "#busy");
+            var small = state.Buffers.Single(buffer => buffer.Name == "#small");
+            SessionEventChannel[] expectedChannels =
+            [
+                new(busy.Name, busy.Id),
+                new(small.Name, small.Id)
+            ];
+
+            foreach (var channelToHide in new[] { busy.Name, small.Name })
+            {
+                var result = await application.ExecuteInputAsync(
+                    context, $"/network hide TestNet {channelToHide} quit");
+                Assert.True(result.Succeeded, result.Message ?? "Expected the filter to be set.");
+
+                processor.Process(IrcMessageParser.Parse(":Alice!user@host JOIN #busy"));
+                processor.Process(IrcMessageParser.Parse(":Alice!user@host JOIN #small"));
+                var copies = processor.Process(IrcMessageParser.Parse(":Alice!user@host QUIT :bye"));
+                Assert.Equal(2, copies.Count);
+
+                var delivered = new List<SessionEvent>();
+                foreach (var copy in copies)
+                {
+                    application.DispatchSessionEvent(copy, delivered.Add);
+                }
+
+                var quit = delivered.Single();
+                Assert.Equal(SessionEventKind.Part, quit.Kind);
+                Assert.Equal("quit", quit.Fields!["event"]!);
+                Assert.Equal(state.Id, quit.NetworkSessionId);
+                Assert.Equal(state.StatusBuffer.Id, quit.BufferId);
+                Assert.True(quit.AffectedChannels is { Count: 2 } channels &&
+                    channels.ToHashSet().SetEquals(expectedChannels));
+
+                Assert.Equal(0, application.WindowHistorySnapshot(busy.Id).Length);
+                Assert.Equal(1, application.WindowHistorySnapshot(small.Id).Length);
+            }
         });
 
     private static ValueTask HostStoresTargetedOutputAsync() =>

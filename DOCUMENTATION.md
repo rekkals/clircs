@@ -137,6 +137,17 @@ The target is saved per profile. Don't specify a nickname to see what's set, or 
 
 Once the target nickname has been successfully acquired, you can still `/nick` away and pause it, then resume it once you change back or reset it.
 
+#### Channel Event Filters
+
+Use `/network hide` and `/network show` to control whether specific events are displayed.
+
+```
+/network hide <profile> <channel> [<join|part|quit|nick> ...]
+/network show <profile> <channel> [<join|part|quit|nick> ...]
+```
+
+For instance, in a channel with a lot of users and activity, you can `/network hide EFnet #omgtoomuchlol join part quit` to hide those three event types in `#omgtoomuchlol`. Use `/network show` to reverse the hiding of those events.
+
 #### Server and Bouncer Passwords
 
 Manage a profile's saved server password or complete bouncer login string with:

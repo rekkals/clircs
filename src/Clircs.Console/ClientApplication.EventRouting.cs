@@ -43,11 +43,12 @@ internal sealed partial class ClientApplication
     private void OnSessionEvents(IReadOnlyList<SessionEvent> sessionEvents) =>
         _applicationEvents.Dispatch(() => _presenter.RunEventBatch(() =>
         {
+            Action<SessionEvent> publishToScripts = _scriptManager.Publish;
             foreach (var sessionEvent in sessionEvents)
             {
                 try
                 {
-                    DispatchSessionEvent(sessionEvent);
+                    DispatchSessionEvent(sessionEvent, publishToScripts);
                 }
                 catch (Exception exception)
                 {
@@ -60,15 +61,32 @@ internal sealed partial class ClientApplication
     // execution wait behind unrelated socket traffic already queued by a session.
     private void OnSessionEvent(SessionEvent sessionEvent) => OnSessionEvents([sessionEvent]);
 
-    private void DispatchSessionEvent(SessionEvent sessionEvent)
+    internal void DispatchSessionEvent(
+        SessionEvent sessionEvent,
+        Action<SessionEvent> publishToScripts)
     {
-        var context = new SessionEventDispatchContext(sessionEvent);
+        var scriptDelivery = sessionEvent.ScriptDelivery;
+        var presentationEvent = scriptDelivery is null
+            ? sessionEvent
+            : sessionEvent with { ScriptDelivery = null };
+
+        var context = new SessionEventDispatchContext(presentationEvent, publishToScripts)
+        {
+            SuppressScriptDelivery = scriptDelivery is not null
+        };
+
         foreach (var stage in SessionEventDispatchStages)
         {
             if (!DispatchSessionEventStage(stage, context))
             {
-                return;
+                break;
             }
+        }
+
+        if (scriptDelivery?.Observation is { } observation &&
+            FindSession(observation.NetworkSessionId) is not null)
+        {
+            publishToScripts(observation with { ReceivedAt = sessionEvent.ReceivedAt });
         }
     }
 
@@ -152,9 +170,10 @@ internal sealed partial class ClientApplication
         context.Event = RoutePendingChannelNotice(context.Event);
         context.Event = ActivateConfirmedCycleJoin(context.Event);
         context.Event = RouteActiveResponse(context.Event);
+        context.IsHiddenChannelAnnouncement = ShouldHideChannelAnnouncement(context.Event);
         if (ActiveLocation() != context.ActiveBefore)
         {
-            RedrawActiveBuffer(context.Event);
+            RedrawActiveBuffer(context.IsHiddenChannelAnnouncement ? null : context.Event);
         }
 
         var routedEvent = RouteOutputEvent(context.Event);
@@ -164,6 +183,36 @@ internal sealed partial class ClientApplication
         }
         context.Event = routedEvent;
         return true;
+    }
+
+    private bool ShouldHideChannelAnnouncement(SessionEvent sessionEvent)
+    {
+        var family = sessionEvent.Kind switch
+        {
+            SessionEventKind.Join => ChannelEventFamily.Join,
+            SessionEventKind.Part => SessionEventPresentation.From(sessionEvent).Subtype switch
+            {
+                SessionEventSubtype.None => ChannelEventFamily.Part,
+                SessionEventSubtype.Quit => ChannelEventFamily.Quit,
+                _ => ChannelEventFamily.None
+            },
+            SessionEventKind.Nick => ChannelEventFamily.Nick,
+            _ => ChannelEventFamily.None
+        };
+
+        if (family == ChannelEventFamily.None ||
+            FindSession(sessionEvent.NetworkSessionId) is not { } session ||
+            ProfileIdFor(session) is not { } profileId ||
+            !session.State.TryGetBuffer(sessionEvent.BufferId, out var buffer) ||
+            buffer is not { Kind: BufferKind.Channel })
+        {
+            return false;
+        }
+
+        var hidden = _channelEventFilters.GetHidden(
+            profileId, buffer.Name, session.State.CaseMapping);
+
+        return (hidden & family) != ChannelEventFamily.None;
     }
 
     private bool ShouldPresentJoinInformation(SessionEvent sessionEvent) =>
@@ -180,7 +229,8 @@ internal sealed partial class ClientApplication
     private bool StoreSessionEvent(SessionEventDispatchContext context)
     {
         var sessionEvent = context.Event;
-        context.SuppressNativePresentation = !ShouldPresentJoinInformation(sessionEvent);
+        context.SuppressNativePresentation = context.IsHiddenChannelAnnouncement ||
+            !ShouldPresentJoinInformation(sessionEvent);
         var eventSessionBeforeStore = FindSession(sessionEvent.NetworkSessionId);
         var eventBufferNameBeforeStore =
             eventSessionBeforeStore?.State.TryGetBuffer(sessionEvent.BufferId, out var bufferBeforeStore) == true
@@ -194,7 +244,11 @@ internal sealed partial class ClientApplication
                 return false;
             }
 
-            if (!context.SuppressNativePresentation)
+            if (context.IsHiddenChannelAnnouncement)
+            {
+                _windowStates.RegisterWindow(sessionEvent.BufferId, sessionEvent.NetworkSessionId);
+            }
+            else if (!context.SuppressNativePresentation)
             {
                 context.Stored = StoreWindowEventUnsafe(
                     sessionEvent,
@@ -254,10 +308,11 @@ internal sealed partial class ClientApplication
             }
         }
 
-        if (!context.IsHighlightEcho &&
+        if (!context.SuppressScriptDelivery &&
+            !context.IsHighlightEcho &&
             context.Event.Fields?.GetValueOrDefault("event") != "irc.wire")
         {
-            _scriptManager.Publish(context.Event);
+            context.PublishToScripts(context.Event);
         }
         return true;
     }
@@ -295,8 +350,11 @@ internal sealed partial class ClientApplication
         return true;
     }
 
-    private sealed class SessionEventDispatchContext(SessionEvent sessionEvent)
+    private sealed class SessionEventDispatchContext(
+        SessionEvent sessionEvent,
+        Action<SessionEvent> publishToScripts)
     {
+        public Action<SessionEvent> PublishToScripts { get; } = publishToScripts;
         public SessionEvent Event { get; set; } = sessionEvent;
         public (NetworkSessionId? SessionId, BufferId? BufferId) ActiveBefore { get; set; }
         public bool IsHighlightEcho { get; set; }
@@ -304,7 +362,9 @@ internal sealed partial class ClientApplication
         public bool IsSelfMessage { get; set; }
         public bool ReturnedFromAway { get; set; }
         public bool EchoHighlight { get; set; }
+        public bool IsHiddenChannelAnnouncement { get; set; }
         public bool SuppressNativePresentation { get; set; }
+        public bool SuppressScriptDelivery { get; init; }
         public StoredWindowEvent Stored { get; set; }
         public IrcNetworkSession? EventSession { get; set; }
         public BufferState? EventBuffer { get; set; }

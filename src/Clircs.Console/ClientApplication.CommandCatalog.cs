@@ -261,6 +261,8 @@ internal sealed partial class ClientApplication
             new("Set user modes", "/network usermodes <profile> <modes>"),
             new("Use global user modes", "/network usermodes <profile> global"),
             new("Getnick", "/network getnick <profile> [nick|off]"),
+            new("Hide events", "/network hide <profile> <channel> [<join|part|quit|nick> ...]"),
+            new("Show events", "/network show <profile> <channel> [<join|part|quit|nick> ...]"),
             new("Remove profile", "/network remove <profile>"),
             new("Password status", "/network password <profile>"),
             new("Save password", "/network password <profile> set"),
@@ -732,6 +734,12 @@ internal sealed partial class ClientApplication
             "getnick" => (
                 "/network getnick <profile> [nick]",
                 "Show or change automatic nickname recovery"),
+            "hide" => (
+                "/network hide <profile> <channel> [<join|part|quit|nick> ...]",
+                "Hide channel events or list hidden events"),
+            "show" => (
+                "/network show <profile> <channel> [<join|part|quit|nick> ...]",
+                "Show channel events or list shown events"),
             "password" => (
                 "/network password <profile> [set|clear]",
                 "Show, save, or clear a server or bouncer password"),

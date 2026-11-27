@@ -160,6 +160,7 @@ internal sealed partial class ClientApplication : IAsyncDisposable
     private readonly BackupManager _backupManager;
     private readonly BackupRestorePhase? _recoveredRestore;
     private readonly LoggingSettingsStore _loggingStore;
+    private readonly ChannelEventFilterStore _channelEventFilters;
     private readonly SessionLoggingSettings _sessionLogging = new();
     private readonly EventLogWriter _logWriter;
     private readonly TlsCertificatePromptPolicy _tlsCertificatePolicy;
@@ -215,6 +216,8 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             DefaultDccDownloadDirectory(dataDirectory));
         _backupManager = new BackupManager(dataDirectory);
         _loggingStore = new LoggingSettingsStore(System.IO.Path.Combine(dataDirectory, "logging.json"));
+        _channelEventFilters = new ChannelEventFilterStore(
+            System.IO.Path.Combine(dataDirectory, "channel-event-filters.json"));
         _logWriter = new EventLogWriter(System.IO.Path.Combine(dataDirectory, "logs"));
         _logWriter.ErrorRaised += OnLogWriterError;
         _tlsCertificatePolicy = new TlsCertificatePromptPolicy(
@@ -371,6 +374,10 @@ internal sealed partial class ClientApplication : IAsyncDisposable
             DisplayCommandResult(
                 CommandResult.Failure(_loggingStore.LoadError),
                 startupContext);
+        }
+        if (_channelEventFilters.LoadError is { } filterLoadError)
+        {
+            DisplayCommandResult(CommandResult.Failure(filterLoadError), startupContext);
         }
         foreach (var error in await _scriptManager.RestoreLoadedAsync(_lifetime.Token))
         {

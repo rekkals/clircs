@@ -290,6 +290,10 @@ internal sealed partial class ClientApplication
                 return ValueTask.FromResult(ConfigureNetworkUserModes(input));
             case "getnick":
                 return ValueTask.FromResult(ConfigureNetworkGetnick(input));
+            case "hide":
+            case "show":
+                return ValueTask.FromResult(
+                    ConfigureChannelEventFilter(input, sessions, hide: operation == "hide"));
             case "remove":
                 if (input.Arguments.Count != 2)
                 {
@@ -325,9 +329,104 @@ internal sealed partial class ClientApplication
             default:
                 return ValueTask.FromResult(CommandResult.Failure(
                     "Usage: /network [list|profiles|status|add|server|username|usermodes|" +
-                    "getnick|remove|password|sasl] [arguments]"));
+                    "getnick|remove|password|sasl|hide|show] [arguments]"));
         }
     }
+
+    private CommandResult ConfigureChannelEventFilter(
+        CommandInput input,
+        IReadOnlyList<IrcNetworkSession> sessions,
+        bool hide)
+    {
+        if (input.Arguments.Count < 3 || string.IsNullOrWhiteSpace(input.Arguments[1]))
+        {
+            var operation = hide ? "hide" : "show";
+            return CommandResult.Failure(
+                $"Usage: /network {operation} <profile> <channel> [<join|part|quit|nick> ...]");
+        }
+
+        var profile = _profileStore.Find(input.Arguments[1]);
+        if (profile is null)
+        {
+            return CommandResult.Failure(
+                $"No saved network profile matches '{input.Arguments[1]}'.");
+        }
+
+        var session = sessions.FirstOrDefault(candidate =>
+            candidate.ConnectionState == IrcConnectionState.Online &&
+            ProfileIdFor(candidate) == profile.Id);
+
+        var channel = input.Arguments[2];
+        if (channel.Length < 2 ||
+            channel.IndexOfAny([' ', ',', '\a', '\r', '\n', '\0']) >= 0 ||
+            !(session?.Features.IsChannel(channel) ?? (channel[0] is '#' or '&' or '+' or '!')))
+        {
+            return CommandResult.Failure($"'{channel}' is not a valid channel name.");
+        }
+
+        if (session is not null &&
+            session.State.TryGetBuffer(channel, out var buffer) &&
+            buffer is { Kind: BufferKind.Channel })
+        {
+            channel = buffer.Name;
+        }
+
+        var families = ChannelEventFamily.None;
+        foreach (var name in input.Arguments.Skip(3))
+        {
+            var family = name.ToLowerInvariant() switch
+            {
+                "join" => ChannelEventFamily.Join,
+                "part" => ChannelEventFamily.Part,
+                "quit" => ChannelEventFamily.Quit,
+                "nick" => ChannelEventFamily.Nick,
+                _ => ChannelEventFamily.None
+            };
+
+            if (family == ChannelEventFamily.None)
+            {
+                return CommandResult.Failure(
+                    $"Unknown event family '{name}'. Use join, part, quit, or nick.");
+            }
+
+            families |= family;
+        }
+
+        var caseMapping = session?.State.CaseMapping ?? IrcCaseMapping.Ascii;
+
+        if (_channelEventFilters.LoadError is { } loadError)
+        {
+            return CommandResult.Failure(loadError);
+        }
+
+        if (families == ChannelEventFamily.None)
+        {
+            var hidden = _channelEventFilters.GetHidden(profile.Id, channel, caseMapping);
+            var listed = hide ? hidden : ChannelEventFamily.All & ~hidden;
+            var label = hide ? "Hidden" : "Shown";
+            return CommandResult.Success(
+                $"{label} events in {channel} on {profile.DisplayName}: {FormatChannelEventFamilies(listed)}");
+        }
+
+        try
+        {
+            var hidden = _channelEventFilters.ChangeHidden(
+                profile.Id, channel, caseMapping, families, hide);
+            return CommandResult.Success(
+                $"Hidden events in {channel} on {profile.DisplayName}: {FormatChannelEventFamilies(hidden)}");
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return CommandResult.Failure(
+                $"Could not change channel event filters. {exception.Message}");
+        }
+    }
+
+    private static string FormatChannelEventFamilies(ChannelEventFamily families) =>
+        families == ChannelEventFamily.All
+            ? "join, part, quit, nick"
+            : families.ToString().ToLowerInvariant();
 
     internal static int[] FindNetworkStatusMatches(
         string selector,

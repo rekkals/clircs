@@ -1043,7 +1043,14 @@ internal sealed partial class ScriptInstance : IAsyncDisposable
                     networkId = sessionEvent.NetworkSessionId.Value.ToString(),
                     bufferId = sessionEvent.BufferId.Value.ToString(),
                     timestamp = sessionEvent.Timestamp.ToString("O"),
-                    fields = sessionEvent.Fields
+                    fields = sessionEvent.Fields,
+                    affectedChannels = sessionEvent.AffectedChannels?
+                        .Select(target => new
+                        {
+                            channel = target.Channel,
+                            bufferId = target.BufferId.Value.ToString()
+                        })
+                        .ToArray()
                 });
                 _engine.Invoke(handler, payload);
             }

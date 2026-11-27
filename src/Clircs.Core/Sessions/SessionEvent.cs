@@ -35,4 +35,15 @@ public sealed record SessionEvent(
     public DateTimeOffset ReceivedAt { get; init; } = Timestamp;
 
     public bool IsHighlighted { get; init; }
+
+    public IReadOnlyList<SessionEventChannel>? AffectedChannels { get; init; }
+
+    public ScriptEventDelivery? ScriptDelivery { get; init; }
+}
+
+public sealed record SessionEventChannel(string Channel, BufferId BufferId);
+
+public sealed record ScriptEventDelivery(SessionEvent? Observation)
+{
+    public static ScriptEventDelivery DisplayOnly { get; } = new(Observation: null);
 }

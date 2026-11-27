@@ -403,19 +403,24 @@ Each event contains:
 
 ```javascript
 {
-  kind,        // lowercase semantic event name
-  highlighted, // boolean highlight status
-  text,        // safe plain-text representation
-  networkId,   // stable network-session ID
-  bufferId,    // stable destination-buffer ID
-  timestamp,   // ISO 8601 timestamp
-  fields       // event-specific semantic object, or null
+  kind,              // lowercase semantic event name
+  highlighted,       // boolean highlight status
+  text,              // safe plain-text representation
+  networkId,         // stable network-session ID
+  bufferId,          // stable ID of the callback's window
+  timestamp,         // ISO 8601 timestamp
+  fields,            // event-specific semantic object, or null
+  affectedChannels   // array of { channel, bufferId }, or null
 }
 ```
 
 Messages and actions retain their normal event kind when highlighted. `highlighted` is false when `/set highlight` is off or the event is replayed. Foreground highlight copies are not delivered to scripts.
 
 When present, `fields` is an object whose names depend on the event. IRC events commonly provide values such as `nick`, `user`, `host`, `channel`, `actor`, `reason`, `modes`, or request-routing identifiers. Field values are strings or `null`; scripts should check that `fields` and the particular field exist before using them.
+
+A quit is delivered once as a `part` event with `fields.event === "quit"`. A nickname change is delivered once as a `nick` event. For both, `bufferId` points to the connection's status window and `affectedChannels` lists every affected channel, including channels where the announcement was hidden. The array is empty when no channels are affected. Ordinary joins and parts use the affected channel's window as their callback context.
+
+Use a channel's `bufferId` from `affectedChannels` with `clircs.windows.write()` to write there. `clircs.run()` uses the callback's context, so name the channel explicitly when a quit or nick handler runs a command that accepts a channel target.
 
 Server notices use the `notice` event kind with `fields.serverNotice` set to `"true"`. For notices outside channels, `fields.outputFamily` is `"snotice"` for server notices and `"notice"` for ordinary user notices. Channel notices retain their channel routing.
 
